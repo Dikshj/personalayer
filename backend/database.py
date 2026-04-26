@@ -7,24 +7,11 @@ from typing import Optional
 DATA_DIR = Path.home() / ".personalayer"
 DB_PATH = DATA_DIR / "data.db"
 
-_connections = []
-
-
 def get_connection() -> sqlite3.Connection:
     DATA_DIR.mkdir(exist_ok=True)
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
-    _connections.append(conn)
     return conn
-
-
-def close_all_connections() -> None:
-    for conn in _connections:
-        try:
-            conn.close()
-        except:
-            pass
-    _connections.clear()
 
 
 def create_tables() -> None:
