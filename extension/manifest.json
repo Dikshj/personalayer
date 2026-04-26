@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "PersonaLayer",
+  "version": "1.0.0",
+  "description": "Builds your AI persona from browsing activity. All data stays local.",
+  "permissions": ["tabs", "storage"],
+  "host_permissions": ["http://localhost:7823/*"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "js": ["content.js"],
+      "exclude_matches": [
+        "*://localhost/*",
+        "*://127.0.0.1/*"
+      ]
+    }
+  ],
+  "icons": {
+    "128": "icons/icon128.png"
+  }
+}
