@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "personalayer": {
+      "command": "python",
+      "args": ["REPLACE_WITH_ABSOLUTE_PATH/backend/mcp_server.py"]
+    }
+  }
+}
