@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PersonaLayer</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>PersonaLayer</h1>
+    <p class="subtitle">What every AI now knows about you</p>
+    <button id="refresh-btn" onclick="loadPersona()">Refresh</button>
+    <button id="extract-btn" onclick="runExtraction()">Run Extraction Now</button>
+  </header>
+
+  <main id="main">
+    <div id="loading">Loading persona...</div>
+    <div id="error" style="display:none">
+      <p>No persona yet.</p>
+      <p>Browse the web for a while, then click <strong>Run Extraction Now</strong>.</p>
+    </div>
+    <div id="persona" style="display:none">
+      <section class="card" id="identity-card"></section>
+      <section class="card" id="context-card"></section>
+      <section class="card" id="interests-card"></section>
+      <section class="card" id="voice-card"></section>
+      <section class="card" id="values-card"></section>
+      <section class="card" id="meta-card"></section>
+    </div>
+  </main>
+
+  <script>
+    async function loadPersona() {
+      document.getElementById('loading').style.display = 'block';
+      document.getElementById('persona').style.display = 'none';
+      document.getElementById('error').style.display = 'none';
+
+      try {
+        const resp = await fetch('/persona');
+        const data = await resp.json();
+        if (data.error) { showError(); return; }
+        renderPersona(data);
+      } catch (e) {
+        showError();
+      }
+    }
+
+    function showError() {
+      document.getElementById('loading').style.display = 'none';
+      document.getElementById('error').style.display = 'block';
+    }
+
+    function renderPersona(p) {
+      document.getElementById('loading').style.display = 'none';
+      document.getElementById('persona').style.display = 'grid';
+
+      const id = p.identity || {};
+      document.getElementById('identity-card').innerHTML = `
+        <h2>Identity</h2>
+        <p><strong>Role:</strong> ${id.role || '—'}</p>
+        <p><strong>Current project:</strong> ${id.current_project || '—'}</p>
+        <p><strong>Expertise:</strong> ${(id.expertise || []).join(', ') || '—'}</p>
+      `;
+
+      const ctx = p.context || {};
+      document.getElementById('context-card').innerHTML = `
+        <h2>Current Focus</h2>
+        <p><strong>Building:</strong> ${ctx.building || '—'}</p>
+        <p><strong>Blocked on:</strong> ${ctx.blocked_on || '—'}</p>
+        <p><strong>Learning:</strong> ${(ctx.learning_this_week || []).join(', ') || '—'}</p>
+        <p><strong>Active hours:</strong> ${ctx.active_hours || '—'}</p>
+      `;
+
+      const int = p.interests || {};
+      const depth = int.depth || {};
+      document.getElementById('interests-card').innerHTML = `
+        <h2>Interests</h2>
+        <p><strong>Obsessions:</strong> ${(int.obsessions || []).join(', ') || '—'}</p>
+        <p><strong>Expert in:</strong> ${(depth.expert || []).join(', ') || '—'}</p>
+        <p><strong>Learning:</strong> ${(depth.learning || []).join(', ') || '—'}</p>
+      `;
+
+      const v = p.voice || {};
+      document.getElementById('voice-card').innerHTML = `
+        <h2>Communication Style</h2>
+        <p><strong>Style:</strong> ${v.style || '—'}</p>
+        <p><strong>Formality:</strong> ${v.formality || '—'}</p>
+        <p><strong>Emoji:</strong> ${v.emoji ? 'Yes' : 'No'}</p>
+      `;
+
+      const val = p.values || {};
+      document.getElementById('values-card').innerHTML = `
+        <h2>Values</h2>
+        <p><strong>Trusts:</strong> ${(val.trusts || []).join(', ') || '—'}</p>
+        <p><strong>Dislikes:</strong> ${(val.dislikes || []).join(', ') || '—'}</p>
+      `;
+
+      const meta = p.meta || {};
+      document.getElementById('meta-card').innerHTML = `
+        <h2>Meta</h2>
+        <p><strong>Last updated:</strong> ${meta.updated_at || '—'}</p>
+        <p><strong>Events analyzed:</strong> ${meta.event_count || '—'}</p>
+        <p><strong>Data window:</strong> ${meta.data_window_days || 7} days</p>
+      `;
+    }
+
+    async function runExtraction() {
+      const btn = document.getElementById('extract-btn');
+      btn.textContent = 'Running...';
+      btn.disabled = true;
+      try {
+        const resp = await fetch('/extract', { method: 'POST' });
+        const data = await resp.json();
+        if (data.status === 'ok') {
+          await loadPersona();
+        } else {
+          alert('Extraction failed: ' + (data.error || 'unknown error'));
+        }
+      } catch (e) {
+        alert('Server not running or extraction failed.');
+      } finally {
+        btn.textContent = 'Run Extraction Now';
+        btn.disabled = false;
+      }
+    }
+
+    loadPersona();
+  </script>
+</body>
+</html>
