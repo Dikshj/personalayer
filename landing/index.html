@@ -242,6 +242,61 @@
     .privacy-item { display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; color: var(--text2); }
     .privacy-item span { color: var(--green); }
 
+    /* ── BUILT FOR ── */
+    .built-for { background: var(--bg); }
+    .audience-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 1.25rem;
+      margin-top: 3rem;
+    }
+    .audience-card {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.5rem;
+      transition: border-color 0.2s, transform 0.2s;
+    }
+    .audience-card:hover { border-color: rgba(167,139,250,0.3); transform: translateY(-2px); }
+    .audience-card.featured { border-color: rgba(167,139,250,0.4); background: linear-gradient(180deg, rgba(167,139,250,0.05), var(--bg2)); }
+    .audience-header {
+      display: flex; align-items: center; gap: 0.75rem;
+      margin-bottom: 0.75rem;
+    }
+    .audience-icon {
+      width: 36px; height: 36px;
+      background: var(--purple-glow);
+      border: 1px solid rgba(167,139,250,0.25);
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.1rem;
+    }
+    .audience-card h3 { font-size: 1rem; font-weight: 600; color: var(--text); }
+    .audience-tag {
+      display: inline-block;
+      font-size: 0.65rem;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      padding: 0.15rem 0.5rem;
+      border-radius: 4px;
+      margin-bottom: 0.5rem;
+      text-transform: uppercase;
+    }
+    .tag-launch { background: rgba(74,222,128,0.1); border: 1px solid rgba(74,222,128,0.25); color: var(--green); }
+    .tag-soon { background: rgba(167,139,250,0.1); border: 1px solid rgba(167,139,250,0.25); color: var(--purple); }
+    .audience-card p { color: var(--text2); font-size: 0.85rem; line-height: 1.55; margin-bottom: 0.75rem; }
+    .audience-example {
+      background: var(--bg);
+      border-left: 2px solid var(--purple);
+      padding: 0.6rem 0.85rem;
+      font-size: 0.8rem;
+      color: var(--text2);
+      font-family: 'JetBrains Mono', monospace;
+      line-height: 1.5;
+      border-radius: 0 4px 4px 0;
+    }
+    .audience-example strong { color: var(--purple); font-weight: 500; }
+
     /* ── COMPARISON ── */
     .comparison { background: var(--bg); }
     .table-wrap { overflow-x: auto; margin-top: 3rem; }
@@ -331,6 +386,7 @@
   <div class="nav-links">
     <a href="#how">How it works</a>
     <a href="#demo">Demo</a>
+    <a href="#built-for">Built for</a>
     <a href="#compare">Compare</a>
   </div>
   <a href="#waitlist" class="nav-cta">Join Waitlist</a>
@@ -541,6 +597,162 @@
         <div class="privacy-item"><span>✓</span> No accounts required</div>
         <div class="privacy-item"><span>✓</span> Open source (MIT)</div>
         <div class="privacy-item"><span>✓</span> Delete anytime</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- BUILT FOR -->
+<section class="built-for" id="built-for">
+  <div class="container">
+    <span class="section-label fade-in">Built For</span>
+    <h2 class="fade-in">Made for the people who use AI all day</h2>
+    <p class="section-sub fade-in">If you switch between Claude, Cursor, and Perplexity in a single hour — this was built for you.</p>
+
+    <div class="audience-grid">
+      <div class="audience-card featured fade-in">
+        <span class="audience-tag tag-launch">Launch users</span>
+        <div class="audience-header">
+          <div class="audience-icon">💻</div>
+          <h3>Developers &amp; Indie Hackers</h3>
+        </div>
+        <p>AI knows your stack, current branch, blocked tickets, and architectural preferences before you say a word.</p>
+        <div class="audience-example">
+          Open Cursor → "fix this bug"<br>
+          AI knows: <strong>you use Pytest, prefer composition, hate ORMs</strong>
+        </div>
+      </div>
+
+      <div class="audience-card featured fade-in">
+        <span class="audience-tag tag-launch">Launch users</span>
+        <div class="audience-header">
+          <div class="audience-icon">🤖</div>
+          <h3>AI Builders &amp; Prompt Engineers</h3>
+        </div>
+        <p>Use your own persona as test data. Build agents that actually know how real users think and decide.</p>
+        <div class="audience-example">
+          "Test my agent" → <strong>uses YOUR profile as edge-case user</strong>
+        </div>
+      </div>
+
+      <div class="audience-card featured fade-in">
+        <span class="audience-tag tag-launch">Launch users</span>
+        <div class="audience-header">
+          <div class="audience-icon">🚀</div>
+          <h3>Technical Founders</h3>
+        </div>
+        <p>AI writes investor emails in your voice, drafts pitch updates with current metrics, surfaces relevant patterns from your behavior.</p>
+        <div class="audience-example">
+          "Draft response to this VC" → <strong>your style, your context, your data</strong>
+        </div>
+      </div>
+
+      <div class="audience-card featured fade-in">
+        <span class="audience-tag tag-launch">Launch users</span>
+        <div class="audience-header">
+          <div class="audience-icon">💼</div>
+          <h3>Solo Consultants &amp; Freelancers</h3>
+        </div>
+        <p>AI delivers reports in your methodology, references your past work, follows your pricing logic. Your premium = your style.</p>
+        <div class="audience-example">
+          "Draft proposal for client X" → <strong>uses your structure + rate patterns</strong>
+        </div>
+      </div>
+
+      <div class="audience-card fade-in">
+        <span class="audience-tag tag-soon">Coming soon</span>
+        <div class="audience-header">
+          <div class="audience-icon">🔬</div>
+          <h3>Researchers</h3>
+        </div>
+        <p>AI knows your active papers, citation preferences, methodology bias, and current literature focus.</p>
+        <div class="audience-example">
+          "Summarize this paper" → <strong>emphasizes what matters to YOUR research</strong>
+        </div>
+      </div>
+
+      <div class="audience-card fade-in">
+        <span class="audience-tag tag-soon">Coming soon</span>
+        <div class="audience-header">
+          <div class="audience-icon">📋</div>
+          <h3>Product Managers</h3>
+        </div>
+        <p>AI drafts specs in your team's format, knows current sprint context, references prior decisions automatically.</p>
+        <div class="audience-example">
+          "Draft RFC for new feature" → <strong>your team's template + prior architecture</strong>
+        </div>
+      </div>
+
+      <div class="audience-card fade-in">
+        <span class="audience-tag tag-soon">Coming soon</span>
+        <div class="audience-header">
+          <div class="audience-icon">🎨</div>
+          <h3>Designers Using AI</h3>
+        </div>
+        <p>AI generates copy in your aesthetic, knows your design system, references your client constraints.</p>
+        <div class="audience-example">
+          Figma + AI → <strong>UI copy matching your brand voice automatically</strong>
+        </div>
+      </div>
+
+      <div class="audience-card fade-in">
+        <span class="audience-tag tag-soon">Coming soon</span>
+        <div class="audience-header">
+          <div class="audience-icon">✍️</div>
+          <h3>Content Creators (B2B)</h3>
+        </div>
+        <p>AI writes in your voice for newsletter, knows audience preferences, references hooks that worked for you before.</p>
+        <div class="audience-example">
+          "Outline next post" → <strong>references your top-performing hooks</strong>
+        </div>
+      </div>
+
+      <div class="audience-card fade-in">
+        <span class="audience-tag tag-soon">Enterprise</span>
+        <div class="audience-header">
+          <div class="audience-icon">📞</div>
+          <h3>Sales Engineers</h3>
+        </div>
+        <p>AI drafts technical proposals matching your style, references your prior wins, your customer's stack.</p>
+        <div class="audience-example">
+          Discovery notes → <strong>solution doc in YOUR voice, not generic</strong>
+        </div>
+      </div>
+
+      <div class="audience-card fade-in">
+        <span class="audience-tag tag-soon">Enterprise</span>
+        <div class="audience-header">
+          <div class="audience-icon">⚖️</div>
+          <h3>Legal Pros (AI-forward)</h3>
+        </div>
+        <p>AI drafts in your firm's voice, knows your case strategy patterns, your citation preferences.</p>
+        <div class="audience-example">
+          "Draft motion" → <strong>your style, your firm's structure, your citations</strong>
+        </div>
+      </div>
+
+      <div class="audience-card fade-in">
+        <span class="audience-tag tag-soon">Enterprise</span>
+        <div class="audience-header">
+          <div class="audience-icon">📈</div>
+          <h3>Analysts &amp; VCs</h3>
+        </div>
+        <p>AI summarizes deals in your thesis framework, surfaces companies matching your investment patterns.</p>
+        <div class="audience-example">
+          "Score this startup" → <strong>uses YOUR rubric, not generic</strong>
+        </div>
+      </div>
+
+      <div class="audience-card fade-in">
+        <span class="audience-tag tag-soon">Future</span>
+        <div class="audience-header">
+          <div class="audience-icon">🌐</div>
+          <h3>Anyone using 3+ AI tools</h3>
+        </div>
+        <p>If you use Claude + Cursor + Perplexity daily — switching context costs you 30 minutes a day. PersonaLayer kills that.</p>
+        <div class="audience-example">
+          Save <strong>~15-30 min/day</strong> in re-explanation across tools
+        </div>
       </div>
     </div>
   </div>
