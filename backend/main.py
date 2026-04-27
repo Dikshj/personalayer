@@ -9,7 +9,7 @@ from urllib.parse import urlparse, parse_qs
 import uvicorn
 from pathlib import Path
 
-from database import create_tables, insert_event
+from database import create_tables, insert_event, add_to_waitlist, get_waitlist_count
 from scheduler import create_scheduler
 
 
@@ -37,6 +37,31 @@ app.add_middleware(
 DASHBOARD_DIR = Path(__file__).parent.parent / "dashboard"
 if DASHBOARD_DIR.exists():
     app.mount("/dashboard", StaticFiles(directory=str(DASHBOARD_DIR), html=True), name="dashboard")
+
+LANDING_DIR = Path(__file__).parent.parent / "landing"
+if LANDING_DIR.exists():
+    app.mount("/landing", StaticFiles(directory=str(LANDING_DIR), html=True), name="landing")
+
+
+class WaitlistEntry(BaseModel):
+    email: str
+    source: Optional[str] = "landing"
+
+
+@app.post("/waitlist")
+async def join_waitlist(entry: WaitlistEntry):
+    if "@" not in entry.email or "." not in entry.email:
+        return {"status": "error", "error": "Invalid email"}
+    added = add_to_waitlist(entry.email, entry.source or "landing")
+    return {
+        "status": "ok" if added else "already_joined",
+        "count": get_waitlist_count(),
+    }
+
+
+@app.get("/waitlist/count")
+async def waitlist_count():
+    return {"count": get_waitlist_count()}
 
 
 class BrowsingEvent(BaseModel):

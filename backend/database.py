@@ -35,7 +35,42 @@ def create_tables() -> None:
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS waitlist (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                email TEXT UNIQUE NOT NULL,
+                source TEXT DEFAULT 'landing',
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
         conn.commit()
+
+
+def add_to_waitlist(email: str, source: str = "landing") -> bool:
+    try:
+        with get_connection() as conn:
+            conn.execute(
+                "INSERT INTO waitlist (email, source) VALUES (?, ?)",
+                (email.strip().lower(), source),
+            )
+            conn.commit()
+        return True
+    except sqlite3.IntegrityError:
+        return False  # already on waitlist
+
+
+def get_waitlist_count() -> int:
+    with get_connection() as conn:
+        row = conn.execute("SELECT COUNT(*) as c FROM waitlist").fetchone()
+    return row["c"] if row else 0
+
+
+def get_all_waitlist_emails() -> list[dict]:
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT email, source, created_at FROM waitlist ORDER BY created_at DESC"
+        ).fetchall()
+    return [dict(r) for r in rows]
 
 
 def insert_event(
