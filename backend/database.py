@@ -43,6 +43,18 @@ def create_tables() -> None:
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS feed_items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                source TEXT NOT NULL,
+                content_type TEXT NOT NULL,
+                content TEXT NOT NULL,
+                author TEXT DEFAULT '',
+                url TEXT DEFAULT '',
+                timestamp INTEGER NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
         conn.commit()
 
 
@@ -118,3 +130,37 @@ def get_latest_persona() -> Optional[dict]:
     if row:
         return json.loads(row["data"])
     return None
+
+
+def insert_feed_item(
+    source: str,
+    content_type: str,
+    content: str,
+    author: str,
+    url: str,
+    timestamp: int,
+) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            """INSERT INTO feed_items
+               (source, content_type, content, author, url, timestamp)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (source, content_type, content[:2000], author, url, timestamp),
+        )
+        conn.commit()
+
+
+def get_feed_items_last_n_days(n: int, source: Optional[str] = None) -> list[dict]:
+    cutoff_ms = int((datetime.now() - timedelta(days=n)).timestamp() * 1000)
+    with get_connection() as conn:
+        if source:
+            rows = conn.execute(
+                "SELECT * FROM feed_items WHERE timestamp >= ? AND source = ? ORDER BY timestamp DESC",
+                (cutoff_ms, source),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM feed_items WHERE timestamp >= ? ORDER BY timestamp DESC",
+                (cutoff_ms,),
+            ).fetchall()
+    return [dict(row) for row in rows]

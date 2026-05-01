@@ -8,7 +8,7 @@ from typing import Optional
 from anthropic import Anthropic
 from dotenv import load_dotenv
 
-from database import get_events_last_n_days, save_persona
+from database import get_events_last_n_days, get_feed_items_last_n_days, save_persona
 
 load_dotenv()
 logger = logging.getLogger(__name__)
@@ -81,13 +81,56 @@ def _parse_json_response(text: str) -> dict:
     return json.loads(text.strip())
 
 
+def summarize_feed_items(items: list[dict]) -> str:
+    if not items:
+        return ""
+
+    from collections import defaultdict
+    by_source: dict = defaultdict(list)
+    for item in items:
+        by_source[item["source"]].append(item)
+
+    lines = []
+
+    if by_source.get("x"):
+        tweets = [i["content"][:200] for i in by_source["x"][:30]]
+        lines.append(f"\nX/TWITTER FEED (recent tweets consumed):\n" + "\n".join(f"  - {t}" for t in tweets))
+
+    if by_source.get("linkedin"):
+        posts = [i["content"][:200] for i in by_source["linkedin"][:20]]
+        lines.append(f"\nLINKEDIN FEED (recent posts consumed):\n" + "\n".join(f"  - {p}" for p in posts))
+
+    if by_source.get("youtube"):
+        videos = [f"{i['content']} (by {i['author']})" for i in by_source["youtube"][:25] if i.get("author")]
+        if not videos:
+            videos = [i["content"][:150] for i in by_source["youtube"][:25]]
+        lines.append(f"\nYOUTUBE (watched/recommended):\n" + "\n".join(f"  - {v}" for v in videos))
+
+    if by_source.get("github"):
+        commits = [i["content"][:200] for i in by_source["github"] if i["content_type"] == "commit"][:20]
+        stars   = [i["content"][:200] for i in by_source["github"] if i["content_type"] == "star"][:15]
+        if commits:
+            lines.append(f"\nGITHUB COMMITS:\n" + "\n".join(f"  - {c}" for c in commits))
+        if stars:
+            lines.append(f"\nGITHUB STARRED REPOS:\n" + "\n".join(f"  - {s}" for s in stars))
+
+    if by_source.get("google"):
+        searches = [i["content"][:300] for i in by_source["google"][:20]]
+        lines.append(f"\nGOOGLE SEARCH RESULTS SEEN:\n" + "\n".join(f"  - {s}" for s in searches))
+
+    return "\n".join(lines)
+
+
 def extract_persona() -> dict:
     events = get_events_last_n_days(7)
-    if not events:
+    feed_items = get_feed_items_last_n_days(7)
+
+    if not events and not feed_items:
         logger.info("No events found — skipping persona extraction")
         return {}
 
     summary = summarize_events(events)
+    feed_summary = summarize_feed_items(feed_items)
     client = Anthropic()
 
     response = client.messages.create(
@@ -103,14 +146,14 @@ def extract_persona() -> dict:
             {
                 "role": "user",
                 "content": (
-                    f"Here is 7 days of browsing activity for one person:\n\n{summary}\n\n"
+                    f"Here is 7 days of data for one person:\n\n{summary}\n\n{feed_summary}\n\n"
                     f"Return a JSON object with this exact structure:\n"
                     f"{json.dumps(PERSONA_SCHEMA, indent=2)}\n\n"
                     f"Rules:\n"
                     f"- Fill every field based on evidence in the data\n"
                     f"- active_hours: infer from which hours had most activity\n"
                     f"- updated_at: use ISO-8601 timestamp for right now\n"
-                    f"- event_count: {len(events)}\n"
+                    f"- event_count: {len(events)} browsing events, {len(feed_items)} social/github items\n"
                     f"- Return ONLY the JSON object"
                 ),
             }

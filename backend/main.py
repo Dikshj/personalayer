@@ -9,7 +9,7 @@ from urllib.parse import urlparse, parse_qs
 import uvicorn
 from pathlib import Path
 
-from database import create_tables, insert_event, add_to_waitlist, get_waitlist_count
+from database import create_tables, insert_event, add_to_waitlist, get_waitlist_count, insert_feed_item
 from scheduler import create_scheduler
 
 
@@ -117,6 +117,48 @@ async def get_persona_endpoint():
     if not persona:
         return {"error": "No persona yet. Browse for 24h or run: python persona.py"}
     return persona
+
+
+class FeedEvent(BaseModel):
+    source: str          # "x", "linkedin", "youtube", "google", "github"
+    content_type: str    # "tweet", "post", "watch", "recommended", "search_results", "commit"
+    content: str
+    author: Optional[str] = ""
+    url: Optional[str] = ""
+    timestamp: int
+
+
+ALLOWED_SOURCES = {"x", "linkedin", "youtube", "google", "github"}
+
+
+@app.post("/feed-event")
+async def receive_feed_event(event: FeedEvent):
+    if event.source not in ALLOWED_SOURCES:
+        return {"status": "error", "error": "unknown source"}
+    if not event.content.strip():
+        return {"status": "skipped"}
+    insert_feed_item(
+        source=event.source,
+        content_type=event.content_type,
+        content=event.content.strip(),
+        author=event.author or "",
+        url=event.url or "",
+        timestamp=event.timestamp,
+    )
+    return {"status": "ok"}
+
+
+@app.post("/github/sync")
+async def sync_github(payload: dict):
+    username = payload.get("username", "").strip()
+    if not username:
+        return {"status": "error", "error": "username required"}
+    try:
+        from collectors.github import collect_github
+        count = collect_github(username)
+        return {"status": "ok", "items_saved": count}
+    except Exception as exc:
+        return {"status": "error", "error": str(exc)}
 
 
 @app.post("/extract")

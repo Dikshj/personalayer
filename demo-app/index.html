@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Inbox Zero × PersonaLayer Demo</title>
+  <style>
+    /* ─── Reset + Base ─── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #09090b; color: #fafafa; min-height: 100vh; }
+
+    /* ─── Layout ─── */
+    .shell { display: flex; height: 100vh; overflow: hidden; }
+    .sidebar { width: 220px; flex-shrink: 0; background: #111113; border-right: 1px solid #27272a; padding: 16px 12px; display: flex; flex-direction: column; gap: 4px; }
+    .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+
+    /* ─── Sidebar ─── */
+    .sidebar-logo { font-weight: 700; font-size: 15px; padding: 8px 12px 16px; color: #a1a1aa; letter-spacing: .02em; }
+    .sidebar-logo span { color: #fff; }
+    .nav-item { padding: 7px 12px; border-radius: 6px; font-size: 13px; color: #a1a1aa; cursor: pointer; display: flex; align-items: center; gap: 8px; transition: background .15s; }
+    .nav-item:hover { background: #27272a; color: #fff; }
+    .nav-item.active { background: #18181b; color: #fff; font-weight: 600; }
+    .nav-badge { margin-left: auto; background: #3f3f46; color: #d4d4d8; font-size: 11px; padding: 1px 6px; border-radius: 999px; }
+
+    /* ─── Persona Banner ─── */
+    #persona-banner {
+      padding: 10px 20px;
+      display: flex; align-items: center; gap: 10px;
+      font-size: 13px; font-weight: 500;
+      border-bottom: 1px solid #27272a;
+      background: #0a0a0a;
+      transition: all .3s;
+    }
+    #persona-banner .pill {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 3px 10px; border-radius: 999px;
+      font-size: 12px; font-weight: 600; letter-spacing: .02em;
+    }
+    .mode-label { color: #71717a; font-size: 12px; }
+    .divider { color: #3f3f46; }
+
+    /* ─── Toolbar ─── */
+    .toolbar {
+      padding: 8px 16px;
+      border-bottom: 1px solid #27272a;
+      display: flex; align-items: center; gap: 8px;
+      background: #0d0d0f;
+    }
+    .toolbar-btn {
+      padding: 4px 10px; border-radius: 5px; border: 1px solid #27272a;
+      background: transparent; color: #a1a1aa; font-size: 12px; cursor: pointer;
+      transition: all .15s;
+    }
+    .toolbar-btn:hover { background: #27272a; color: #fff; }
+    .view-toggle { display: flex; gap: 2px; background: #18181b; border-radius: 6px; padding: 2px; }
+    .view-btn { padding: 3px 10px; border-radius: 4px; border: none; background: transparent; color: #71717a; font-size: 12px; cursor: pointer; transition: all .15s; }
+    .view-btn.active { background: #27272a; color: #fff; }
+    .spacer { flex: 1; }
+    .persona-switcher { display: flex; gap: 4px; align-items: center; }
+    .persona-chip {
+      padding: 3px 10px; border-radius: 999px; border: 1px solid #27272a;
+      background: transparent; color: #71717a; font-size: 11px; cursor: pointer; transition: all .15s;
+    }
+    .persona-chip.active { color: #fff; border-color: transparent; }
+    .persona-chip:hover { border-color: #52525b; color: #fff; }
+
+    /* ─── Email Content Area ─── */
+    #email-area { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
+
+    /* ─── Section Header ─── */
+    .section-header {
+      padding: 8px 20px 4px;
+      font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em;
+      color: #52525b;
+    }
+
+    /* ─── LIST VIEW (default) ─── */
+    .email-list { overflow-y: auto; flex: 1; }
+    .email-item {
+      display: flex; align-items: flex-start; gap: 12px;
+      padding: 12px 20px;
+      border-bottom: 1px solid #1a1a1d;
+      cursor: pointer; transition: background .1s;
+      position: relative;
+    }
+    .email-item:hover { background: #111113; }
+    .email-item.unread .email-subject { font-weight: 600; color: #fff; }
+    .email-item.unread .email-from { font-weight: 600; }
+    .email-avatar {
+      width: 32px; height: 32px; border-radius: 50%; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 13px; font-weight: 600; margin-top: 2px;
+    }
+    .email-body { flex: 1; min-width: 0; }
+    .email-header { display: flex; align-items: baseline; gap: 8px; margin-bottom: 2px; }
+    .email-from { font-size: 13px; color: #d4d4d8; white-space: nowrap; }
+    .email-time { font-size: 11px; color: #52525b; margin-left: auto; flex-shrink: 0; }
+    .email-subject { font-size: 13px; color: #a1a1aa; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 2px; }
+    .email-preview { font-size: 12px; color: #52525b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .email-tags { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
+    .tag {
+      font-size: 10px; font-weight: 600; padding: 1px 7px; border-radius: 999px;
+      letter-spacing: .03em;
+    }
+    .email-action-bar {
+      display: none; align-items: center; gap: 6px; margin-top: 6px;
+    }
+    .email-item:hover .email-action-bar { display: flex; }
+    .action-btn {
+      padding: 2px 8px; border-radius: 4px; border: 1px solid #27272a;
+      background: #18181b; color: #a1a1aa; font-size: 11px; cursor: pointer; transition: all .12s;
+    }
+    .action-btn:hover { border-color: #52525b; color: #fff; }
+    .action-btn.primary { background: #fff; color: #09090b; border-color: #fff; }
+    .action-btn.primary:hover { background: #d4d4d8; }
+
+    /* ─── TASK VIEW (Founder) ─── */
+    .task-group { margin-bottom: 0; }
+    .task-group-header {
+      padding: 6px 20px;
+      font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em;
+      color: #52525b; background: #0c0c0e;
+      border-bottom: 1px solid #1a1a1d;
+      display: flex; align-items: center; gap: 6px;
+    }
+    .task-group-header .group-count { color: #3f3f46; font-weight: 500; }
+    .task-item {
+      display: flex; align-items: flex-start; gap: 12px;
+      padding: 10px 20px;
+      border-bottom: 1px solid #1a1a1d;
+      cursor: pointer; transition: background .1s;
+    }
+    .task-item:hover { background: #111113; }
+    .task-check { width: 16px; height: 16px; border: 1.5px solid #3f3f46; border-radius: 4px; flex-shrink: 0; margin-top: 3px; cursor: pointer; }
+    .task-content { flex: 1; min-width: 0; }
+    .task-title { font-size: 13px; color: #d4d4d8; margin-bottom: 2px; }
+    .task-title strong { color: #fff; font-weight: 600; }
+    .task-meta { font-size: 11px; color: #52525b; display: flex; gap: 8px; align-items: center; }
+    .task-meta .dot { color: #27272a; }
+    .urgency-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; margin-top: 5px; }
+
+    /* ─── PIPELINE VIEW (Sales) ─── */
+    .pipeline-board { display: flex; gap: 12px; padding: 16px; overflow-x: auto; flex: 1; }
+    .pipeline-col {
+      min-width: 240px; flex-shrink: 0;
+      background: #111113; border-radius: 8px; border: 1px solid #1f1f22;
+      display: flex; flex-direction: column; max-height: 100%;
+    }
+    .pipeline-col-header {
+      padding: 10px 14px; font-size: 12px; font-weight: 600;
+      border-bottom: 1px solid #1f1f22;
+      display: flex; align-items: center; gap: 6px; flex-shrink: 0;
+    }
+    .pipeline-col-count { font-size: 11px; color: #52525b; }
+    .pipeline-cards { overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 6px; }
+    .pipeline-card {
+      background: #18181b; border: 1px solid #27272a; border-radius: 6px;
+      padding: 10px 12px; cursor: pointer; transition: border-color .15s;
+    }
+    .pipeline-card:hover { border-color: #52525b; }
+    .pipeline-card-from { font-size: 12px; font-weight: 600; color: #d4d4d8; margin-bottom: 2px; }
+    .pipeline-card-subject { font-size: 11px; color: #71717a; margin-bottom: 6px; }
+    .pipeline-card-footer { display: flex; align-items: center; gap: 6px; }
+    .pipeline-val { font-size: 11px; font-weight: 700; color: #22c55e; }
+    .pipeline-time { font-size: 10px; color: #52525b; margin-left: auto; }
+
+    /* ─── TIMELINE VIEW (Student) ─── */
+    .timeline-day { margin-bottom: 0; }
+    .timeline-day-header {
+      padding: 8px 20px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em;
+      color: #52525b; background: #0c0c0e; border-bottom: 1px solid #1a1a1d;
+      position: sticky; top: 0; z-index: 1;
+    }
+
+    /* ─── Loading / Error ─── */
+    #loading-bar { height: 2px; background: linear-gradient(90deg, #6366f1, #8b5cf6); position: fixed; top: 0; left: 0; width: 60%; transition: width .3s; z-index: 100; }
+    #loading-bar.done { width: 100%; opacity: 0; transition: width .2s, opacity .3s .2s; }
+
+    /* ─── Persona colors ─── */
+    .persona-founder { background: #1e1b4b; color: #a5b4fc; }
+    .persona-student  { background: #14241a; color: #86efac; }
+    .persona-sales    { background: #1c1108; color: #fcd34d; }
+    .persona-default  { background: #1a1a1f; color: #a1a1aa; }
+
+    .tag-action   { background: #1e1b4b; color: #a5b4fc; }
+    .tag-fyi      { background: #0c1a1a; color: #5eead4; }
+    .tag-deadline { background: #2d1515; color: #fca5a5; }
+    .tag-resource { background: #0f1a0f; color: #86efac; }
+    .tag-deal     { background: #1a1c10; color: #d9f99d; }
+    .tag-urgent   { background: #2d1515; color: #f87171; }
+
+    .urgency-high { background: #ef4444; }
+    .urgency-med  { background: #f59e0b; }
+    .urgency-low  { background: #22c55e; }
+
+    .col-new      { color: #a5b4fc; }
+    .col-reply    { color: #34d399; }
+    .col-stalled  { color: #f59e0b; }
+    .col-closed   { color: #52525b; }
+
+    /* ─── Transition ─── */
+    #email-area { transition: opacity .2s; }
+    #email-area.switching { opacity: 0; }
+
+    /* ─── Empty state ─── */
+    .empty { display: flex; flex-direction: column; align-items: center; justify-content: center; flex: 1; gap: 8px; color: #3f3f46; font-size: 14px; padding: 60px; }
+    .empty svg { opacity: .3; }
+  </style>
+</head>
+<body>
+
+<div id="loading-bar"></div>
+
+<div class="shell">
+
+  <!-- ── Sidebar ── -->
+  <aside class="sidebar">
+    <div class="sidebar-logo">inbox<span>zero</span></div>
+    <div class="nav-item active">📥 Inbox <span class="nav-badge" id="nav-count">—</span></div>
+    <div class="nav-item">📤 Sent</div>
+    <div class="nav-item">⭐ Starred</div>
+    <div class="nav-item">📁 Archive</div>
+    <div class="nav-item">🤖 AI Rules</div>
+    <div class="nav-item">📊 Stats</div>
+    <div style="flex:1"></div>
+    <div class="nav-item" style="font-size:11px; color:#3f3f46;">PersonaLayer v0.1</div>
+  </aside>
+
+  <!-- ── Main ── -->
+  <div class="main">
+
+    <!-- Persona Banner -->
+    <div id="persona-banner">
+      <span class="mode-label">Rendered for</span>
+      <span class="pill persona-default" id="persona-pill">⟳ loading persona…</span>
+      <span class="divider">·</span>
+      <span id="persona-desc" class="mode-label">Connecting to PersonaLayer…</span>
+    </div>
+
+    <!-- Toolbar -->
+    <div class="toolbar">
+      <span style="font-size:12px; color:#52525b;">Inbox</span>
+      <span style="color:#27272a;">›</span>
+      <div class="view-toggle" id="view-toggle">
+        <button class="view-btn" id="btn-list"   onclick="setView('list')">≡ List</button>
+        <button class="view-btn" id="btn-task"   onclick="setView('task')">✓ Tasks</button>
+        <button class="view-btn" id="btn-pipe"   onclick="setView('pipeline')">⬜ Pipeline</button>
+        <button class="view-btn" id="btn-timeline" onclick="setView('timeline')">📅 Timeline</button>
+      </div>
+      <div class="spacer"></div>
+      <span style="font-size:11px; color:#3f3f46;">Switch persona demo:</span>
+      <div class="persona-switcher">
+        <button class="persona-chip" id="chip-founder" onclick="simulatePersona('founder')">🚀 Founder</button>
+        <button class="persona-chip" id="chip-student" onclick="simulatePersona('student')">🎓 Student</button>
+        <button class="persona-chip" id="chip-sales"   onclick="simulatePersona('sales')">💼 Sales</button>
+      </div>
+    </div>
+
+    <!-- Email Area -->
+    <div id="email-area"></div>
+
+  </div>
+</div>
+
+<script>
+// ══════════════════════════════════════════
+//  PersonaLayer Client
+// ══════════════════════════════════════════
+const PERSONALAYER_URL = 'http://localhost:7823';
+
+async function fetchPersona() {
+  try {
+    const res = await fetch(`${PERSONALAYER_URL}/persona`, { signal: AbortSignal.timeout(3000) });
+    if (!res.ok) throw new Error('not ok');
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+// ══════════════════════════════════════════
+//  Mock Email Data
+// ══════════════════════════════════════════
+const EMAILS = [
+  { id:1, from:'Sarah Chen',    addr:'sarah@sequoia.com',      subject:'Term sheet ready for review',            preview:'We've finalized the terms, happy to jump on a call this week to walk through…',    time:'9:42 AM',  unread:true,  date:'Today',       tags:['action','urgent'], urgency:'high', dealVal:'$2M', stage:'new',     avatar:'SC', avatarBg:'#4f46e5' },
+  { id:2, from:'Linear',        addr:'noreply@linear.app',      subject:'[Bug] Persona extraction fails on cold start', preview:'Issue #1283 assigned to you: The persona module throws when no events exist…',  time:'8:15 AM',  unread:true,  date:'Today',       tags:['action'],         urgency:'med',  dealVal:null,  stage:'reply',   avatar:'Li', avatarBg:'#7c3aed' },
+  { id:3, from:'YC Partners',   addr:'yc@ycombinator.com',      subject:'Application review: PersonaLayer',      preview:'Hi Diksha, we've reviewed your application and have a few follow-up questions…',  time:'Yesterday',unread:false, date:'Yesterday',   tags:['action','urgent'], urgency:'high', dealVal:null,  stage:'new',     avatar:'YC', avatarBg:'#dc2626' },
+  { id:4, from:'Stripe',        addr:'updates@stripe.com',      subject:'Monthly revenue report: Apr 2026',      preview:'Your MRR grew 18% this month. Total processed: $48,200…',                        time:'Yesterday',unread:false, date:'Yesterday',   tags:['fyi'],            urgency:'low',  dealVal:null,  stage:'closed',  avatar:'St', avatarBg:'#0284c7' },
+  { id:5, from:'Marcus Webb',   addr:'marcus@techcrunch.com',   subject:'Interview request — AI memory startups', preview:'Hey, doing a piece on AI identity layers. Would love 15 min with you this week…', time:'Mon',      unread:true,  date:'This Week',   tags:['action'],         urgency:'med',  dealVal:null,  stage:'reply',   avatar:'MW', avatarBg:'#059669' },
+  { id:6, from:'Prof. Kapoor',  addr:'kapoor@iitb.ac.in',       subject:'Assignment 3 deadline extended to May 8', preview:'Due to exam schedule clash the deadline for ML assignment 3 has been pushed…',  time:'Mon',      unread:true,  date:'This Week',   tags:['deadline'],       urgency:'high', dealVal:null,  stage:'new',     avatar:'PK', avatarBg:'#b45309' },
+  { id:7, from:'GitHub',        addr:'noreply@github.com',      subject:'PR #42 — MCP tool streaming support',   preview:'@diksha2241 left a review on your pull request. 3 comments, 1 approval…',         time:'Sun',      unread:false, date:'This Week',   tags:['action'],         urgency:'med',  dealVal:null,  stage:'reply',   avatar:'GH', avatarBg:'#374151' },
+  { id:8, from:'Coursera',      addr:'learn@coursera.org',      subject:'New: Advanced LLM Fine-tuning Course',  preview:'Based on your learning history, you might enjoy this new course on LoRA adapters…', time:'Sat',      unread:false, date:'Last Week',   tags:['resource'],       urgency:'low',  dealVal:null,  stage:'closed',  avatar:'Co', avatarBg:'#0891b2' },
+  { id:9, from:'Raj Patel',     addr:'raj@enterprise.io',       subject:'RE: PersonaLayer enterprise pilot',     preview:'We're very interested in the enterprise tier. Can you send over pricing and security docs?', time:'Sat',  unread:false, date:'Last Week',   tags:['deal'],           urgency:'high', dealVal:'$120k ARR', stage:'new', avatar:'RP', avatarBg:'#be185d' },
+  { id:10,from:'Stack Overflow', addr:'stackoverflow@email.stackoverflow.com', subject:'Your answer was accepted!', preview:'Someone accepted your answer to "How to implement MCP tools in Python". You earned 15 rep…', time:'Fri', unread:false, date:'Last Week', tags:['fyi'],  urgency:'low', dealVal:null, stage:'closed', avatar:'SO', avatarBg:'#c2410c' },
+  { id:11,from:'Priya Sharma',  addr:'priya@saas.io',          subject:'Partnership opportunity — co-marketing', preview:'We think PersonaLayer + our CRM is a natural fit for joint webinar + blog post series…', time:'Fri', unread:false, date:'Last Week', tags:['deal'],  urgency:'med', dealVal:'$40k ARR', stage:'stalled', avatar:'PS', avatarBg:'#7c3aed' },
+  { id:12,from:'MIT OpenCourseWare', addr:'ocw@mit.edu',       subject:'Updated: 6.S191 Lecture Slides Week 4',  preview:'Lecture 4 slides on Attention mechanisms and transformers have been updated…',   time:'Thu',     unread:false, date:'Last Week',   tags:['resource'],       urgency:'low',  dealVal:null,  stage:'closed',  avatar:'MI', avatarBg:'#1e3a5f' },
+];
+
+// ══════════════════════════════════════════
+//  State
+// ══════════════════════════════════════════
+let currentPersona = null;
+let currentView = null; // set after persona loads
+let currentRole = null;
+
+// ══════════════════════════════════════════
+//  Persona → View Config
+// ══════════════════════════════════════════
+const VIEW_CONFIG = {
+  founder: {
+    label: '🚀 Founder',
+    cls: 'persona-founder',
+    desc: 'Task-first view — action items surfaced, noise suppressed',
+    defaultView: 'task',
+    sortFn: (a, b) => (b.urgency === 'high') - (a.urgency === 'high'),
+    filterFn: () => true,
+  },
+  student: {
+    label: '🎓 Student',
+    cls: 'persona-student',
+    desc: 'Timeline view — deadlines + resources grouped by day',
+    defaultView: 'timeline',
+    sortFn: (a, b) => a.id - b.id,
+    filterFn: () => true,
+  },
+  sales: {
+    label: '💼 Sales',
+    cls: 'persona-sales',
+    desc: 'Pipeline view — leads grouped by deal stage',
+    defaultView: 'pipeline',
+    sortFn: (a, b) => (b.dealVal ? 1 : 0) - (a.dealVal ? 1 : 0),
+    filterFn: () => true,
+  },
+  default: {
+    label: '👤 Unknown',
+    cls: 'persona-default',
+    desc: 'Default list view — browse the way PersonaLayer will personalize',
+    defaultView: 'list',
+    sortFn: () => 0,
+    filterFn: () => true,
+  },
+};
+
+function resolveRole(persona) {
+  if (!persona) return 'default';
+  const role = (persona?.identity?.role || '').toLowerCase();
+  if (role.includes('founder') || role.includes('cto') || role.includes('ceo') || role.includes('entrepreneur')) return 'founder';
+  if (role.includes('student') || role.includes('learn') || role.includes('research')) return 'student';
+  if (role.includes('sales') || role.includes('business development') || role.includes('account')) return 'sales';
+  // fallback: check interests
+  const interests = JSON.stringify(persona?.interests || '').toLowerCase();
+  if (interests.includes('startup') || interests.includes('fundrais')) return 'founder';
+  if (interests.includes('cours') || interests.includes('study')) return 'student';
+  if (interests.includes('pipeline') || interests.includes('crm')) return 'sales';
+  return 'founder'; // if data exists but role unclear, default to founder (most common user)
+}
+
+// ══════════════════════════════════════════
+//  Render Functions
+// ══════════════════════════════════════════
+function tagHTML(tags) {
+  return (tags || []).map(t => `<span class="tag tag-${t}">${{action:'⚡ action', urgent:'🔴 urgent', fyi:'ℹ FYI', deadline:'📅 deadline', resource:'📚 resource', deal:'💰 deal'}[t] || t}</span>`).join('');
+}
+
+function avatarEl(email) {
+  return `<div class="email-avatar" style="background:${email.avatarBg}22; color:${email.avatarBg}; border: 1.5px solid ${email.avatarBg}44">${email.avatar}</div>`;
+}
+
+// ── List View ──
+function renderList(emails) {
+  return `<div class="email-list">${emails.map(e => `
+    <div class="email-item ${e.unread ? 'unread' : ''}">
+      ${avatarEl(e)}
+      <div class="email-body">
+        <div class="email-header">
+          <span class="email-from">${e.from}</span>
+          <span class="email-time">${e.time}</span>
+        </div>
+        <div class="email-subject">${e.subject}</div>
+        <div class="email-preview">${e.preview}</div>
+        <div class="email-tags">${tagHTML(e.tags)}</div>
+        <div class="email-action-bar">
+          <button class="action-btn primary">Reply</button>
+          <button class="action-btn">Archive</button>
+          <button class="action-btn">Snooze</button>
+        </div>
+      </div>
+    </div>`).join('')}</div>`;
+}
+
+// ── Task View (Founder) ──
+function renderTask(emails) {
+  const urgent = emails.filter(e => e.urgency === 'high');
+  const normal = emails.filter(e => e.urgency === 'med');
+  const fyi    = emails.filter(e => e.urgency === 'low');
+
+  function taskItems(arr) {
+    return arr.map(e => `
+      <div class="task-item">
+        <div class="urgency-dot urgency-${e.urgency}"></div>
+        <div class="task-check"></div>
+        <div class="task-content">
+          <div class="task-title"><strong>${e.from}</strong> — ${e.subject}</div>
+          <div class="task-meta">
+            ${tagHTML(e.tags)}
+            <span class="dot">·</span>
+            <span>${e.time}</span>
+          </div>
+          <div class="email-action-bar">
+            <button class="action-btn primary">Reply</button>
+            <button class="action-btn">Archive</button>
+            <button class="action-btn">Mark done</button>
+          </div>
+        </div>
+      </div>`).join('');
+  }
+
+  return `
+    <div class="email-list">
+      ${urgent.length ? `
+        <div class="task-group-header">🔴 Needs attention <span class="group-count">${urgent.length}</span></div>
+        <div class="task-group">${taskItems(urgent)}</div>` : ''}
+      ${normal.length ? `
+        <div class="task-group-header">🟡 To action <span class="group-count">${normal.length}</span></div>
+        <div class="task-group">${taskItems(normal)}</div>` : ''}
+      ${fyi.length ? `
+        <div class="task-group-header">📋 FYI <span class="group-count">${fyi.length}</span></div>
+        <div class="task-group">${taskItems(fyi)}</div>` : ''}
+    </div>`;
+}
+
+// ── Pipeline View (Sales) ──
+function renderPipeline(emails) {
+  const cols = [
+    { key:'new',     label:'New Leads',    cls:'col-new',    icon:'🔵' },
+    { key:'reply',   label:'In Convo',     cls:'col-reply',  icon:'🟢' },
+    { key:'stalled', label:'Stalled',      cls:'col-stalled',icon:'🟡' },
+    { key:'closed',  label:'Closed / FYI', cls:'col-closed', icon:'⚫' },
+  ];
+
+  return `<div class="pipeline-board">${cols.map(col => {
+    const cards = emails.filter(e => e.stage === col.key);
+    return `
+      <div class="pipeline-col">
+        <div class="pipeline-col-header">
+          <span>${col.icon}</span>
+          <span class="${col.cls}">${col.label}</span>
+          <span class="pipeline-col-count">${cards.length}</span>
+        </div>
+        <div class="pipeline-cards">${cards.map(e => `
+          <div class="pipeline-card">
+            <div class="pipeline-card-from">${e.from}</div>
+            <div class="pipeline-card-subject">${e.subject}</div>
+            <div class="pipeline-card-footer">
+              ${e.dealVal ? `<span class="pipeline-val">${e.dealVal}</span>` : `<span style="font-size:10px;color:#52525b">${(e.tags||[]).join(', ')}</span>`}
+              <span class="pipeline-time">${e.time}</span>
+            </div>
+          </div>`).join('')}
+        </div>
+      </div>`;
+  }).join('')}</div>`;
+}
+
+// ── Timeline View (Student) ──
+function renderTimeline(emails) {
+  const days = ['Today','Yesterday','This Week','Last Week'];
+  return `<div class="email-list">${days.map(day => {
+    const dayEmails = emails.filter(e => e.date === day);
+    if (!dayEmails.length) return '';
+    return `
+      <div class="timeline-day-header">${day}</div>
+      ${dayEmails.map(e => `
+        <div class="email-item ${e.unread ? 'unread' : ''}">
+          ${avatarEl(e)}
+          <div class="email-body">
+            <div class="email-header">
+              <span class="email-from">${e.from}</span>
+              <span class="email-time">${e.time}</span>
+            </div>
+            <div class="email-subject">${e.subject}</div>
+            <div class="email-preview">${e.preview}</div>
+            <div class="email-tags">${tagHTML(e.tags)}</div>
+            <div class="email-action-bar">
+              <button class="action-btn primary">Reply</button>
+              <button class="action-btn">Archive</button>
+              <button class="action-btn">Snooze</button>
+            </div>
+          </div>
+        </div>`).join('')}`;
+  }).join('')}</div>`;
+}
+
+// ══════════════════════════════════════════
+//  View Controller
+// ══════════════════════════════════════════
+function setView(view) {
+  currentView = view;
+  const cfg = VIEW_CONFIG[currentRole || 'default'];
+  const emails = [...EMAILS].sort(cfg.sortFn).filter(cfg.filterFn);
+
+  const area = document.getElementById('email-area');
+  area.classList.add('switching');
+
+  setTimeout(() => {
+    let html = '';
+    if (view === 'task')     html = renderTask(emails);
+    else if (view === 'pipeline') html = renderPipeline(emails);
+    else if (view === 'timeline') html = renderTimeline(emails);
+    else                     html = renderList(emails);
+    area.innerHTML = html;
+    area.classList.remove('switching');
+  }, 150);
+
+  // update toggle buttons
+  ['list','task','pipeline','timeline'].forEach(v => {
+    const b = document.getElementById(`btn-${v === 'pipeline' ? 'pipe' : v}`);
+    if (b) b.classList.toggle('active', v === view);
+  });
+
+  // update nav count
+  document.getElementById('nav-count').textContent = emails.length;
+}
+
+// ══════════════════════════════════════════
+//  Persona Apply
+// ══════════════════════════════════════════
+function applyPersona(role, personaData) {
+  currentRole = role;
+  const cfg = VIEW_CONFIG[role] || VIEW_CONFIG.default;
+
+  // Banner
+  const pill = document.getElementById('persona-pill');
+  pill.textContent = cfg.label;
+  pill.className = `pill ${cfg.cls}`;
+  document.getElementById('persona-desc').textContent = cfg.desc;
+  if (personaData?.identity?.role) {
+    document.getElementById('persona-desc').textContent =
+      `${cfg.desc} · Detected role: ${personaData.identity.role}`;
+  }
+
+  // Chips
+  ['founder','student','sales'].forEach(r => {
+    document.getElementById(`chip-${r}`)?.classList.toggle('active', r === role);
+    const colors = { founder:'#6366f1', student:'#22c55e', sales:'#f59e0b' };
+    const el = document.getElementById(`chip-${r}`);
+    if (el) {
+      el.style.background = r === role ? `${colors[r]}22` : '';
+      el.style.borderColor = r === role ? colors[r] : '';
+      el.style.color = r === role ? colors[r] : '';
+    }
+  });
+
+  setView(cfg.defaultView);
+}
+
+function simulatePersona(role) {
+  applyPersona(role, null);
+}
+
+// ══════════════════════════════════════════
+//  Init
+// ══════════════════════════════════════════
+async function init() {
+  const bar = document.getElementById('loading-bar');
+
+  // Animate loading bar
+  bar.style.width = '80%';
+
+  const persona = await fetchPersona();
+  currentPersona = persona;
+
+  bar.classList.add('done');
+
+  const role = resolveRole(persona);
+
+  if (!persona) {
+    document.getElementById('persona-desc').textContent =
+      'PersonaLayer not running — showing demo mode. Use persona switcher above →';
+  }
+
+  applyPersona(role, persona);
+}
+
+init();
+</script>
+</body>
+</html>

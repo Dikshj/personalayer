@@ -803,21 +803,21 @@
 </footer>
 
 <script>
-  // Backend API endpoint — change for production
-  const API = window.location.origin === 'http://localhost:7823'
-    ? 'http://localhost:7823'
-    : 'http://localhost:7823';  // CHANGE THIS to your deployed backend URL
+  // ── Waitlist config ──
+  // Option A (local dev):  set FORMSPREE_ID = null  →  hits localhost:7823
+  // Option B (production): set FORMSPREE_ID = 'xyzabc123'  →  hits Formspree
+  const FORMSPREE_ID = null; // ← PASTE your Formspree form ID here when deploying
+  const LOCAL_API   = 'http://localhost:7823';
 
-  // Load waitlist count on page load
+  // Load waitlist count on page load (only works with local backend)
   async function loadWaitlistCount() {
+    if (FORMSPREE_ID) return; // Formspree doesn't expose count
     try {
-      const resp = await fetch(API + '/waitlist/count');
+      const resp = await fetch(LOCAL_API + '/waitlist/count');
       const data = await resp.json();
       const countEl = document.getElementById('waitlist-count');
-      if (countEl && data.count) {
-        countEl.textContent = data.count;
-      }
-    } catch (e) { /* silent — backend may not be running */ }
+      if (countEl && data.count) countEl.textContent = data.count;
+    } catch (e) { /* silent */ }
   }
   loadWaitlistCount();
 
@@ -825,38 +825,46 @@
   async function submitWaitlist(e, successId) {
     e.preventDefault();
     const emailId = successId === 'hero-success' ? 'hero-email' : 'cta-email';
-    const email = document.getElementById(emailId).value;
-    const source = successId === 'hero-success' ? 'hero' : 'cta';
+    const email   = document.getElementById(emailId).value;
+    const source  = successId === 'hero-success' ? 'hero' : 'cta';
 
-    // Optimistic UI: show success immediately
-    const form = e.target;
+    // Optimistic UI
+    const form    = e.target;
     form.style.display = 'none';
     const success = document.getElementById(successId);
     success.style.display = 'block';
 
-    // Submit to backend
     try {
-      const resp = await fetch(API + '/waitlist', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, source })
-      });
-      const data = await resp.json();
-      if (data.status === 'already_joined') {
-        success.textContent = '✓ You\'re already on the list! We\'ll be in touch soon.';
-      } else if (data.status === 'error') {
-        success.textContent = '⚠ ' + data.error;
-        success.style.background = 'rgba(248,113,113,0.08)';
-        success.style.borderColor = 'rgba(248,113,113,0.25)';
-        success.style.color = 'var(--red)';
+      if (FORMSPREE_ID) {
+        // ── Production path: Formspree ──
+        await fetch(`https://formspree.io/f/${FORMSPREE_ID}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+          body: JSON.stringify({ email, source })
+        });
+      } else {
+        // ── Dev path: local FastAPI backend ──
+        const resp = await fetch(LOCAL_API + '/waitlist', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, source })
+        });
+        const data = await resp.json();
+        if (data.status === 'already_joined') {
+          success.textContent = '✓ You\'re already on the list! We\'ll be in touch soon.';
+        } else if (data.status === 'error') {
+          success.textContent = '⚠ ' + data.error;
+          success.style.background = 'rgba(248,113,113,0.08)';
+          success.style.borderColor = 'rgba(248,113,113,0.25)';
+          success.style.color = 'var(--red)';
+        }
+        if (data.count) {
+          const countEl = document.getElementById('waitlist-count');
+          if (countEl) countEl.textContent = data.count;
+        }
       }
-      // Update count
-      if (data.count) {
-        const countEl = document.getElementById('waitlist-count');
-        if (countEl) countEl.textContent = data.count;
-      }
-    } catch (e) {
-      // Backend not reachable — fallback to localStorage
+    } catch (err) {
+      // Fallback: localStorage
       const waitlist = JSON.parse(localStorage.getItem('pl_waitlist') || '[]');
       if (!waitlist.includes(email)) {
         waitlist.push(email);
