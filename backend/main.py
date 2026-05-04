@@ -132,6 +132,7 @@ ALLOWED_SOURCES = {
     "x", "linkedin", "youtube", "google", "github",
     "chatgpt", "claude", "perplexity", "opencode",
     "cursor", "gemini", "grok", "github_copilot", "llm",
+    "claude_code", "ollama", "aider", "sgpt",
 }
 
 
