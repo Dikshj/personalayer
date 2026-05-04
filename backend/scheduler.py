@@ -4,12 +4,39 @@ import logging
 import threading
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
-from apscheduler.triggers.interval import IntervalTrigger
 
 logger = logging.getLogger(__name__)
 
 
-# ── Persona extraction (nightly 2AM) ──────────────────────────────────────────
+# ── 1:00 AM — Claude Code scan ────────────────────────────────────────────────
+
+def run_claude_code_scan() -> None:
+    """One-shot scan of all Claude Code sessions. New lines only (incremental)."""
+    try:
+        from collectors.claude_code_watcher import load_seen, scan_all, save_seen
+        seen = load_seen()
+        seen = scan_all(seen)
+        save_seen(seen)
+        logger.info("Claude Code scan complete")
+    except Exception as exc:
+        logger.error("Claude Code scan failed: %s", exc)
+
+
+# ── 1:30 AM — GitHub sync ─────────────────────────────────────────────────────
+
+def run_github_sync() -> None:
+    username = os.getenv("GITHUB_USERNAME", "").strip()
+    if not username:
+        return
+    try:
+        from collectors.github import collect_github
+        count = collect_github(username)
+        logger.info("GitHub sync @%s: %d items", username, count)
+    except Exception as exc:
+        logger.error("GitHub sync failed: %s", exc)
+
+
+# ── 2:00 AM — Persona extraction ──────────────────────────────────────────────
 
 def run_persona_extraction() -> None:
     try:
@@ -20,71 +47,35 @@ def run_persona_extraction() -> None:
         logger.error("Persona extraction failed: %s", exc)
 
 
-# ── GitHub sync (every 6 hours) ───────────────────────────────────────────────
+# ── Ollama proxy (daemon — passive, zero overhead when Ollama not in use) ──────
 
-def run_github_sync() -> None:
-    username = os.getenv("GITHUB_USERNAME", "").strip()
-    if not username:
-        return  # silently skip — username not configured
-    try:
-        from collectors.github import collect_github
-        count = collect_github(username)
-        logger.info("GitHub sync @%s: %d items", username, count)
-    except Exception as exc:
-        logger.error("GitHub sync failed: %s", exc)
-
-
-# ── Claude Code watcher (background thread, polls every 30s) ──────────────────
-
-def run_claude_code_watcher() -> None:
-    """Runs as a daemon thread — polls ~/.claude/projects/**/*.jsonl for new sessions."""
-    try:
-        from collectors.claude_code_watcher import watch
-        watch(poll_interval=30)
-    except Exception as exc:
-        logger.error("Claude Code watcher crashed: %s", exc)
-
-
-def start_claude_code_watcher() -> threading.Thread:
-    t = threading.Thread(target=run_claude_code_watcher, daemon=True,
-                         name="claude-code-watcher")
-    t.start()
-    logger.info("Claude Code watcher started (daemon thread)")
-    return t
-
-
-# ── Ollama proxy (background thread, optional) ────────────────────────────────
-
-def run_ollama_proxy() -> None:
-    """Start Ollama proxy only if Ollama is actually running on :11434."""
+def _ollama_proxy_thread() -> None:
     import urllib.request
     try:
         urllib.request.urlopen("http://localhost:11434/api/tags", timeout=2)
     except Exception:
-        logger.info("Ollama not detected on :11434 — proxy not started")
+        logger.info("Ollama not running — proxy skipped")
         return
     try:
         from collectors.ollama_proxy import PROXY_PORT, ProxyHandler
         from http.server import HTTPServer
         server = HTTPServer(("127.0.0.1", PROXY_PORT), ProxyHandler)
-        logger.info("Ollama proxy started on :%d", PROXY_PORT)
+        logger.info("Ollama proxy :11435 → :11434")
         server.serve_forever()
     except OSError:
-        logger.info("Ollama proxy port :11435 already in use — skipping")
+        logger.info("Ollama proxy port busy — skipping")
     except Exception as exc:
-        logger.error("Ollama proxy failed: %s", exc)
+        logger.error("Ollama proxy error: %s", exc)
 
 
-def start_ollama_proxy() -> threading.Thread:
-    t = threading.Thread(target=run_ollama_proxy, daemon=True, name="ollama-proxy")
+def start_ollama_proxy() -> None:
+    t = threading.Thread(target=_ollama_proxy_thread, daemon=True, name="ollama-proxy")
     t.start()
-    return t
 
 
-# ── Shell wrapper auto-install (one-time) ─────────────────────────────────────
+# ── Shell wrapper one-time install ────────────────────────────────────────────
 
 def ensure_shell_wrappers() -> None:
-    """Install shell aliases once. Skips if already installed."""
     try:
         from collectors.shell_wrapper import install_aliases
         install_aliases()
@@ -97,19 +88,27 @@ def ensure_shell_wrappers() -> None:
 def create_scheduler() -> BackgroundScheduler:
     scheduler = BackgroundScheduler()
 
-    # Nightly persona extraction — 2AM
+    # 1:00 AM — collect Claude Code signals
     scheduler.add_job(
-        run_persona_extraction,
-        CronTrigger(hour=2, minute=0),
-        id="nightly_persona",
+        run_claude_code_scan,
+        CronTrigger(hour=1, minute=0),
+        id="daily_claude_code",
         replace_existing=True,
     )
 
-    # GitHub sync — every 6 hours
+    # 1:30 AM — sync GitHub
     scheduler.add_job(
         run_github_sync,
-        IntervalTrigger(hours=6),
-        id="github_sync",
+        CronTrigger(hour=1, minute=30),
+        id="daily_github",
+        replace_existing=True,
+    )
+
+    # 2:00 AM — extract persona from all collected data
+    scheduler.add_job(
+        run_persona_extraction,
+        CronTrigger(hour=2, minute=0),
+        id="daily_persona",
         replace_existing=True,
     )
 
@@ -117,7 +116,6 @@ def create_scheduler() -> BackgroundScheduler:
 
 
 def start_background_collectors() -> None:
-    """Start all long-running collector daemons. Called once at app startup."""
-    start_claude_code_watcher()
+    """Called once at app startup. Only Ollama proxy runs as daemon (passive)."""
     start_ollama_proxy()
     ensure_shell_wrappers()
