@@ -118,6 +118,21 @@ def summarize_feed_items(items: list[dict]) -> str:
         searches = [i["content"][:300] for i in by_source["google"][:20]]
         lines.append(f"\nGOOGLE SEARCH RESULTS SEEN:\n" + "\n".join(f"  - {s}" for s in searches))
 
+    # LLM prompts — highest-signal data: exactly what the user is working on
+    llm_sources = {"chatgpt", "claude", "perplexity", "opencode", "cursor",
+                   "gemini", "grok", "github_copilot", "llm"}
+    llm_items = [i for i in items if i["source"] in llm_sources]
+    if llm_items:
+        by_llm: dict = defaultdict(list)
+        for item in llm_items:
+            by_llm[item["source"]].append(item["content"][:400])
+        llm_lines = []
+        for src, prompts in by_llm.items():
+            for p in prompts[:15]:
+                llm_lines.append(f"  [{src.upper()}] {p}")
+        lines.append(f"\nLLM PROMPTS (what user is actively working on / asking AI):\n"
+                     + "\n".join(llm_lines[:40]))
+
     return "\n".join(lines)
 
 

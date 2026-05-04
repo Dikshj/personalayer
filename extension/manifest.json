@@ -36,6 +36,35 @@
       "matches": ["https://www.google.com/search*"],
       "js": ["content-google.js"],
       "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://chat.openai.com/*", "https://chatgpt.com/*"],
+      "js": ["content-chatgpt.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://claude.ai/*"],
+      "js": ["content-claude.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://www.perplexity.ai/*", "https://perplexity.ai/*"],
+      "js": ["content-perplexity.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://opencode.ai/*",
+        "https://app.opencode.ai/*",
+        "https://cursor.sh/*",
+        "https://gemini.google.com/*",
+        "https://grok.com/*",
+        "https://grok.x.ai/*",
+        "https://copilot.microsoft.com/*",
+        "https://github.com/copilot*"
+      ],
+      "js": ["content-opencode.js"],
+      "run_at": "document_idle"
     }
   ],
   "icons": {

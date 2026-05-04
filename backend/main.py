@@ -128,7 +128,11 @@ class FeedEvent(BaseModel):
     timestamp: int
 
 
-ALLOWED_SOURCES = {"x", "linkedin", "youtube", "google", "github"}
+ALLOWED_SOURCES = {
+    "x", "linkedin", "youtube", "google", "github",
+    "chatgpt", "claude", "perplexity", "opencode",
+    "cursor", "gemini", "grok", "github_copilot", "llm",
+}
 
 
 @app.post("/feed-event")
