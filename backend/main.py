@@ -10,7 +10,7 @@ import uvicorn
 from pathlib import Path
 
 from database import create_tables, insert_event, add_to_waitlist, get_waitlist_count, insert_feed_item
-from scheduler import create_scheduler
+from scheduler import create_scheduler, start_background_collectors
 
 
 SKIP_PATTERNS = ("localhost", "127.0.0.1", "chrome://", "chrome-extension://", "about:")
@@ -21,6 +21,7 @@ async def lifespan(app: FastAPI):
     create_tables()
     scheduler = create_scheduler()
     scheduler.start()
+    start_background_collectors()   # Claude Code watcher + Ollama proxy + shell wrappers
     yield
     scheduler.shutdown()
 
