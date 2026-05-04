@@ -1,18 +1,15 @@
 """
 collectors/ollama_proxy.py
 
-Transparent proxy for Ollama (and any OpenAI-compatible local LLM API).
-Intercepts requests, logs user prompts to PersonaLayer, then forwards
-to the real Ollama instance.
+Transparent proxy: localhost:11435 → Ollama localhost:11434
+Extracts minimal signals from requests. Raw prompts never stored.
+
+What gets stored:
+  "[ollama:codellama] task:debugging | domain:web | langs:python"
 
 Usage:
   python -m collectors.ollama_proxy
-
-Then point your tools to localhost:11435 instead of localhost:11434.
-  OLLAMA_HOST=http://localhost:11435 ollama run llama3
-  Or configure Cursor/Continue/OpenCode to use localhost:11435.
-
-Ollama runs on :11434 by default. Proxy runs on :11435.
+  Then: OLLAMA_HOST=http://localhost:11435 ollama run llama3
 """
 
 import json
@@ -26,6 +23,7 @@ import urllib.error
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from database import insert_feed_item  # noqa: E402
+from collectors.signal_extractor import extract_signals, signals_to_content  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -33,25 +31,21 @@ OLLAMA_UPSTREAM = "http://localhost:11434"
 PROXY_PORT = 11435
 
 
-def extract_prompt(body_bytes: bytes, path: str) -> str | None:
-    """Extract user prompt from Ollama / OpenAI-compatible request body."""
+def get_text_and_model(body_bytes: bytes) -> tuple[str, str]:
+    """Extract raw text + model name. Text used only for local signal extraction."""
     try:
         data = json.loads(body_bytes)
     except Exception:
-        return None
+        return "", ""
 
-    # Ollama /api/generate: {"model": "...", "prompt": "..."}
+    model = data.get("model", "")
+
     if "prompt" in data:
-        return str(data["prompt"])[:1500]
+        return str(data["prompt"]), model
 
-    # Ollama /api/chat or OpenAI /v1/chat/completions:
-    # {"messages": [{"role": "user", "content": "..."}]}
     messages = data.get("messages", [])
     user_msgs = [m.get("content", "") for m in messages if m.get("role") == "user"]
-    if user_msgs:
-        return str(user_msgs[-1])[:1500]
-
-    return None
+    return " ".join(user_msgs), model
 
 
 class ProxyHandler(BaseHTTPRequestHandler):
@@ -60,29 +54,25 @@ class ProxyHandler(BaseHTTPRequestHandler):
         length = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(length) if length else b""
 
-        # Extract and log the prompt
-        prompt = extract_prompt(body, self.path)
-        if prompt and len(prompt.strip()) > 4:
-            model = ""
-            try:
-                model = json.loads(body).get("model", "")
-            except Exception:
-                pass
-            insert_feed_item(
-                source="ollama",
-                content_type="prompt",
-                content=f"[{model}] {prompt}".strip() if model else prompt,
-                author="user",
-                url=f"ollama://{model or 'local'}",
-                timestamp=int(time.time() * 1000),
-            )
-            logger.info("Captured Ollama prompt (%d chars)", len(prompt))
+        # Extract signals locally — raw text never stored
+        raw_text, model = get_text_and_model(body)
+        if raw_text and len(raw_text.strip()) > 4:
+            signals = extract_signals(raw_text)
+            content = signals_to_content(signals, f"ollama:{model}" if model else "ollama")
+            if content:
+                insert_feed_item(
+                    source="ollama",
+                    content_type="session_signals",
+                    content=content,
+                    author="user",
+                    url=f"ollama://{model or 'local'}",
+                    timestamp=int(time.time() * 1000),
+                )
 
-        # Forward to real Ollama
+        # Forward to real Ollama — unmodified
         upstream_url = OLLAMA_UPSTREAM + self.path
         req = urllib.request.Request(
-            upstream_url,
-            data=body,
+            upstream_url, data=body,
             headers={k: v for k, v in self.headers.items()
                      if k.lower() not in ("host", "content-length")},
             method="POST",
@@ -99,11 +89,10 @@ class ProxyHandler(BaseHTTPRequestHandler):
         except urllib.error.URLError as exc:
             self.send_response(502)
             self.end_headers()
-            self.wfile.write(f"Ollama proxy error: {exc}".encode())
+            self.wfile.write(f"Proxy error: {exc}".encode())
 
     def do_GET(self):
-        upstream_url = OLLAMA_UPSTREAM + self.path
-        req = urllib.request.Request(upstream_url, method="GET")
+        req = urllib.request.Request(OLLAMA_UPSTREAM + self.path)
         try:
             with urllib.request.urlopen(req, timeout=30) as resp:
                 resp_body = resp.read()
@@ -115,19 +104,14 @@ class ProxyHandler(BaseHTTPRequestHandler):
         except urllib.error.URLError as exc:
             self.send_response(502)
             self.end_headers()
-            self.wfile.write(str(exc).encode())
 
     def log_message(self, fmt, *args):
-        pass  # suppress default HTTP logs
+        pass
 
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s [ollama-proxy] %(message)s")
     server = HTTPServer(("127.0.0.1", PROXY_PORT), ProxyHandler)
-    logger.info(
-        "PersonaLayer Ollama proxy running on :%d → forwarding to %s",
-        PROXY_PORT, OLLAMA_UPSTREAM
-    )
-    logger.info("Point your tools to: http://localhost:%d", PROXY_PORT)
+    logger.info("Proxy :11435 → Ollama :11434 | raw prompts never stored")
     server.serve_forever()

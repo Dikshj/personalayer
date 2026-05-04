@@ -39,17 +39,17 @@
     },
     {
       "matches": ["https://chat.openai.com/*", "https://chatgpt.com/*"],
-      "js": ["content-chatgpt.js"],
+      "js": ["signal-extractor.js", "content-chatgpt.js"],
       "run_at": "document_idle"
     },
     {
       "matches": ["https://claude.ai/*"],
-      "js": ["content-claude.js"],
+      "js": ["signal-extractor.js", "content-claude.js"],
       "run_at": "document_idle"
     },
     {
       "matches": ["https://www.perplexity.ai/*", "https://perplexity.ai/*"],
-      "js": ["content-perplexity.js"],
+      "js": ["signal-extractor.js", "content-perplexity.js"],
       "run_at": "document_idle"
     },
     {
@@ -63,7 +63,7 @@
         "https://copilot.microsoft.com/*",
         "https://github.com/copilot*"
       ],
-      "js": ["content-opencode.js"],
+      "js": ["signal-extractor.js", "content-opencode.js"],
       "run_at": "document_idle"
     }
   ],

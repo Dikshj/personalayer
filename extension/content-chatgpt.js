@@ -1,24 +1,23 @@
 // extension/content-chatgpt.js
-// Captures user prompts sent to ChatGPT.
-// Signal: what problems user is actively solving right now.
-// Only captures USER messages — not AI responses.
+// Captures SIGNALS from ChatGPT — not raw prompt text.
+// What stored: task type, domain, tech stack keywords only.
 
 const ENDPOINT = "http://localhost:7823/feed-event";
-const seen = new Set();
+const sentKeys = new Set();
 
-function send(content) {
-  if (!content || content.length < 10) return;
-  const key = content.slice(0, 80);
-  if (seen.has(key)) return;
-  seen.add(key);
+function send(signals, source) {
+  if (!signals) return;
+  const key = signals.slice(0, 60);
+  if (sentKeys.has(key)) return;
+  sentKeys.add(key);
 
   fetch(ENDPOINT, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      source: "chatgpt",
-      content_type: "prompt",
-      content: content.slice(0, 1500),
+      source,
+      content_type: "session_signals",
+      content: `[${source}] ${signals}`,
       author: "user",
       url: window.location.href,
       timestamp: Date.now(),
@@ -27,17 +26,17 @@ function send(content) {
 }
 
 function scanMessages() {
-  // ChatGPT marks user turns with data-message-author-role="user"
-  const userMsgs = document.querySelectorAll('[data-message-author-role="user"]');
-  userMsgs.forEach((el) => {
+  const extract = window.__plExtractSignals;
+  if (!extract) return;
+
+  document.querySelectorAll('[data-message-author-role="user"]').forEach((el) => {
     const text = el.innerText?.trim();
-    if (text) send(text);
+    if (!text) return;
+    const signals = extract(text);
+    if (signals) send(signals, "chatgpt");
   });
 }
 
-// Scan existing messages on load
 scanMessages();
-
-// Watch for new messages as conversation continues
-const observer = new MutationObserver(() => scanMessages());
+const observer = new MutationObserver(scanMessages);
 observer.observe(document.body, { childList: true, subtree: true });
