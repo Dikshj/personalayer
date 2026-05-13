@@ -8,7 +8,7 @@ from typing import Optional
 from anthropic import Anthropic
 from dotenv import load_dotenv
 
-from database import get_events_last_n_days, get_feed_items_last_n_days, save_persona
+from database import create_tables, get_events_last_n_days, get_feed_items_last_n_days, save_persona
 
 load_dotenv()
 logger = logging.getLogger(__name__)
@@ -138,6 +138,7 @@ def summarize_feed_items(items: list[dict]) -> str:
 
 
 def extract_persona() -> dict:
+    create_tables()
     events = get_events_last_n_days(7)
     feed_items = get_feed_items_last_n_days(7)
 

@@ -1,42 +1,19 @@
 # backend/scheduler.py
-import os
 import logging
-import threading
+
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
+
+from collectors.registry import (
+    run_claude_code_scan,
+    run_github_sync,
+    scheduled_collector_jobs,
+    start_resident_collectors,
+)
 
 logger = logging.getLogger(__name__)
 
-
-# ── 1:00 AM — Claude Code scan ────────────────────────────────────────────────
-
-def run_claude_code_scan() -> None:
-    """One-shot scan of all Claude Code sessions. New lines only (incremental)."""
-    try:
-        from collectors.claude_code_watcher import load_seen, scan_all, save_seen
-        seen = load_seen()
-        seen = scan_all(seen)
-        save_seen(seen)
-        logger.info("Claude Code scan complete")
-    except Exception as exc:
-        logger.error("Claude Code scan failed: %s", exc)
-
-
-# ── 1:30 AM — GitHub sync ─────────────────────────────────────────────────────
-
-def run_github_sync() -> None:
-    username = os.getenv("GITHUB_USERNAME", "").strip()
-    if not username:
-        return
-    try:
-        from collectors.github import collect_github
-        count = collect_github(username)
-        logger.info("GitHub sync @%s: %d items", username, count)
-    except Exception as exc:
-        logger.error("GitHub sync failed: %s", exc)
-
-
-# ── 2:00 AM — Persona extraction ──────────────────────────────────────────────
 
 def run_persona_extraction() -> None:
     try:
@@ -47,64 +24,60 @@ def run_persona_extraction() -> None:
         logger.error("Persona extraction failed: %s", exc)
 
 
-# ── Ollama proxy (daemon — passive, zero overhead when Ollama not in use) ──────
-
-def _ollama_proxy_thread() -> None:
-    import urllib.request
+def refresh_living_persona() -> None:
+    """Cheap local aggregation of derived signals. Raw data never leaves the device."""
     try:
-        urllib.request.urlopen("http://localhost:11434/api/tags", timeout=2)
-    except Exception:
-        logger.info("Ollama not running — proxy skipped")
-        return
-    try:
-        from collectors.ollama_proxy import PROXY_PORT, ProxyHandler
-        from http.server import HTTPServer
-        server = HTTPServer(("127.0.0.1", PROXY_PORT), ProxyHandler)
-        logger.info("Ollama proxy :11435 → :11434")
-        server.serve_forever()
-    except OSError:
-        logger.info("Ollama proxy port busy — skipping")
+        from living_persona import build_living_persona
+        living = build_living_persona()
+        logger.info("Living persona refreshed: %d signals", living["meta"]["signal_count"])
     except Exception as exc:
-        logger.error("Ollama proxy error: %s", exc)
+        logger.error("Living persona refresh failed: %s", exc)
 
 
-def start_ollama_proxy() -> None:
-    t = threading.Thread(target=_ollama_proxy_thread, daemon=True, name="ollama-proxy")
-    t.start()
-
-
-# ── Shell wrapper one-time install ────────────────────────────────────────────
-
-def ensure_shell_wrappers() -> None:
+def run_contextlayer_synthesis_cycle() -> None:
     try:
-        from collectors.shell_wrapper import install_aliases
-        install_aliases()
+        from pcl.contextlayer import run_inductive_memory_job, run_profile_synthesizer
+        synth = run_profile_synthesizer()
+        inductive = run_inductive_memory_job()
+        logger.info("ContextLayer synthesis: %s, inductive: %s", synth, inductive)
     except Exception as exc:
-        logger.warning("Shell wrapper install skipped: %s", exc)
+        logger.error("ContextLayer synthesis failed: %s", exc)
 
 
-# ── Scheduler factory ─────────────────────────────────────────────────────────
+def run_contextlayer_reflection_cycle() -> None:
+    try:
+        from pcl.contextlayer import run_decay_engine, run_reflective_memory_job
+        decay = run_decay_engine()
+        reflective = run_reflective_memory_job()
+        logger.info("ContextLayer decay: %s, reflective: %s", decay, reflective)
+    except Exception as exc:
+        logger.error("ContextLayer reflection failed: %s", exc)
+
+
+def run_contextlayer_daily_refresh_cycle() -> None:
+    try:
+        from pcl.daily_refresh import run_due_daily_refreshes
+
+        result = run_due_daily_refreshes()
+        logger.info(
+            "ContextLayer daily refresh due users: %d",
+            result["refreshed"],
+        )
+    except Exception as exc:
+        logger.error("ContextLayer daily refresh failed: %s", exc)
+
 
 def create_scheduler() -> BackgroundScheduler:
     scheduler = BackgroundScheduler()
 
-    # 1:00 AM — collect Claude Code signals
-    scheduler.add_job(
-        run_claude_code_scan,
-        CronTrigger(hour=1, minute=0),
-        id="daily_claude_code",
-        replace_existing=True,
-    )
+    for job in scheduled_collector_jobs():
+        scheduler.add_job(
+            job.run,
+            CronTrigger(hour=job.hour, minute=job.minute),
+            id=job.id,
+            replace_existing=True,
+        )
 
-    # 1:30 AM — sync GitHub
-    scheduler.add_job(
-        run_github_sync,
-        CronTrigger(hour=1, minute=30),
-        id="daily_github",
-        replace_existing=True,
-    )
-
-    # 2:00 AM — extract persona from all collected data
     scheduler.add_job(
         run_persona_extraction,
         CronTrigger(hour=2, minute=0),
@@ -112,10 +85,37 @@ def create_scheduler() -> BackgroundScheduler:
         replace_existing=True,
     )
 
+    scheduler.add_job(
+        refresh_living_persona,
+        IntervalTrigger(minutes=15),
+        id="living_persona_refresh",
+        replace_existing=True,
+    )
+
+    scheduler.add_job(
+        run_contextlayer_synthesis_cycle,
+        IntervalTrigger(hours=6),
+        id="contextlayer_synthesis",
+        replace_existing=True,
+    )
+
+    scheduler.add_job(
+        run_contextlayer_reflection_cycle,
+        CronTrigger(hour=3, minute=0),
+        id="contextlayer_reflection",
+        replace_existing=True,
+    )
+
+    scheduler.add_job(
+        run_contextlayer_daily_refresh_cycle,
+        CronTrigger(hour=3, minute=0),
+        id="contextlayer_daily_refresh",
+        replace_existing=True,
+    )
+
     return scheduler
 
 
 def start_background_collectors() -> None:
-    """Called once at app startup. Only Ollama proxy runs as daemon (passive)."""
-    start_ollama_proxy()
-    ensure_shell_wrappers()
+    """Called once at app startup for resident collector runtimes."""
+    start_resident_collectors()

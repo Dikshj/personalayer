@@ -1,0 +1,10 @@
+{
+  "name": "@personal-context-layer/sdk",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "personal-context-layer.js",
+  "scripts": {
+    "test": "node --test personal-context-layer.test.mjs"
+  }
+}

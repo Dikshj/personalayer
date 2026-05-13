@@ -3,896 +3,1274 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>PersonaLayer — Stop explaining yourself to every AI</title>
-  <meta name="description" content="PersonaLayer learns who you are from what you do — then makes every AI feel like it's known you for months.">
+  <title>PersonaLayer - Local-first persona context for AI tools</title>
+  <meta name="description" content="PersonaLayer builds a local, user-owned digital persona from real activity, then gives each AI tool only the context it is allowed to use.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    *, *::before, *::after { box-sizing: border-box; }
+    * { margin: 0; }
 
     :root {
-      --bg: #0a0a0c;
-      --bg2: #111114;
-      --bg3: #18181b;
-      --border: #27272a;
-      --border2: #3f3f46;
-      --purple: #a78bfa;
-      --purple-dark: #7c3aed;
-      --purple-glow: rgba(167,139,250,0.15);
-      --text: #f4f4f5;
-      --text2: #a1a1aa;
-      --text3: #71717a;
-      --green: #4ade80;
-      --red: #f87171;
+      --ink: #f8fbf8;
+      --muted: #c5d2cb;
+      --soft: #8ea098;
+      --bg: #0d1210;
+      --panel: #141b18;
+      --panel-2: #1a2420;
+      --line: #2c3934;
+      --teal: #72e1cf;
+      --violet: #b9a8ff;
+      --blue: #9cc7ff;
+      --amber: #f4d38b;
+      --red: #ff9b9b;
+      --green: #a7e9b6;
+      --shadow: 0 24px 80px rgba(0, 0, 0, 0.34);
+      --max: 1180px;
     }
 
     html { scroll-behavior: smooth; }
 
     body {
-      font-family: 'Inter', sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      line-height: 1.6;
+      min-height: 100vh;
+      background:
+        linear-gradient(120deg, rgba(114, 225, 207, 0.13), transparent 28%),
+        linear-gradient(250deg, rgba(185, 168, 255, 0.14), transparent 30%),
+        linear-gradient(180deg, #0d1210 0%, #131b17 48%, #0d1210 100%);
+      background-size: 140% 140%, 150% 150%, 100% 100%;
+      animation: pageGlow 18s ease-in-out infinite alternate;
+      color: var(--ink);
+      font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.55;
       overflow-x: hidden;
     }
 
-    /* ── NAV ── */
-    nav {
-      position: fixed; top: 0; left: 0; right: 0; z-index: 100;
-      display: flex; align-items: center; justify-content: space-between;
-      padding: 1rem 2rem;
-      background: rgba(10,10,12,0.85);
-      backdrop-filter: blur(12px);
-      border-bottom: 1px solid var(--border);
+    @keyframes pageGlow {
+      0% { background-position: 0% 0%, 100% 0%, 0 0; }
+      100% { background-position: 18% 12%, 82% 18%, 0 0; }
     }
-    .nav-logo { font-size: 1.1rem; font-weight: 700; color: var(--text); letter-spacing: -0.02em; }
-    .nav-logo span { color: var(--purple); }
-    .nav-links { display: flex; gap: 2rem; }
-    .nav-links a { color: var(--text2); text-decoration: none; font-size: 0.9rem; transition: color 0.15s; }
-    .nav-links a:hover { color: var(--text); }
-    .nav-cta { background: var(--purple); color: #fff; border: none; padding: 0.5rem 1.25rem; border-radius: 6px; font-size: 0.875rem; font-weight: 600; cursor: pointer; transition: opacity 0.15s; text-decoration: none; }
-    .nav-cta:hover { opacity: 0.85; }
 
-    /* ── HERO ── */
+    img, svg { display: block; max-width: 100%; }
+    a { color: inherit; }
+
+    .container {
+      width: min(var(--max), calc(100% - 40px));
+      margin-inline: auto;
+    }
+
+    .mono {
+      font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Consolas, monospace;
+    }
+
+    .nav {
+      position: fixed;
+      inset: 0 0 auto;
+      z-index: 20;
+      border-bottom: 1px solid rgba(247, 247, 242, 0.08);
+      background: rgba(11, 13, 12, 0.78);
+      backdrop-filter: blur(18px);
+    }
+
+    .nav-inner {
+      height: 72px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 24px;
+    }
+
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      color: var(--ink);
+      font-weight: 800;
+      text-decoration: none;
+      letter-spacing: 0;
+    }
+
+    .brand img {
+      width: 38px;
+      height: 38px;
+      border-radius: 8px;
+      box-shadow: 0 0 28px rgba(54, 214, 189, 0.16);
+    }
+
+    .brand span span { color: var(--teal); }
+
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 24px;
+      color: var(--muted);
+      font-size: 0.92rem;
+    }
+
+    .nav-links a {
+      text-decoration: none;
+      transition: color 0.18s ease;
+    }
+
+    .nav-links a:hover { color: var(--ink); }
+
+    .button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 44px;
+      padding: 0 18px;
+      border: 1px solid transparent;
+      border-radius: 8px;
+      background: var(--teal);
+      color: #06110f;
+      font-weight: 800;
+      text-decoration: none;
+      cursor: pointer;
+      transition: transform 0.18s ease, opacity 0.18s ease, border-color 0.18s ease;
+      white-space: nowrap;
+    }
+
+    .button:hover { transform: translateY(-1px); }
+
+    .button.secondary {
+      background: rgba(247, 247, 242, 0.05);
+      color: var(--ink);
+      border-color: rgba(247, 247, 242, 0.16);
+    }
+
     .hero {
+      position: relative;
+      padding: 132px 0 70px;
       min-height: 100vh;
-      display: flex; flex-direction: column; align-items: center; justify-content: center;
-      text-align: center;
-      padding: 8rem 2rem 4rem;
+      display: grid;
+      align-items: center;
+    }
+
+    .hero::before {
+      content: "";
+      position: absolute;
+      inset: 72px 0 auto;
+      height: 520px;
+      background-image:
+        linear-gradient(rgba(247, 247, 242, 0.035) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(247, 247, 242, 0.035) 1px, transparent 1px);
+      background-size: 44px 44px;
+      mask-image: linear-gradient(180deg, black, transparent);
+      pointer-events: none;
+      animation: gridDrift 20s linear infinite;
+    }
+
+    .hero::after {
+      content: "";
+      position: absolute;
+      inset: 16% 8% auto;
+      height: 360px;
+      background:
+        linear-gradient(90deg, transparent, rgba(114, 225, 207, 0.12), transparent),
+        linear-gradient(135deg, transparent, rgba(185, 168, 255, 0.12), transparent);
+      filter: blur(34px);
+      opacity: 0.74;
+      transform: skewY(-7deg);
+      pointer-events: none;
+      animation: softRibbon 14s ease-in-out infinite alternate;
+    }
+
+    @keyframes gridDrift {
+      to { background-position: 44px 44px; }
+    }
+
+    @keyframes softRibbon {
+      0% { transform: translate3d(-4%, -2%, 0) skewY(-7deg); opacity: 0.46; }
+      100% { transform: translate3d(4%, 4%, 0) skewY(-4deg); opacity: 0.78; }
+    }
+
+    .hero-grid {
+      position: relative;
+      z-index: 1;
+      display: grid;
+      grid-template-columns: minmax(0, 0.94fr) minmax(430px, 1.06fr);
+      gap: 52px;
+      align-items: center;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      width: fit-content;
+      padding: 7px 10px;
+      border: 1px solid rgba(54, 214, 189, 0.28);
+      border-radius: 999px;
+      background: rgba(54, 214, 189, 0.07);
+      color: var(--teal);
+      font-size: 0.78rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+    }
+
+    .eyebrow::before {
+      content: "";
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--teal);
+      box-shadow: 0 0 18px rgba(54, 214, 189, 0.8);
+    }
+
+    h1 {
+      max-width: 780px;
+      margin-top: 24px;
+      font-size: clamp(3rem, 7vw, 6.5rem);
+      line-height: 0.93;
+      letter-spacing: 0;
+      font-weight: 800;
+    }
+
+    .accent { color: var(--teal); }
+
+    .hero-copy {
+      max-width: 710px;
+      margin-top: 26px;
+      color: var(--muted);
+      font-size: clamp(1rem, 1.6vw, 1.2rem);
+    }
+
+    .hero-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 30px;
+    }
+
+    .proof-row {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 34px;
+      max-width: 680px;
+    }
+
+    .proof {
+      border: 1px solid rgba(247, 247, 242, 0.1);
+      border-radius: 8px;
+      background: rgba(18, 21, 19, 0.72);
+      padding: 12px;
+    }
+
+    .proof strong {
+      display: block;
+      font-size: 1.28rem;
+      line-height: 1;
+    }
+
+    .proof span {
+      display: block;
+      margin-top: 7px;
+      color: var(--soft);
+      font-size: 0.78rem;
+    }
+
+    .product-visual {
+      position: relative;
+      min-height: 570px;
+    }
+
+    .orbital {
+      position: absolute;
+      inset: 0;
+      border: 1px solid rgba(247, 247, 242, 0.1);
+      border-radius: 8px;
+      background:
+        linear-gradient(rgba(247, 247, 242, 0.035) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(247, 247, 242, 0.035) 1px, transparent 1px),
+        linear-gradient(135deg, rgba(114, 225, 207, 0.1), rgba(185, 168, 255, 0.08) 52%, rgba(156, 199, 255, 0.08)),
+        rgba(18, 21, 19, 0.62);
+      background-size: 34px 34px;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      animation: visualFloat 8s ease-in-out infinite;
+    }
+
+    .orbital::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      border: 1px solid rgba(54, 214, 189, 0.22);
+      border-radius: inherit;
+      pointer-events: none;
+      background: linear-gradient(110deg, transparent 0%, rgba(255, 255, 255, 0.1) 36%, transparent 58%);
+      transform: translateX(-70%);
+      animation: panelSheen 7s ease-in-out infinite;
+    }
+
+    .core {
+      position: absolute;
+      left: 50%;
+      top: 48%;
+      transform: translate(-50%, -50%);
+      width: min(300px, 48vw);
+      aspect-ratio: 1;
+      border: 1px solid rgba(247, 247, 242, 0.14);
+      border-radius: 8px;
+      background: rgba(11, 13, 12, 0.88);
+      display: grid;
+      place-items: center;
+      box-shadow: 0 28px 110px rgba(0, 0, 0, 0.46);
+      animation: coreBreathe 5.8s ease-in-out infinite;
+    }
+
+    .core img {
+      width: 128px;
+      height: 128px;
+      border-radius: 20px;
+    }
+
+    .core small {
+      margin-top: 18px;
+      color: var(--soft);
+      font-size: 0.75rem;
+    }
+
+    .ring {
+      position: absolute;
+      inset: 17%;
+      border: 1px dashed rgba(91, 167, 255, 0.32);
+      border-radius: 50%;
+      animation: spin 22s linear infinite;
+    }
+
+    .ring.two {
+      inset: 28%;
+      border-color: rgba(54, 214, 189, 0.38);
+      animation-duration: 16s;
+      animation-direction: reverse;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    @keyframes visualFloat {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-10px); }
+    }
+
+    @keyframes panelSheen {
+      0%, 45% { transform: translateX(-80%); opacity: 0; }
+      62% { opacity: 0.8; }
+      100% { transform: translateX(80%); opacity: 0; }
+    }
+
+    @keyframes coreBreathe {
+      0%, 100% {
+        box-shadow: 0 28px 110px rgba(0, 0, 0, 0.46), 0 0 0 rgba(114, 225, 207, 0);
+      }
+      50% {
+        box-shadow: 0 34px 120px rgba(0, 0, 0, 0.42), 0 0 46px rgba(114, 225, 207, 0.18);
+      }
+    }
+
+    .source-pill {
+      position: absolute;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-height: 46px;
+      padding: 10px 12px;
+      border: 1px solid rgba(247, 247, 242, 0.13);
+      border-radius: 8px;
+      background: rgba(11, 13, 12, 0.86);
+      color: var(--muted);
+      font-size: 0.82rem;
+      font-weight: 700;
+      box-shadow: 0 18px 50px rgba(0, 0, 0, 0.26);
+      animation: pillDrift 7s ease-in-out infinite;
+    }
+
+    .source-pill::before {
+      content: "";
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: var(--teal);
+    }
+
+    .source-pill.browser { left: 6%; top: 15%; animation-delay: -0.4s; }
+    .source-pill.llm { right: 5%; top: 18%; animation-delay: -1.3s; }
+    .source-pill.code { left: 4%; bottom: 21%; animation-delay: -2.2s; }
+    .source-pill.mcp { right: 7%; bottom: 25%; animation-delay: -3.1s; }
+    .source-pill.local { left: 50%; bottom: 7%; transform: translateX(-50%); animation-name: pillDriftCentered; animation-delay: -4s; }
+
+    @keyframes pillDrift {
+      0%, 100% { transform: translate3d(0, 0, 0); }
+      50% { transform: translate3d(0, -9px, 0); }
+    }
+
+    @keyframes pillDriftCentered {
+      0%, 100% { transform: translate3d(-50%, 0, 0); }
+      50% { transform: translate3d(-50%, -9px, 0); }
+    }
+
+    .contract-panel {
+      position: absolute;
+      right: 24px;
+      bottom: 24px;
+      width: 270px;
+      border: 1px solid rgba(116, 226, 143, 0.22);
+      border-radius: 8px;
+      background: rgba(12, 16, 14, 0.94);
+      padding: 16px;
+      animation: contractFloat 6.5s ease-in-out infinite;
+    }
+
+    @keyframes contractFloat {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-7px); }
+    }
+
+    .contract-panel h3 {
+      font-size: 0.78rem;
+      color: var(--green);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .contract-panel p {
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 0.82rem;
+    }
+
+    .contract-panel code {
+      display: block;
+      margin-top: 12px;
+      color: var(--ink);
+      font-size: 0.72rem;
+      white-space: pre-wrap;
+    }
+
+    section {
+      padding: 82px 0;
+      border-top: 1px solid rgba(247, 247, 242, 0.08);
+    }
+
+    .section-head {
+      display: grid;
+      grid-template-columns: minmax(0, 0.82fr) minmax(280px, 0.48fr);
+      gap: 34px;
+      align-items: end;
+      margin-bottom: 34px;
+    }
+
+    .kicker {
+      color: var(--teal);
+      font-size: 0.78rem;
+      font-weight: 800;
+      letter-spacing: 0.13em;
+      text-transform: uppercase;
+    }
+
+    h2 {
+      max-width: 780px;
+      margin-top: 12px;
+      font-size: clamp(2rem, 4vw, 4rem);
+      line-height: 1;
+      letter-spacing: 0;
+    }
+
+    .section-head p {
+      color: var(--muted);
+      font-size: 1rem;
+    }
+
+    .panel {
+      border: 1px solid rgba(247, 247, 242, 0.11);
+      border-radius: 8px;
+      background: rgba(18, 21, 19, 0.72);
+      box-shadow: 0 18px 70px rgba(0, 0, 0, 0.2);
+    }
+
+    .pipeline {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .step {
+      padding: 20px;
+      min-height: 190px;
       position: relative;
       overflow: hidden;
     }
-    .hero-grid {
-      position: absolute; inset: 0;
-      background-image:
-        linear-gradient(rgba(167,139,250,0.04) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(167,139,250,0.04) 1px, transparent 1px);
-      background-size: 60px 60px;
-      mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, black, transparent);
-    }
-    .hero-glow {
-      position: absolute; top: 10%; left: 50%; transform: translateX(-50%);
-      width: 600px; height: 300px;
-      background: radial-gradient(ellipse, rgba(124,58,237,0.2), transparent 70%);
-      pointer-events: none;
-    }
-    .badge {
-      display: inline-flex; align-items: center; gap: 0.5rem;
-      background: rgba(167,139,250,0.1); border: 1px solid rgba(167,139,250,0.25);
-      color: var(--purple); padding: 0.35rem 0.85rem; border-radius: 100px;
-      font-size: 0.8rem; font-weight: 500; margin-bottom: 2rem;
-      position: relative;
-    }
-    .badge-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--purple); animation: pulse 2s infinite; }
-    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
 
-    h1 {
-      font-size: clamp(2.5rem, 6vw, 4.5rem);
-      font-weight: 800; letter-spacing: -0.03em; line-height: 1.1;
-      max-width: 800px; margin-bottom: 1.5rem; position: relative;
-    }
-    h1 .highlight { color: var(--purple); }
-    .hero-sub {
-      font-size: clamp(1rem, 2vw, 1.2rem);
-      color: var(--text2); max-width: 560px; margin-bottom: 3rem; position: relative;
-    }
-    .hero-form {
-      display: flex; gap: 0.75rem; max-width: 440px; width: 100%;
-      position: relative; flex-wrap: wrap; justify-content: center;
-    }
-    .hero-form input {
-      flex: 1; min-width: 220px;
-      background: var(--bg3); border: 1px solid var(--border2);
-      color: var(--text); padding: 0.75rem 1rem; border-radius: 6px;
-      font-size: 0.95rem; font-family: inherit;
-      outline: none; transition: border-color 0.15s;
-    }
-    .hero-form input:focus { border-color: var(--purple); }
-    .hero-form input::placeholder { color: var(--text3); }
-    .btn-primary {
-      background: var(--purple); color: #fff; border: none;
-      padding: 0.75rem 1.5rem; border-radius: 6px;
-      font-size: 0.95rem; font-weight: 600; cursor: pointer;
-      transition: opacity 0.15s; font-family: inherit; white-space: nowrap;
-    }
-    .btn-primary:hover { opacity: 0.85; }
-    .hero-note { color: var(--text3); font-size: 0.8rem; margin-top: 1rem; position: relative; }
-    .waitlist-count {
-      display: flex; align-items: center; gap: 0.5rem;
-      margin-top: 1.5rem; color: var(--text2); font-size: 0.85rem; position: relative;
-    }
-    .avatars { display: flex; }
-    .avatar {
-      width: 28px; height: 28px; border-radius: 50%;
-      border: 2px solid var(--bg); margin-left: -8px;
-      background: var(--purple-dark);
-      display: flex; align-items: center; justify-content: center;
-      font-size: 0.65rem; font-weight: 700; color: #fff;
-    }
-    .avatar:first-child { margin-left: 0; }
-    .avatar.a2 { background: #4f46e5; }
-    .avatar.a3 { background: #7c3aed; }
-    .avatar.a4 { background: #6d28d9; }
-
-    /* ── SECTIONS ── */
-    section { padding: 6rem 2rem; }
-    .container { max-width: 1100px; margin: 0 auto; }
-    .section-label {
-      display: inline-block; color: var(--purple);
-      font-size: 0.8rem; font-weight: 600; letter-spacing: 0.1em;
-      text-transform: uppercase; margin-bottom: 1rem;
-    }
-    h2 {
-      font-size: clamp(1.8rem, 4vw, 2.8rem);
-      font-weight: 700; letter-spacing: -0.02em; margin-bottom: 1rem;
-    }
-    .section-sub { color: var(--text2); font-size: 1.1rem; max-width: 560px; }
-
-    /* ── PROBLEM ── */
-    .problem { background: var(--bg); }
-    .problem-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.5rem; margin-top: 3rem; }
-    .problem-card {
-      background: var(--bg2); border: 1px solid var(--border);
-      border-radius: 12px; padding: 1.75rem;
-    }
-    .problem-icon { font-size: 1.75rem; margin-bottom: 1rem; }
-    .problem-card h3 { font-size: 1.1rem; font-weight: 600; margin-bottom: 0.5rem; }
-    .problem-card p { color: var(--text2); font-size: 0.9rem; line-height: 1.6; }
-    .strikethrough { text-decoration: line-through; color: var(--text3); }
-
-    /* ── HOW IT WORKS ── */
-    .how { background: var(--bg2); }
-    .steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 2rem; margin-top: 3rem; position: relative; }
-    .step { position: relative; }
-    .step-num {
-      width: 40px; height: 40px; border-radius: 8px;
-      background: var(--purple-glow); border: 1px solid rgba(167,139,250,0.3);
-      display: flex; align-items: center; justify-content: center;
-      font-size: 0.875rem; font-weight: 700; color: var(--purple);
-      margin-bottom: 1.25rem;
-    }
-    .step h3 { font-size: 1.1rem; font-weight: 600; margin-bottom: 0.5rem; }
-    .step p { color: var(--text2); font-size: 0.9rem; line-height: 1.6; }
-
-    /* ── DEMO ── */
-    .demo { background: var(--bg); }
-    .demo-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-top: 3rem; }
-    @media (max-width: 700px) { .demo-grid { grid-template-columns: 1fr; } }
-    .demo-card {
-      background: var(--bg2); border: 1px solid var(--border);
-      border-radius: 12px; overflow: hidden;
-    }
-    .demo-card-header {
-      padding: 0.75rem 1rem; border-bottom: 1px solid var(--border);
-      display: flex; align-items: center; gap: 0.75rem;
-    }
-    .demo-dots { display: flex; gap: 5px; }
-    .demo-dot { width: 10px; height: 10px; border-radius: 50%; }
-    .dot-red { background: #f87171; }
-    .dot-yellow { background: #fbbf24; }
-    .dot-green { background: #4ade80; }
-    .demo-label { font-size: 0.75rem; color: var(--text3); font-family: 'JetBrains Mono', monospace; }
-    .demo-body { padding: 1.25rem; }
-    .demo-bad .demo-card-header { border-top: 2px solid var(--red); }
-    .demo-good .demo-card-header { border-top: 2px solid var(--green); }
-    .chat-msg { margin-bottom: 1rem; }
-    .chat-user { font-size: 0.8rem; color: var(--text3); margin-bottom: 0.25rem; font-family: 'JetBrains Mono', monospace; }
-    .chat-bubble {
-      background: var(--bg3); border: 1px solid var(--border);
-      border-radius: 8px; padding: 0.75rem; font-size: 0.85rem; color: var(--text2); line-height: 1.5;
-    }
-    .chat-bubble.user-bubble { background: rgba(167,139,250,0.08); border-color: rgba(167,139,250,0.2); color: var(--text); }
-    .chat-bubble.good { background: rgba(74,222,128,0.06); border-color: rgba(74,222,128,0.2); color: var(--text); }
-    .tag-bad { display: inline-block; background: rgba(248,113,113,0.1); border: 1px solid rgba(248,113,113,0.25); color: var(--red); font-size: 0.75rem; padding: 0.2rem 0.6rem; border-radius: 4px; margin-bottom: 0.75rem; }
-    .tag-good { display: inline-block; background: rgba(74,222,128,0.1); border: 1px solid rgba(74,222,128,0.25); color: var(--green); font-size: 0.75rem; padding: 0.2rem 0.6rem; border-radius: 4px; margin-bottom: 0.75rem; }
-
-    /* ── PERSONA CARD ── */
-    .persona-section { background: var(--bg2); text-align: center; }
-    .persona-card-wrap { display: flex; justify-content: center; margin-top: 3rem; }
-    .persona-card {
-      background: var(--bg3); border: 1px solid rgba(167,139,250,0.3);
-      border-radius: 16px; padding: 2rem; max-width: 460px; width: 100%;
-      box-shadow: 0 0 60px rgba(124,58,237,0.15);
-      text-align: left;
-    }
-    .persona-card-header {
-      display: flex; align-items: center; justify-content: space-between;
-      margin-bottom: 1.5rem; padding-bottom: 1rem; border-bottom: 1px solid var(--border);
-    }
-    .persona-card-title { font-size: 0.75rem; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--purple); }
-    .persona-status { display: flex; align-items: center; gap: 0.4rem; font-size: 0.75rem; color: var(--green); }
-    .persona-status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); animation: pulse 2s infinite; }
-    .persona-row { display: flex; gap: 1rem; padding: 0.6rem 0; border-bottom: 1px solid var(--border); align-items: flex-start; }
-    .persona-row:last-child { border-bottom: none; }
-    .persona-emoji { font-size: 1rem; width: 24px; flex-shrink: 0; margin-top: 1px; }
-    .persona-key { font-size: 0.8rem; color: var(--text3); width: 110px; flex-shrink: 0; font-family: 'JetBrains Mono', monospace; }
-    .persona-val { font-size: 0.85rem; color: var(--text); flex: 1; }
-    .persona-caption { text-align: center; margin-top: 1.5rem; color: var(--text3); font-size: 0.8rem; font-style: italic; }
-
-    /* ── PRIVACY ── */
-    .privacy-banner {
-      background: rgba(167,139,250,0.05);
-      border: 1px solid rgba(167,139,250,0.2);
-      border-radius: 12px; padding: 2rem; margin: 4rem auto 0;
-      max-width: 700px; text-align: center;
-    }
-    .privacy-banner h3 { font-size: 1.1rem; margin-bottom: 0.75rem; }
-    .privacy-banner p { color: var(--text2); font-size: 0.9rem; line-height: 1.7; }
-    .privacy-items { display: flex; justify-content: center; flex-wrap: wrap; gap: 1.5rem; margin-top: 1.5rem; }
-    .privacy-item { display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; color: var(--text2); }
-    .privacy-item span { color: var(--green); }
-
-    /* ── BUILT FOR ── */
-    .built-for { background: var(--bg); }
-    .audience-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-      gap: 1.25rem;
-      margin-top: 3rem;
-    }
-    .audience-card {
-      background: var(--bg2);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 1.5rem;
-      transition: border-color 0.2s, transform 0.2s;
-    }
-    .audience-card:hover { border-color: rgba(167,139,250,0.3); transform: translateY(-2px); }
-    .audience-card.featured { border-color: rgba(167,139,250,0.4); background: linear-gradient(180deg, rgba(167,139,250,0.05), var(--bg2)); }
-    .audience-header {
-      display: flex; align-items: center; gap: 0.75rem;
-      margin-bottom: 0.75rem;
-    }
-    .audience-icon {
-      width: 36px; height: 36px;
-      background: var(--purple-glow);
-      border: 1px solid rgba(167,139,250,0.25);
+    .step::before {
+      content: attr(data-step);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 30px;
+      height: 30px;
       border-radius: 8px;
-      display: flex; align-items: center; justify-content: center;
-      font-size: 1.1rem;
+      background: rgba(54, 214, 189, 0.12);
+      color: var(--teal);
+      font-family: "JetBrains Mono", monospace;
+      font-size: 0.76rem;
+      font-weight: 700;
     }
-    .audience-card h3 { font-size: 1rem; font-weight: 600; color: var(--text); }
-    .audience-tag {
-      display: inline-block;
-      font-size: 0.65rem;
-      font-weight: 600;
-      letter-spacing: 0.08em;
-      padding: 0.15rem 0.5rem;
-      border-radius: 4px;
-      margin-bottom: 0.5rem;
+
+    .step h3 {
+      margin-top: 24px;
+      font-size: 1.08rem;
+    }
+
+    .step p {
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 0.92rem;
+    }
+
+    .signal-layout {
+      display: grid;
+      grid-template-columns: 0.84fr 1.16fr;
+      gap: 18px;
+      align-items: stretch;
+    }
+
+    .source-list {
+      padding: 22px;
+    }
+
+    .source-list h3,
+    .taxonomy h3 {
+      font-size: 0.9rem;
       text-transform: uppercase;
-    }
-    .tag-launch { background: rgba(74,222,128,0.1); border: 1px solid rgba(74,222,128,0.25); color: var(--green); }
-    .tag-soon { background: rgba(167,139,250,0.1); border: 1px solid rgba(167,139,250,0.25); color: var(--purple); }
-    .audience-card p { color: var(--text2); font-size: 0.85rem; line-height: 1.55; margin-bottom: 0.75rem; }
-    .audience-example {
-      background: var(--bg);
-      border-left: 2px solid var(--purple);
-      padding: 0.6rem 0.85rem;
-      font-size: 0.8rem;
-      color: var(--text2);
-      font-family: 'JetBrains Mono', monospace;
-      line-height: 1.5;
-      border-radius: 0 4px 4px 0;
-    }
-    .audience-example strong { color: var(--purple); font-weight: 500; }
-
-    /* ── COMPARISON ── */
-    .comparison { background: var(--bg); }
-    .table-wrap { overflow-x: auto; margin-top: 3rem; }
-    table { width: 100%; border-collapse: collapse; font-size: 0.9rem; min-width: 500px; }
-    th { padding: 1rem; text-align: left; color: var(--text2); font-weight: 500; border-bottom: 1px solid var(--border); }
-    th.highlight-col { color: var(--purple); }
-    td { padding: 0.9rem 1rem; border-bottom: 1px solid var(--border); color: var(--text2); }
-    td.highlight-col { background: rgba(167,139,250,0.04); color: var(--text); font-weight: 500; }
-    .check { color: var(--green); font-size: 1rem; }
-    .cross { color: var(--red); font-size: 1rem; }
-    tr:last-child td { border-bottom: none; }
-    tr:hover td { background: rgba(255,255,255,0.02); }
-    tr:hover td.highlight-col { background: rgba(167,139,250,0.07); }
-
-    /* ── WORKS WITH ── */
-    .works-with { background: var(--bg2); text-align: center; }
-    .works-sub { color: var(--text2); margin-bottom: 2.5rem; }
-    .tool-grid { display: flex; flex-wrap: wrap; justify-content: center; gap: 1rem; }
-    .tool-chip {
-      background: var(--bg3); border: 1px solid var(--border);
-      border-radius: 8px; padding: 0.6rem 1.2rem;
-      font-size: 0.875rem; font-weight: 500; color: var(--text2);
-      display: flex; align-items: center; gap: 0.5rem;
+      letter-spacing: 0.11em;
+      color: var(--soft);
     }
 
-    /* ── FINAL CTA ── */
-    .final-cta {
-      background: var(--bg);
-      text-align: center; padding: 8rem 2rem;
-      position: relative; overflow: hidden;
+    .source-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 18px;
     }
-    .cta-glow {
-      position: absolute; bottom: 0; left: 50%; transform: translateX(-50%);
-      width: 500px; height: 200px;
-      background: radial-gradient(ellipse, rgba(124,58,237,0.15), transparent 70%);
-      pointer-events: none;
+
+    .source-item {
+      border: 1px solid rgba(247, 247, 242, 0.09);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.025);
+      padding: 14px;
     }
-    .final-cta h2 { margin-bottom: 1rem; }
-    .final-cta p { color: var(--text2); margin-bottom: 2.5rem; font-size: 1.05rem; }
-    .cta-form { display: flex; gap: 0.75rem; justify-content: center; flex-wrap: wrap; max-width: 440px; margin: 0 auto; }
-    .cta-form input {
-      flex: 1; min-width: 220px;
-      background: var(--bg3); border: 1px solid var(--border2);
-      color: var(--text); padding: 0.85rem 1rem; border-radius: 6px;
-      font-size: 0.95rem; font-family: inherit; outline: none;
+
+    .source-item strong {
+      display: block;
+      font-size: 0.92rem;
     }
-    .cta-form input:focus { border-color: var(--purple); }
-    .final-note { color: var(--text3); font-size: 0.8rem; margin-top: 1rem; }
+
+    .source-item span {
+      display: block;
+      margin-top: 6px;
+      color: var(--soft);
+      font-size: 0.78rem;
+    }
+
+    .taxonomy {
+      padding: 22px;
+      background: rgba(8, 10, 9, 0.52);
+    }
+
+    .taxonomy-table {
+      width: 100%;
+      margin-top: 18px;
+      border-collapse: collapse;
+      font-size: 0.88rem;
+    }
+
+    .taxonomy-table th,
+    .taxonomy-table td {
+      padding: 13px 10px;
+      border-bottom: 1px solid rgba(247, 247, 242, 0.09);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    .taxonomy-table th {
+      color: var(--soft);
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.09em;
+      font-weight: 800;
+    }
+
+    .taxonomy-table td:first-child {
+      color: var(--ink);
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
+    .taxonomy-table td:nth-child(2),
+    .taxonomy-table td:nth-child(3) {
+      color: var(--muted);
+    }
+
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      min-height: 24px;
+      padding: 0 8px;
+      border-radius: 999px;
+      border: 1px solid rgba(247, 247, 242, 0.12);
+      color: var(--soft);
+      font-size: 0.72rem;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .tag.allow { color: var(--green); border-color: rgba(116, 226, 143, 0.26); }
+    .tag.scoped { color: var(--amber); border-color: rgba(255, 193, 90, 0.3); }
+    .tag.block { color: var(--red); border-color: rgba(255, 107, 107, 0.3); }
+
+    .privacy-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .privacy-card {
+      padding: 22px;
+      min-height: 236px;
+    }
+
+    .privacy-card h3 {
+      font-size: 1.05rem;
+    }
+
+    .privacy-card p {
+      margin-top: 12px;
+      color: var(--muted);
+      font-size: 0.93rem;
+    }
+
+    .privacy-card .rule {
+      display: inline-flex;
+      margin-top: 22px;
+      color: var(--teal);
+      font-size: 0.78rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .prediction-wrap {
+      display: grid;
+      grid-template-columns: minmax(0, 0.86fr) minmax(360px, 1.14fr);
+      gap: 18px;
+      align-items: stretch;
+    }
+
+    .prediction-copy {
+      padding: 28px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      min-height: 430px;
+    }
+
+    .prediction-copy p {
+      color: var(--muted);
+      margin-top: 14px;
+    }
+
+    .prediction-copy ul {
+      margin: 28px 0 0;
+      padding: 0;
+      list-style: none;
+      display: grid;
+      gap: 12px;
+    }
+
+    .prediction-copy li {
+      padding-left: 24px;
+      position: relative;
+      color: var(--ink);
+      font-size: 0.95rem;
+    }
+
+    .prediction-copy li::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 0.62em;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--blue);
+    }
+
+    .prediction-ui {
+      padding: 18px;
+      background: #0c0f0d;
+    }
+
+    .window-bar {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding-bottom: 14px;
+      border-bottom: 1px solid rgba(247, 247, 242, 0.09);
+    }
+
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--red);
+    }
+
+    .dot:nth-child(2) { background: var(--amber); }
+    .dot:nth-child(3) { background: var(--green); }
+
+    .prediction-card {
+      margin-top: 16px;
+      border: 1px solid rgba(247, 247, 242, 0.1);
+      border-radius: 8px;
+      background: rgba(247, 247, 242, 0.035);
+      padding: 16px;
+    }
+
+    .prediction-card h3 {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      font-size: 0.94rem;
+    }
+
+    .prediction-card h3 span {
+      color: var(--teal);
+      font-family: "JetBrains Mono", monospace;
+      font-size: 0.78rem;
+      white-space: nowrap;
+    }
+
+    .prediction-card p {
+      color: var(--muted);
+      margin-top: 10px;
+      font-size: 0.88rem;
+    }
+
+    .evidence {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 14px;
+    }
+
+    .waitlist {
+      padding-bottom: 58px;
+    }
+
+    .waitlist-box {
+      display: grid;
+      grid-template-columns: minmax(0, 0.9fr) minmax(360px, 0.72fr);
+      gap: 30px;
+      align-items: center;
+      padding: clamp(24px, 5vw, 56px);
+      border: 1px solid rgba(54, 214, 189, 0.22);
+      border-radius: 8px;
+      background:
+        linear-gradient(135deg, rgba(54, 214, 189, 0.08), rgba(91, 167, 255, 0.05) 44%, rgba(124, 109, 242, 0.08)),
+        rgba(18, 21, 19, 0.86);
+      box-shadow: var(--shadow);
+    }
+
+    .waitlist h2 { max-width: 720px; }
+
+    .waitlist p {
+      max-width: 680px;
+      margin-top: 16px;
+      color: var(--muted);
+    }
+
+    .waitlist-form {
+      display: grid;
+      gap: 10px;
+    }
+
+    .field {
+      width: 100%;
+      height: 52px;
+      border: 1px solid rgba(247, 247, 242, 0.16);
+      border-radius: 8px;
+      background: rgba(5, 7, 6, 0.68);
+      color: var(--ink);
+      padding: 0 14px;
+      font: inherit;
+      outline: none;
+    }
+
+    .field:focus { border-color: var(--teal); }
+    .field::placeholder { color: var(--soft); }
+
     .success-msg {
       display: none;
-      background: rgba(74,222,128,0.08); border: 1px solid rgba(74,222,128,0.25);
-      color: var(--green); padding: 1rem 1.5rem; border-radius: 8px;
-      font-size: 0.9rem; margin-top: 1rem;
+      border: 1px solid rgba(116, 226, 143, 0.25);
+      border-radius: 8px;
+      background: rgba(116, 226, 143, 0.08);
+      color: var(--green);
+      padding: 14px;
+      font-weight: 800;
     }
 
-    /* ── FOOTER ── */
+    .form-note {
+      margin-top: 8px;
+      color: var(--soft);
+      font-size: 0.8rem;
+    }
+
     footer {
-      background: var(--bg2); border-top: 1px solid var(--border);
-      padding: 2rem; display: flex; align-items: center; justify-content: space-between;
-      flex-wrap: wrap; gap: 1rem;
+      padding: 26px 0 40px;
+      color: var(--soft);
+      font-size: 0.86rem;
     }
-    .footer-logo { font-size: 0.95rem; font-weight: 700; color: var(--text); }
-    .footer-logo span { color: var(--purple); }
-    .footer-links { display: flex; gap: 1.5rem; }
-    .footer-links a { color: var(--text3); text-decoration: none; font-size: 0.85rem; transition: color 0.15s; }
-    .footer-links a:hover { color: var(--text); }
-    .footer-copy { color: var(--text3); font-size: 0.8rem; }
 
-    /* ── ANIMATIONS ── */
-    .fade-in { opacity: 0; transform: translateY(20px); transition: opacity 0.6s ease, transform 0.6s ease; }
-    .fade-in.visible { opacity: 1; transform: translateY(0); }
+    .footer-inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+      border-top: 1px solid rgba(247, 247, 242, 0.08);
+      padding-top: 22px;
+    }
 
-    /* ── RESPONSIVE ── */
-    @media (max-width: 768px) {
-      nav { padding: 1rem; }
+    .footer-links {
+      display: flex;
+      gap: 18px;
+    }
+
+    .footer-links a {
+      text-decoration: none;
+    }
+
+    .fade-in {
+      opacity: 0;
+      filter: blur(8px);
+      transform: translateY(18px) scale(0.985);
+      transition: opacity 0.7s ease, filter 0.7s ease, transform 0.7s ease;
+    }
+
+    .fade-in.visible {
+      opacity: 1;
+      filter: blur(0);
+      transform: translateY(0) scale(1);
+    }
+
+    @media (max-width: 980px) {
+      .hero-grid,
+      .section-head,
+      .signal-layout,
+      .prediction-wrap,
+      .waitlist-box {
+        grid-template-columns: 1fr;
+      }
+
+      .product-visual { min-height: 520px; }
+      .pipeline { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .privacy-grid { grid-template-columns: 1fr; }
+      .contract-panel { width: min(300px, calc(100% - 48px)); }
+    }
+
+    @media (max-width: 720px) {
+      .container { width: min(100% - 28px, var(--max)); }
       .nav-links { display: none; }
-      .steps { grid-template-columns: 1fr; }
-      footer { flex-direction: column; text-align: center; }
+      .nav-inner { height: 64px; }
+      .hero { padding-top: 104px; }
+      .proof-row,
+      .pipeline,
+      .source-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .product-visual { min-height: 470px; }
+      .source-pill { font-size: 0.72rem; padding: 8px 10px; }
+      .source-pill.browser { left: 3%; top: 10%; }
+      .source-pill.llm { right: 3%; top: 12%; }
+      .source-pill.code { left: 3%; bottom: 26%; }
+      .source-pill.mcp { right: 3%; bottom: 28%; }
+      .source-pill.local { bottom: 7%; }
+      .contract-panel { display: none; }
+      .taxonomy { overflow-x: auto; }
+      .taxonomy-table { min-width: 680px; }
+      .footer-inner { flex-direction: column; align-items: flex-start; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.001ms !important;
+        animation-iteration-count: 1 !important;
+        scroll-behavior: auto !important;
+        transition-duration: 0.001ms !important;
+      }
     }
   </style>
 </head>
 <body>
-
-<!-- NAV -->
-<nav>
-  <div class="nav-logo">Persona<span>Layer</span></div>
-  <div class="nav-links">
-    <a href="#how">How it works</a>
-    <a href="#demo">Demo</a>
-    <a href="#built-for">Built for</a>
-  </div>
-  <a href="#waitlist" class="nav-cta">Join Waitlist</a>
-</nav>
-
-<!-- HERO -->
-<section class="hero">
-  <div class="hero-grid"></div>
-  <div class="hero-glow"></div>
-
-  <div class="badge">
-    <span class="badge-dot"></span>
-    Early Access — Join the waitlist
-  </div>
-
-  <h1>Stop <span class="highlight">explaining yourself</span> to every AI you use.</h1>
-
-  <p class="hero-sub">PersonaLayer learns who you are from what you do — then makes every AI feel like it's known you for months. Open Claude, Cursor, or GPT and they already know your project, your stack, and how you think.</p>
-
-  <form class="hero-form" onsubmit="submitWaitlist(event, 'hero-success')">
-    <input type="email" id="hero-email" placeholder="your@email.com" required>
-    <button class="btn-primary" type="submit">Join Waitlist →</button>
-  </form>
-  <div id="hero-success" class="success-msg">✓ You're on the list! We'll reach out when you're in.</div>
-  <p class="hero-note">Free forever. Local-first. No credit card.</p>
-
-  <div class="waitlist-count">
-    <div class="avatars">
-      <div class="avatar">AK</div>
-      <div class="avatar a2">MR</div>
-      <div class="avatar a3">JS</div>
-      <div class="avatar a4">PL</div>
+  <header class="nav">
+    <div class="container nav-inner">
+      <a class="brand" href="#" aria-label="PersonaLayer home">
+        <img src="../assets/personalayer-logo-symbol.svg" alt="">
+        <span>Persona<span>Layer</span></span>
+      </a>
+      <nav class="nav-links" aria-label="Main navigation">
+        <a href="#pipeline">Pipeline</a>
+        <a href="#signals">Signals</a>
+        <a href="#privacy">Privacy</a>
+        <a href="#prediction">Prediction</a>
+      </nav>
+      <a class="button" href="#waitlist">Join Waitlist</a>
     </div>
-    <span>Join <strong><span id="waitlist-count">240</span>+ developers</strong> already on the waitlist</span>
-  </div>
-</section>
+  </header>
 
-<!-- PROBLEM -->
-<section class="problem">
-  <div class="container">
-    <span class="section-label fade-in">The Problem</span>
-    <h2 class="fade-in">Every AI treats you like a stranger</h2>
-    <p class="section-sub fade-in">You use 3 AI tools daily. Each one forgets you the moment you close it.</p>
-
-    <div class="problem-grid">
-      <div class="problem-card fade-in">
-        <div class="problem-icon">🔄</div>
-        <h3>Every session starts from zero</h3>
-        <p>You open Claude. It has no idea who you are, what you're building, or how you think. You spend the first 5 minutes explaining yourself — again.</p>
-      </div>
-      <div class="problem-card fade-in">
-        <div class="problem-icon">🔀</div>
-        <h3>Switching LLMs = losing everything</h3>
-        <p>Move from Claude to GPT-4o or Cursor. Your entire context — project, stack, preferences, blockers — vanishes. Start from scratch. Every time.</p>
-      </div>
-      <div class="problem-card fade-in">
-        <div class="problem-icon">😤</div>
-        <h3>You repeat yourself 10x a day</h3>
-        <p>Your stack. Your project. Your style. Your constraints. You type the same context into every tool, every session, every day. That time adds up fast.</p>
-      </div>
-    </div>
-  </div>
-</section>
-
-<!-- HOW IT WORKS -->
-<section class="how" id="how">
-  <div class="container">
-    <span class="section-label fade-in">How It Works</span>
-    <h2 class="fade-in">Install once. Every AI knows you.</h2>
-    <p class="section-sub fade-in">Three components that work silently in the background.</p>
-
-    <div class="steps">
-      <div class="step fade-in">
-        <div class="step-num">01</div>
-        <h3>Install &amp; forget</h3>
-        <p>A Chrome extension silently tracks what you browse, build, search, and read. Runs entirely on your machine. Nothing leaves your device.</p>
-      </div>
-      <div class="step fade-in">
-        <div class="step-num">02</div>
-        <h3>Persona builds overnight</h3>
-        <p>Every night, PersonaLayer analyzes your behavior and builds a structured profile: what you're building, how you think, what obsesses you, how you communicate.</p>
-      </div>
-      <div class="step fade-in">
-        <div class="step-num">03</div>
-        <h3>Every AI knows you instantly</h3>
-        <p>Via MCP server, Claude, Cursor, Perplexity, and any AI agent automatically gets your full context before you type a word. No configuration needed.</p>
-      </div>
-    </div>
-  </div>
-</section>
-
-<!-- DEMO -->
-<section class="demo" id="demo">
-  <div class="container">
-    <span class="section-label fade-in">See The Difference</span>
-    <h2 class="fade-in">The same question. Two completely different experiences.</h2>
-    <p class="section-sub fade-in">Claude was freshly installed in both cases. Never talked to this user before.</p>
-
-    <div class="demo-grid">
-      <div class="demo-card demo-bad fade-in">
-        <div class="demo-card-header">
-          <div class="demo-dots">
-            <div class="demo-dot dot-red"></div>
-            <div class="demo-dot dot-yellow"></div>
-            <div class="demo-dot dot-green"></div>
+  <main>
+    <section class="hero">
+      <div class="container hero-grid">
+        <div>
+          <div class="eyebrow mono">Everything personalized for you</div>
+          <h1>Make every AI feel like it was built <span class="accent">just for you.</span></h1>
+          <p class="hero-copy">
+            PersonaLayer learns from your real digital activity, builds a living persona on your machine, and gives Claude, Cursor, MCP tools, local models, and future AI apps the right personal context at the right moment.
+          </p>
+          <div class="hero-actions">
+            <a class="button" href="#waitlist">Join the private waitlist</a>
+            <a class="button secondary" href="#signals">See what it learns</a>
           </div>
-          <span class="demo-label">Without PersonaLayer</span>
+          <div class="proof-row" aria-label="Product principles">
+            <div class="proof">
+              <strong>SQLite</strong>
+              <span>Raw activity remains local by default.</span>
+            </div>
+            <div class="proof">
+              <strong>MCP + HTTP</strong>
+              <span>Scoped persona context for AI tools.</span>
+            </div>
+            <div class="proof">
+              <strong>Audit log</strong>
+              <span>Every access is visible and reversible.</span>
+            </div>
+          </div>
         </div>
-        <div class="demo-body">
-          <span class="tag-bad">❌ Cold start</span>
-          <div class="chat-msg">
-            <div class="chat-user">You</div>
-            <div class="chat-bubble user-bubble">Help me with my project</div>
-          </div>
-          <div class="chat-msg">
-            <div class="chat-user">Claude</div>
-            <div class="chat-bubble">I'd be happy to help! Could you tell me more about your project? What are you building, what tech stack are you using, what's your goal, and what specifically do you need help with?</div>
-          </div>
-          <div class="chat-msg">
-            <div class="chat-user">You</div>
-            <div class="chat-bubble user-bubble">I'm building an MCP server in Python, FastAPI backend, targeting indie devs, minimal code philosophy, currently stuck on OAuth token refresh logic...</div>
+
+        <div class="product-visual" aria-label="PersonaLayer product visualization">
+          <div class="orbital">
+            <div class="ring"></div>
+            <div class="ring two"></div>
+            <div class="source-pill browser">Your browsing</div>
+            <div class="source-pill llm">Your AI chats</div>
+            <div class="source-pill code">Your code work</div>
+            <div class="source-pill mcp">Your tool calls</div>
+            <div class="source-pill local">Your local persona</div>
+            <div class="core">
+              <div>
+                <img src="../assets/personalayer-logo-symbol.svg" alt="PersonaLayer symbol">
+                <small class="mono">living_persona.v1</small>
+              </div>
+            </div>
+            <div class="contract-panel">
+              <h3>Personalized context</h3>
+              <p>Cursor asks what you are building. PersonaLayer returns your stack, active repo, preferred style, and blocked fields.</p>
+              <code>{
+  allow: ["skills", "tools", "goals"],
+  deny: ["tokens", "finance", "private"]
+}</code>
+            </div>
           </div>
         </div>
       </div>
+    </section>
 
-      <div class="demo-card demo-good fade-in">
-        <div class="demo-card-header">
-          <div class="demo-dots">
-            <div class="demo-dot dot-red"></div>
-            <div class="demo-dot dot-yellow"></div>
-            <div class="demo-dot dot-green"></div>
+    <section id="pipeline">
+      <div class="container">
+        <div class="section-head">
+          <div>
+            <div class="kicker">Core pipeline</div>
+            <h2>A living model of what matters to you.</h2>
           </div>
-          <span class="demo-label">With PersonaLayer</span>
+          <p>PersonaLayer turns behavior into evidence-backed persona signals, then serves only the personal context each app is allowed to receive.</p>
         </div>
-        <div class="demo-body">
-          <span class="tag-good">✓ Instant context</span>
-          <div class="chat-msg">
-            <div class="chat-user">You</div>
-            <div class="chat-bubble user-bubble">Help me with my project</div>
+        <div class="pipeline">
+          <article class="panel step fade-in" data-step="01">
+            <h3>Collect signals</h3>
+            <p>Browser, LLM chats, MCP traffic, coding tools, CLI agents, feeds, GitHub, productivity apps, and local models.</p>
+          </article>
+          <article class="panel step fade-in" data-step="02">
+            <h3>Extract structure</h3>
+            <p>Convert activity into interests, work domains, skills, tools, decisions, privacy rules, preferences, and goals.</p>
+          </article>
+          <article class="panel step fade-in" data-step="03">
+            <h3>Build the persona</h3>
+            <p>Merge cross-source signals with recency, confidence, evidence, feedback, importance, and temporal scope.</p>
+          </article>
+          <article class="panel step fade-in" data-step="04">
+            <h3>Serve scoped context</h3>
+            <p>AI apps declare a use case, receive allowed fields through MCP or HTTP, and leave a complete access trail.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section id="signals">
+      <div class="container">
+        <div class="section-head">
+          <div>
+            <div class="kicker">Signal map</div>
+            <h2>How PersonaLayer learns what makes your AI experience personal.</h2>
           </div>
-          <div class="chat-msg">
-            <div class="chat-user">Claude</div>
-            <div class="chat-bubble good">Picking up on your MCP server work — you've been stuck on the OAuth token refresh edge case. Given you prefer minimal abstractions and you're using FastAPI, here's the cleanest approach without adding middleware bloat...</div>
+          <p>The persona should come from patterns, not raw private content. Store evidence locally, derive structured fields, and attach confidence plus privacy level to every signal.</p>
+        </div>
+
+        <div class="signal-layout">
+          <div class="panel source-list fade-in">
+            <h3>Sources to collect from</h3>
+            <div class="source-grid">
+              <div class="source-item"><strong>Browser usage</strong><span>Domains, topics, docs visited, research loops, active tabs, dwell time.</span></div>
+              <div class="source-item"><strong>LLM conversations</strong><span>Prompts, requested outputs, correction style, recurring problems, tool expectations.</span></div>
+              <div class="source-item"><strong>Coding tools</strong><span>Repos, languages, frameworks, errors, file types, tasks, commit rhythm.</span></div>
+              <div class="source-item"><strong>MCP servers</strong><span>Tool calls, resources requested, allowed scopes, blocked fields, app intent.</span></div>
+              <div class="source-item"><strong>CLI AI tools</strong><span>Commands, agent tasks, terminal workflows, build/test patterns, local automation.</span></div>
+              <div class="source-item"><strong>GitHub</strong><span>Issues, PRs, commits, stars, watched repos, contribution domains.</span></div>
+              <div class="source-item"><strong>Productivity apps</strong><span>Calendar categories, tasks, docs, notes, project names, deadlines.</span></div>
+              <div class="source-item"><strong>Feeds and local models</strong><span>Reading interests, saved links, model usage, local inference patterns.</span></div>
+            </div>
+          </div>
+
+          <div class="panel taxonomy fade-in">
+            <h3>Derived persona categories</h3>
+            <table class="taxonomy-table">
+              <thead>
+                <tr>
+                  <th>Category</th>
+                  <th>What to infer</th>
+                  <th>Evidence examples</th>
+                  <th>Default</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Work graph</td>
+                  <td>Active projects, domains, companies, repo context, current task state.</td>
+                  <td>Tabs, repos, commits, prompts, docs, files, issues.</td>
+                  <td><span class="tag allow">Scoped</span></td>
+                </tr>
+                <tr>
+                  <td>Knowledge graph</td>
+                  <td>Skills, tools, frameworks, concepts known deeply, topics being learned.</td>
+                  <td>Repeated usage, explanations requested, code authored, docs visited.</td>
+                  <td><span class="tag allow">Allowed</span></td>
+                </tr>
+                <tr>
+                  <td>Preference model</td>
+                  <td>Communication style, answer length, design taste, decision criteria, tradeoffs.</td>
+                  <td>Edits, rejections, chosen outputs, feedback text, accepted code style.</td>
+                  <td><span class="tag allow">Allowed</span></td>
+                </tr>
+                <tr>
+                  <td>Intent timeline</td>
+                  <td>Near-term goals, recurring routines, likely next task, urgency, blockers.</td>
+                  <td>Recent app sequence, calendar, CLI history, active tabs, prompts.</td>
+                  <td><span class="tag scoped">Scoped</span></td>
+                </tr>
+                <tr>
+                  <td>Boundary model</td>
+                  <td>What can be shared, with whom, for what purpose, and at what granularity.</td>
+                  <td>User rules, denied requests, app contracts, field privacy levels.</td>
+                  <td><span class="tag block">Deny first</span></td>
+                </tr>
+                <tr>
+                  <td>Sensitive data</td>
+                  <td>Tokens, passwords, private messages, health, finance, identity, private URLs.</td>
+                  <td>Detected secrets, classified fields, browser/private app content.</td>
+                  <td><span class="tag block">Blocked</span></td>
+                </tr>
+              </tbody>
+            </table>
           </div>
         </div>
       </div>
-    </div>
-  </div>
-</section>
+    </section>
 
-<!-- PERSONA CARD -->
-<section class="persona-section">
-  <div class="container">
-    <span class="section-label fade-in">Your AI Profile</span>
-    <h2 class="fade-in">This wasn't typed. It was observed.</h2>
-    <p class="section-sub fade-in" style="margin: 0 auto;">PersonaLayer infers who you are from what you actually do — not from what you tell it.</p>
+    <section id="privacy">
+      <div class="container">
+        <div class="section-head">
+          <div>
+            <div class="kicker">Local-first control</div>
+            <h2>Raw activity is not the product. Permissioned context is.</h2>
+          </div>
+          <p>Each persona signal should carry source, timestamp, confidence, importance, privacy level, evidence references, and user feedback state.</p>
+        </div>
 
-    <div class="persona-card-wrap">
-      <div class="persona-card fade-in">
-        <div class="persona-card-header">
-          <span class="persona-card-title">PersonaLayer Profile</span>
-          <span class="persona-status"><span class="persona-status-dot"></span>Live · Updated 2h ago</span>
+        <div class="privacy-grid">
+          <article class="panel privacy-card fade-in">
+            <span class="rule">Deny by default</span>
+            <h3>Private and sensitive data never becomes casual context.</h3>
+            <p>Raw browsing history, private content, tokens, health, finance, credentials, and sensitive identity data are blocked unless the user explicitly changes the rule.</p>
+          </article>
+          <article class="panel privacy-card fade-in">
+            <span class="rule">Contracts per app</span>
+            <h3>Every AI tool must declare why it needs context.</h3>
+            <p>A coding agent gets stack, repo, style, and current task. A writing app gets voice and goals. Neither gets unrelated private fields.</p>
+          </article>
+          <article class="panel privacy-card fade-in">
+            <span class="rule">User correction</span>
+            <h3>The persona has to be editable, not mystical.</h3>
+            <p>Users can confirm, reject, hide, boost, correct, set temporal scope, and lower or raise privacy on any inferred signal.</p>
+          </article>
         </div>
-        <div class="persona-row">
-          <span class="persona-emoji">🔨</span>
-          <span class="persona-key">building</span>
-          <span class="persona-val">MCP personalization platform</span>
+      </div>
+    </section>
+
+    <section id="prediction">
+      <div class="container">
+        <div class="prediction-wrap">
+          <div class="panel prediction-copy fade-in">
+            <div>
+              <div class="kicker">Prediction layer</div>
+              <h2>Know what you need next.</h2>
+              <p>PersonaLayer predicts likely next tasks, context to preload, tools to open, evidence to surface, and confidence behind each suggestion.</p>
+            </div>
+            <ul>
+              <li>Preload repo, issue, docs, and recent decisions before the coding agent asks.</li>
+              <li>Detect when the user moved from research to implementation.</li>
+              <li>Recommend safe context fields instead of dumping memory into every prompt.</li>
+              <li>Show evidence so the user can correct bad assumptions quickly.</li>
+            </ul>
+          </div>
+
+          <div class="panel prediction-ui fade-in" aria-label="Prediction dashboard mockup">
+            <div class="window-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
+            <div class="prediction-card">
+              <h3>Next likely task <span>0.84</span></h3>
+              <p>Continue landing page implementation and connect waitlist capture to the local FastAPI endpoint.</p>
+              <div class="evidence">
+                <span class="tag allow">recent file: landing/index.html</span>
+                <span class="tag allow">tool: Codex</span>
+                <span class="tag scoped">goal: startup launch</span>
+              </div>
+            </div>
+            <div class="prediction-card">
+              <h3>Context to preload <span>0.78</span></h3>
+              <p>Brand positioning, local-first privacy rules, current Python/FastAPI backend, and existing SQLite waitlist API.</p>
+              <div class="evidence">
+                <span class="tag allow">persona: prefers direct build help</span>
+                <span class="tag scoped">source: repo scan</span>
+              </div>
+            </div>
+            <div class="prediction-card">
+              <h3>Never share <span>policy</span></h3>
+              <p>Raw browser URLs, private messages, tokens, financial data, health data, and secrets unless a user-created contract explicitly permits it.</p>
+              <div class="evidence">
+                <span class="tag block">deny</span>
+                <span class="tag block">audit required</span>
+              </div>
+            </div>
+          </div>
         </div>
-        <div class="persona-row">
-          <span class="persona-emoji">🧠</span>
-          <span class="persona-key">expert in</span>
-          <span class="persona-val">Python, FastAPI, SQLite, MCP</span>
+      </div>
+    </section>
+
+    <section class="waitlist" id="waitlist">
+      <div class="container">
+        <div class="waitlist-box">
+          <div>
+            <div class="kicker">Private beta</div>
+            <h2>Join the waitlist for AI that feels personal.</h2>
+            <p>We are starting with developers, founders, researchers, and power users who already work across multiple AI tools and want personalization without surrendering control.</p>
+          </div>
+          <div>
+            <form class="waitlist-form" onsubmit="submitWaitlist(event, 'waitlist-success')">
+              <input class="field" type="email" id="waitlist-email" placeholder="you@company.com" autocomplete="email" required>
+              <button class="button" type="submit">Request early access</button>
+            </form>
+            <div id="waitlist-success" class="success-msg">You are on the list. We will reach out when your spot is ready.</div>
+            <p class="form-note">Local-first, user-owned, and built for scoped AI context. No spam.</p>
+          </div>
         </div>
-        <div class="persona-row">
-          <span class="persona-emoji">📚</span>
-          <span class="persona-key">learning</span>
-          <span class="persona-val">Vector DBs, LoRA fine-tuning</span>
-        </div>
-        <div class="persona-row">
-          <span class="persona-emoji">⚡</span>
-          <span class="persona-key">works best</span>
-          <span class="persona-val">10pm – 2am</span>
-        </div>
-        <div class="persona-row">
-          <span class="persona-emoji">🎯</span>
-          <span class="persona-key">obsessions</span>
-          <span class="persona-val">AI agents, YC, indie hacking</span>
-        </div>
-        <div class="persona-row">
-          <span class="persona-emoji">✍️</span>
-          <span class="persona-key">style</span>
-          <span class="persona-val">Terse, minimal, ships fast</span>
-        </div>
-        <div class="persona-row">
-          <span class="persona-emoji">🚫</span>
-          <span class="persona-key">avoid</span>
-          <span class="persona-val">Vendor lock-in, over-engineering</span>
-        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="container footer-inner">
+      <div class="brand" aria-label="PersonaLayer">
+        <img src="../assets/personalayer-logo-symbol.svg" alt="">
+        <span>Persona<span>Layer</span></span>
+      </div>
+      <div class="footer-links">
+        <a href="#signals">Signal map</a>
+        <a href="#privacy">Privacy</a>
+        <a href="mailto:hello@personalayer.com">Contact</a>
       </div>
     </div>
-    <p class="persona-caption fade-in">Every AI you use now gets this as context — automatically.</p>
+  </footer>
 
-    <div class="privacy-banner fade-in">
-      <h3>🔒 100% Local. Your data never leaves your machine.</h3>
-      <p>PersonaLayer runs entirely on localhost. Raw browsing data stays on your device. The only external call is a nightly anonymized summary to build your profile — no URLs, no personal data transmitted.</p>
-      <div class="privacy-items">
-        <div class="privacy-item"><span>✓</span> Runs on localhost</div>
-        <div class="privacy-item"><span>✓</span> No accounts required</div>
-        <div class="privacy-item"><span>✓</span> Open source (MIT)</div>
-        <div class="privacy-item"><span>✓</span> Delete anytime</div>
-      </div>
-    </div>
-  </div>
-</section>
+  <script>
+    const FORMSPREE_ID = null;
+    const LOCAL_API = "http://127.0.0.1:7823";
 
-<!-- BUILT FOR -->
-<section class="built-for" id="built-for">
-  <div class="container">
-    <span class="section-label fade-in">Built For</span>
-    <h2 class="fade-in">Made for the people who use AI all day</h2>
-    <p class="section-sub fade-in">If you switch between Claude, Cursor, and Perplexity in a single hour — this was built for you.</p>
+    async function submitWaitlist(event, successId) {
+      event.preventDefault();
 
-    <div class="audience-grid">
-      <div class="audience-card featured fade-in">
-        <span class="audience-tag tag-launch">Launch users</span>
-        <div class="audience-header">
-          <div class="audience-icon">💻</div>
-          <h3>Developers &amp; Indie Hackers</h3>
-        </div>
-        <p>AI knows your stack, current branch, blocked tickets, and architectural preferences before you say a word.</p>
-        <div class="audience-example">
-          Open Cursor → "fix this bug"<br>
-          AI knows: <strong>you use Pytest, prefer composition, hate ORMs</strong>
-        </div>
-      </div>
+      const form = event.currentTarget;
+      const email = document.getElementById("waitlist-email").value.trim();
+      const success = document.getElementById(successId);
+      const button = form.querySelector("button");
+      const originalText = button.textContent;
 
-      <div class="audience-card featured fade-in">
-        <span class="audience-tag tag-launch">Launch users</span>
-        <div class="audience-header">
-          <div class="audience-icon">🤖</div>
-          <h3>AI Builders &amp; Prompt Engineers</h3>
-        </div>
-        <p>Use your own persona as test data. Build agents that actually know how real users think and decide.</p>
-        <div class="audience-example">
-          "Test my agent" → <strong>uses YOUR profile as edge-case user</strong>
-        </div>
-      </div>
+      button.disabled = true;
+      button.textContent = "Joining...";
 
-      <div class="audience-card featured fade-in">
-        <span class="audience-tag tag-launch">Launch users</span>
-        <div class="audience-header">
-          <div class="audience-icon">🚀</div>
-          <h3>Technical Founders</h3>
-        </div>
-        <p>AI writes investor emails in your voice, drafts pitch updates with current metrics, surfaces relevant patterns from your behavior.</p>
-        <div class="audience-example">
-          "Draft response to this VC" → <strong>your style, your context, your data</strong>
-        </div>
-      </div>
+      try {
+        if (FORMSPREE_ID) {
+          await fetch(`https://formspree.io/f/${FORMSPREE_ID}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email, source: "landing" })
+          });
+        } else {
+          const response = await fetch(`${LOCAL_API}/waitlist`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email, source: "landing" })
+          });
 
-      <div class="audience-card featured fade-in">
-        <span class="audience-tag tag-launch">Launch users</span>
-        <div class="audience-header">
-          <div class="audience-icon">💼</div>
-          <h3>Solo Consultants &amp; Freelancers</h3>
-        </div>
-        <p>AI delivers reports in your methodology, references your past work, follows your pricing logic. Your premium = your style.</p>
-        <div class="audience-example">
-          "Draft proposal for client X" → <strong>uses your structure + rate patterns</strong>
-        </div>
-      </div>
-
-      <div class="audience-card fade-in">
-        <span class="audience-tag tag-soon">Coming soon</span>
-        <div class="audience-header">
-          <div class="audience-icon">🔬</div>
-          <h3>Researchers</h3>
-        </div>
-        <p>AI knows your active papers, citation preferences, methodology bias, and current literature focus.</p>
-        <div class="audience-example">
-          "Summarize this paper" → <strong>emphasizes what matters to YOUR research</strong>
-        </div>
-      </div>
-
-      <div class="audience-card fade-in">
-        <span class="audience-tag tag-soon">Coming soon</span>
-        <div class="audience-header">
-          <div class="audience-icon">📋</div>
-          <h3>Product Managers</h3>
-        </div>
-        <p>AI drafts specs in your team's format, knows current sprint context, references prior decisions automatically.</p>
-        <div class="audience-example">
-          "Draft RFC for new feature" → <strong>your team's template + prior architecture</strong>
-        </div>
-      </div>
-
-      <div class="audience-card fade-in">
-        <span class="audience-tag tag-soon">Coming soon</span>
-        <div class="audience-header">
-          <div class="audience-icon">🎨</div>
-          <h3>Designers Using AI</h3>
-        </div>
-        <p>AI generates copy in your aesthetic, knows your design system, references your client constraints.</p>
-        <div class="audience-example">
-          Figma + AI → <strong>UI copy matching your brand voice automatically</strong>
-        </div>
-      </div>
-
-      <div class="audience-card fade-in">
-        <span class="audience-tag tag-soon">Coming soon</span>
-        <div class="audience-header">
-          <div class="audience-icon">✍️</div>
-          <h3>Content Creators (B2B)</h3>
-        </div>
-        <p>AI writes in your voice for newsletter, knows audience preferences, references hooks that worked for you before.</p>
-        <div class="audience-example">
-          "Outline next post" → <strong>references your top-performing hooks</strong>
-        </div>
-      </div>
-
-      <div class="audience-card fade-in">
-        <span class="audience-tag tag-soon">Enterprise</span>
-        <div class="audience-header">
-          <div class="audience-icon">📞</div>
-          <h3>Sales Engineers</h3>
-        </div>
-        <p>AI drafts technical proposals matching your style, references your prior wins, your customer's stack.</p>
-        <div class="audience-example">
-          Discovery notes → <strong>solution doc in YOUR voice, not generic</strong>
-        </div>
-      </div>
-
-      <div class="audience-card fade-in">
-        <span class="audience-tag tag-soon">Enterprise</span>
-        <div class="audience-header">
-          <div class="audience-icon">⚖️</div>
-          <h3>Legal Pros (AI-forward)</h3>
-        </div>
-        <p>AI drafts in your firm's voice, knows your case strategy patterns, your citation preferences.</p>
-        <div class="audience-example">
-          "Draft motion" → <strong>your style, your firm's structure, your citations</strong>
-        </div>
-      </div>
-
-      <div class="audience-card fade-in">
-        <span class="audience-tag tag-soon">Enterprise</span>
-        <div class="audience-header">
-          <div class="audience-icon">📈</div>
-          <h3>Analysts &amp; VCs</h3>
-        </div>
-        <p>AI summarizes deals in your thesis framework, surfaces companies matching your investment patterns.</p>
-        <div class="audience-example">
-          "Score this startup" → <strong>uses YOUR rubric, not generic</strong>
-        </div>
-      </div>
-
-      <div class="audience-card fade-in">
-        <span class="audience-tag tag-soon">Future</span>
-        <div class="audience-header">
-          <div class="audience-icon">🌐</div>
-          <h3>Anyone using 3+ AI tools</h3>
-        </div>
-        <p>If you use Claude + Cursor + Perplexity daily — switching context costs you 30 minutes a day. PersonaLayer kills that.</p>
-        <div class="audience-example">
-          Save <strong>~15-30 min/day</strong> in re-explanation across tools
-        </div>
-      </div>
-    </div>
-  </div>
-</section>
-
-<!-- WORKS WITH -->
-<section class="works-with">
-  <div class="container">
-    <span class="section-label fade-in">Integrations</span>
-    <h2 class="fade-in">Works with every MCP-compatible tool</h2>
-    <p class="works-sub fade-in">One install. All your AI tools, instantly personalized.</p>
-    <div class="tool-grid fade-in">
-      <div class="tool-chip">⚡ Claude Desktop</div>
-      <div class="tool-chip">🖱️ Cursor</div>
-      <div class="tool-chip">🌊 Windsurf</div>
-      <div class="tool-chip">🔍 Perplexity</div>
-      <div class="tool-chip">🤖 Any MCP Client</div>
-      <div class="tool-chip">+ More coming</div>
-    </div>
-  </div>
-</section>
-
-<!-- FINAL CTA -->
-<section class="final-cta" id="waitlist">
-  <div class="cta-glow"></div>
-  <div class="container" style="position:relative">
-    <span class="section-label fade-in">Early Access</span>
-    <h2 class="fade-in">The last time you'll explain your stack to an AI.</h2>
-    <p class="fade-in">Free forever. Local-first. Open source. <br>Early access users shape the product.</p>
-
-    <form class="cta-form" onsubmit="submitWaitlist(event, 'cta-success')">
-      <input type="email" id="cta-email" placeholder="your@email.com" required>
-      <button class="btn-primary" type="submit">Get Early Access →</button>
-    </form>
-    <div id="cta-success" class="success-msg">✓ You're on the list! We'll reach out when you're in.</div>
-    <p class="final-note">No spam. Unsubscribe anytime. We'll email you when your spot is ready.</p>
-  </div>
-</section>
-
-<!-- FOOTER -->
-<footer>
-  <div class="footer-logo">Persona<span>Layer</span></div>
-  <div class="footer-links">
-    <a href="https://github.com" target="_blank">GitHub</a>
-    <a href="mailto:hello@personalayer.com">Contact</a>
-    <a href="https://twitter.com" target="_blank">Twitter / X</a>
-  </div>
-  <span class="footer-copy">MIT License · Built for developers</span>
-</footer>
-
-<script>
-  // ── Waitlist config ──
-  // Option A (local dev):  set FORMSPREE_ID = null  →  hits localhost:7823
-  // Option B (production): set FORMSPREE_ID = 'xyzabc123'  →  hits Formspree
-  const FORMSPREE_ID = null; // ← PASTE your Formspree form ID here when deploying
-  const LOCAL_API   = 'http://localhost:7823';
-
-  // Load waitlist count on page load (only works with local backend)
-  async function loadWaitlistCount() {
-    if (FORMSPREE_ID) return; // Formspree doesn't expose count
-    try {
-      const resp = await fetch(LOCAL_API + '/waitlist/count');
-      const data = await resp.json();
-      const countEl = document.getElementById('waitlist-count');
-      if (countEl && data.count) countEl.textContent = data.count;
-    } catch (e) { /* silent */ }
-  }
-  loadWaitlistCount();
-
-  // Waitlist form handler
-  async function submitWaitlist(e, successId) {
-    e.preventDefault();
-    const emailId = successId === 'hero-success' ? 'hero-email' : 'cta-email';
-    const email   = document.getElementById(emailId).value;
-    const source  = successId === 'hero-success' ? 'hero' : 'cta';
-
-    // Optimistic UI
-    const form    = e.target;
-    form.style.display = 'none';
-    const success = document.getElementById(successId);
-    success.style.display = 'block';
-
-    try {
-      if (FORMSPREE_ID) {
-        // ── Production path: Formspree ──
-        await fetch(`https://formspree.io/f/${FORMSPREE_ID}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-          body: JSON.stringify({ email, source })
-        });
-      } else {
-        // ── Dev path: local FastAPI backend ──
-        const resp = await fetch(LOCAL_API + '/waitlist', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email, source })
-        });
-        const data = await resp.json();
-        if (data.status === 'already_joined') {
-          success.textContent = '✓ You\'re already on the list! We\'ll be in touch soon.';
-        } else if (data.status === 'error') {
-          success.textContent = '⚠ ' + data.error;
-          success.style.background = 'rgba(248,113,113,0.08)';
-          success.style.borderColor = 'rgba(248,113,113,0.25)';
-          success.style.color = 'var(--red)';
+          if (!response.ok) throw new Error("Local waitlist API failed");
         }
-        if (data.count) {
-          const countEl = document.getElementById('waitlist-count');
-          if (countEl) countEl.textContent = data.count;
+
+        form.style.display = "none";
+        success.style.display = "block";
+      } catch (error) {
+        const stored = JSON.parse(localStorage.getItem("personalayer_waitlist") || "[]");
+        if (!stored.includes(email)) {
+          stored.push(email);
+          localStorage.setItem("personalayer_waitlist", JSON.stringify(stored));
         }
-      }
-    } catch (err) {
-      // Fallback: localStorage
-      const waitlist = JSON.parse(localStorage.getItem('pl_waitlist') || '[]');
-      if (!waitlist.includes(email)) {
-        waitlist.push(email);
-        localStorage.setItem('pl_waitlist', JSON.stringify(waitlist));
+
+        form.style.display = "none";
+        success.textContent = "Saved locally for now. Connect the waitlist API before launch.";
+        success.style.display = "block";
+      } finally {
+        button.disabled = false;
+        button.textContent = originalText;
       }
     }
-  }
 
-  // Scroll animations
-  const observer = new IntersectionObserver((entries) => {
-    entries.forEach(entry => {
-      if (entry.isIntersecting) {
-        entry.target.classList.add('visible');
-      }
-    });
-  }, { threshold: 0.1 });
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) {
+          entry.target.classList.add("visible");
+          observer.unobserve(entry.target);
+        }
+      });
+    }, { threshold: 0.14 });
 
-  document.querySelectorAll('.fade-in').forEach(el => observer.observe(el));
-
-  // Smooth nav CTA
-  document.querySelectorAll('a[href^="#"]').forEach(anchor => {
-    anchor.addEventListener('click', function(e) {
-      e.preventDefault();
-      const target = document.querySelector(this.getAttribute('href'));
-      if (target) target.scrollIntoView({ behavior: 'smooth' });
-    });
-  });
-</script>
-
+    document.querySelectorAll(".fade-in").forEach((el) => observer.observe(el));
+  </script>
 </body>
 </html>

@@ -1,0 +1,108 @@
+{
+  "notion.so": {
+    "app_id": "notion",
+    "features": {
+      "database-view": {
+        "selector": "[data-block-type='collection_view'], [data-testid*='database'], [aria-label*='database' i]",
+        "action_map": {"click": "used", "mouseover_without_click": "skipped"}
+      },
+      "inline-code": {
+        "selector": ".notion-code-block, code",
+        "action_map": {"click": "used"}
+      },
+      "ai-features": {
+        "selector": "[data-id*='ai' i], [aria-label*='ai' i], [data-testid*='ai' i]",
+        "action_map": {"click": "used", "mouseover_without_click": "skipped"}
+      }
+    }
+  },
+  "figma.com": {
+    "app_id": "figma",
+    "features": {
+      "components": {
+        "selector": "[data-testid='component-panel'], [aria-label*='component' i]",
+        "action_map": {"click": "used"}
+      },
+      "auto-layout": {
+        "selector": "[title='Auto layout'], [aria-label*='auto layout' i]",
+        "action_map": {"click": "used", "mouseover_without_click": "skipped"}
+      },
+      "dev-mode": {
+        "selector": "[data-testid='dev-mode-button'], [aria-label*='dev mode' i]",
+        "action_map": {"click": "used", "mouseover_without_click": "skipped"}
+      }
+    }
+  },
+  "github.com": {
+    "app_id": "github",
+    "features": {
+      "pull-requests": {
+        "selector": "a[href*='/pull/'], a[href='/pulls'], [data-selected-links*='pulls']",
+        "action_map": {"click": "used"}
+      },
+      "issues": {
+        "selector": "a[href*='/issues'], [data-selected-links*='issues']",
+        "action_map": {"click": "used"}
+      },
+      "actions": {
+        "selector": "a[href*='/actions'], [data-selected-links*='actions']",
+        "action_map": {"click": "used", "mouseover_without_click": "skipped"}
+      },
+      "copilot": {
+        "selector": "[aria-label*='Copilot' i], [data-testid*='copilot' i]",
+        "action_map": {"click": "used", "mouseover_without_click": "skipped"}
+      }
+    }
+  },
+  "mail.google.com": {
+    "app_id": "gmail",
+    "features": {
+      "search": {
+        "selector": "input[aria-label*='Search' i], form[role='search']",
+        "action_map": {"click": "searched"}
+      },
+      "compose": {
+        "selector": "[gh='cm'], [role='button'][aria-label*='compose' i]",
+        "action_map": {"click": "used"}
+      },
+      "labels": {
+        "selector": "[aria-label*='Labels' i], [data-tooltip*='Label' i]",
+        "action_map": {"click": "used", "mouseover_without_click": "skipped"}
+      }
+    }
+  },
+  "linear.app": {
+    "app_id": "linear",
+    "features": {
+      "cycles": {
+        "selector": "a[href*='/cycles'], [aria-label*='cycle' i]",
+        "action_map": {"click": "used"}
+      },
+      "roadmap": {
+        "selector": "a[href*='/roadmap'], [aria-label*='roadmap' i]",
+        "action_map": {"click": "used", "mouseover_without_click": "skipped"}
+      },
+      "views": {
+        "selector": "a[href*='/views'], [aria-label*='view' i]",
+        "action_map": {"click": "used"}
+      }
+    }
+  },
+  "slack.com": {
+    "app_id": "slack",
+    "features": {
+      "threads": {
+        "selector": "[data-qa*='thread' i], [aria-label*='thread' i]",
+        "action_map": {"click": "used"}
+      },
+      "search": {
+        "selector": "[data-qa='top_nav_search'], [aria-label*='search' i]",
+        "action_map": {"click": "searched"}
+      },
+      "canvas": {
+        "selector": "[aria-label*='canvas' i], [data-qa*='canvas' i]",
+        "action_map": {"click": "used", "mouseover_without_click": "skipped"}
+      }
+    }
+  }
+}

@@ -4,7 +4,7 @@
   "version": "1.1.0",
   "description": "Builds your AI persona from browsing activity. All data stays local.",
   "permissions": ["tabs", "storage"],
-  "host_permissions": ["http://localhost:7823/*"],
+  "host_permissions": ["http://localhost:7823/*", "http://127.0.0.1:7823/*"],
   "background": {
     "service_worker": "background.js"
   },
@@ -69,5 +69,11 @@
   ],
   "icons": {
     "128": "icons/icon128.png"
-  }
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["app-registry.json"],
+      "matches": ["http://*/*", "https://*/*"]
+    }
+  ]
 }

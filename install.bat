@@ -48,8 +48,9 @@ echo Installation complete!
 echo.
 echo Next steps:
 echo 1. Add API key: notepad backend\.env
-echo 2. Load extension: Chrome - chrome://extensions/ - Developer mode ON - Load unpacked - select 'extension\'
-echo 3. Start server: python backend\main.py
+echo 2. Install daemon startup:
+echo    powershell -ExecutionPolicy Bypass -File scripts\install_windows_startup.ps1
+echo 3. Load optional browser collector: Chrome - chrome://extensions/ - Developer mode ON - Load unpacked - select 'extension\'
 echo 4. Merge %MCP_CONFIG% into %%APPDATA%%\Claude\claude_desktop_config.json
 echo 5. Restart Claude Desktop
 echo 6. View dashboard: http://localhost:7823/dashboard

@@ -7,125 +7,1042 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <header>
-    <h1>PersonaLayer</h1>
-    <p class="subtitle">What every AI now knows about you</p>
-    <button id="refresh-btn" onclick="loadPersona()">Refresh</button>
-    <button id="extract-btn" onclick="runExtraction()">Run Extraction Now</button>
+  <header class="topbar">
+    <div class="brand-heading">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" focusable="false">
+          <path class="brand-head" d="M13.4 4.2c-4.4 0-7.1 2.7-7.1 6.8 0 2.1.8 3.7 2.1 4.9.9.8 1.2 1.8 1.2 3.1v1h8.8v-2.6c1.5-.3 2.4-1.1 2.4-2.5v-1.6l1.4-.4-1.7-2.4c-.4-3.8-3-6.3-7.1-6.3Z"/>
+          <path class="brand-context" d="M10 8.5h5.4M9.2 11.5h7.3M10.4 14.5h4.8"/>
+          <path class="brand-context" d="M4.1 8.2C2.8 9.4 2.2 10.7 2.2 12s.6 2.6 1.9 3.8"/>
+          <circle class="brand-node" cx="17.7" cy="11.5" r="1.3"/>
+        </svg>
+      </span>
+      <div>
+        <h1>PersonaLayer</h1>
+        <p class="subtitle">Local memory, scoped sharing, and auditability for AI tools.</p>
+      </div>
+    </div>
+    <div class="actions">
+      <button id="refresh-btn" type="button">Refresh</button>
+      <button id="extract-btn" type="button">Run Extraction</button>
+    </div>
   </header>
 
-  <main id="main">
-    <div id="loading">Loading persona...</div>
-    <div id="error" style="display:none">
-      <p>No persona yet.</p>
-      <p>Browse the web for a while, then click <strong>Run Extraction Now</strong>.</p>
-    </div>
-    <div id="persona" style="display:none">
-      <section class="card" id="identity-card"></section>
-      <section class="card" id="context-card"></section>
-      <section class="card" id="interests-card"></section>
-      <section class="card" id="voice-card"></section>
-      <section class="card" id="values-card"></section>
-      <section class="card" id="meta-card"></section>
-    </div>
+  <main>
+    <section class="metrics" id="metrics"></section>
+
+    <nav class="tabs" aria-label="Dashboard sections">
+      <button class="tab active" type="button" data-view="living">Living Persona</button>
+      <button class="tab" type="button" data-view="pclProfile">PCL Profile</button>
+      <button class="tab" type="button" data-view="pclApps">Apps</button>
+      <button class="tab" type="button" data-view="integrations">Integrations</button>
+      <button class="tab" type="button" data-view="featureUsage">Feature Usage</button>
+      <button class="tab" type="button" data-view="contextLayer">ContextLayer</button>
+      <button class="tab" type="button" data-view="consent">Consent</button>
+      <button class="tab" type="button" data-view="pclAudit">PCL Queries</button>
+      <button class="tab" type="button" data-view="privacy">Privacy</button>
+      <button class="tab" type="button" data-view="onboarding">Onboarding</button>
+      <button class="tab" type="button" data-view="predictions">Predictions</button>
+      <button class="tab" type="button" data-view="stored">Stored Persona</button>
+      <button class="tab" type="button" data-view="contracts">Context Contracts</button>
+      <button class="tab" type="button" data-view="audit">Audit Log</button>
+    </nav>
+
+    <section id="status" class="status">Loading...</section>
+    <section id="content" class="content"></section>
   </main>
 
   <script>
-    async function loadPersona() {
-      document.getElementById('loading').style.display = 'block';
-      document.getElementById('persona').style.display = 'none';
-      document.getElementById('error').style.display = 'none';
+    const state = {
+      activeView: 'living',
+      summary: null,
+      living: null,
+      predictions: null,
+      stored: null,
+      contracts: [],
+      logs: [],
+      pclProfile: null,
+      pclApps: [],
+      featureUsage: [],
+      pclLogs: [],
+      onboarding: null,
+      integrations: [],
+      contextBundle: null,
+      contextActivity: null,
+      contextSignals: [],
+      contextBrief: null,
+      refreshJobs: [],
+      privacyDrops: [],
+      consents: [],
+    };
 
-      try {
-        const resp = await fetch('/persona');
-        const data = await resp.json();
-        if (data.error) { showError(); return; }
-        renderPersona(data);
-      } catch (e) {
-        showError();
+    const $ = (selector) => document.querySelector(selector);
+
+    function clear(node) {
+      while (node.firstChild) node.removeChild(node.firstChild);
+    }
+
+    function text(value, fallback = '-') {
+      if (value === false) return 'No';
+      if (value === true) return 'Yes';
+      if (Array.isArray(value)) return value.length ? value.join(', ') : fallback;
+      return value || fallback;
+    }
+
+    function el(tag, className, value) {
+      const node = document.createElement(tag);
+      if (className) node.className = className;
+      if (value !== undefined) node.textContent = value;
+      return node;
+    }
+
+    async function fetchJson(url, options) {
+      const response = await fetch(url, options);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || response.statusText);
+      return data;
+    }
+
+    async function loadAll() {
+      $('#status').textContent = 'Loading...';
+      $('#status').className = 'status';
+
+      const [summary, living, predictions, stored, contracts, logs, pclProfile, pclApps, featureUsage, pclLogs, onboarding, integrations, contextBundle, contextActivity, contextSignals, contextBrief, refreshJobs, privacyDrops, consents] = await Promise.all([
+        fetchJson('/activity/summary?days=30'),
+        fetchJson('/persona/living?days=30'),
+        fetchJson('/predictions/next-context?days=14'),
+        fetchJson('/persona').catch((error) => ({ error: error.message })),
+        fetchJson('/context-contracts?limit=30'),
+        fetchJson('/context-access-log?limit=50'),
+        fetchJson('/pcl/profile?user_id=local_user').catch((error) => ({ error: error.message })),
+        fetchJson('/pcl/apps?limit=100'),
+        fetchJson('/pcl/feature-usage?user_id=local_user&days=90'),
+        fetchJson('/pcl/query-log?limit=100'),
+        fetchJson('/pcl/onboarding/seed?user_id=local_user').catch((error) => ({ error: error.message })),
+        fetchJson('/pcl/integrations'),
+        fetchJson('/v1/context/bundle', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ user_id: 'local_user', app_id: 'dashboard', intent: 'full_profile', requested_scopes: ['dashboard'] }),
+        }).catch((error) => ({ error: error.message })),
+        fetchJson('/v1/context/activity?user_id=local_user&limit=50').catch((error) => ({ error: error.message })),
+        fetchJson('/v1/context/feature-signals?user_id=local_user&active_only=false').catch((error) => ({ error: error.message, features: [] })),
+        fetchJson('/v1/context/brief?user_id=local_user').catch((error) => ({ error: error.message })),
+        fetchJson('/v1/jobs/daily-refresh?user_id=local_user&limit=20').catch((error) => ({ error: error.message, jobs: [] })),
+        fetchJson('/v1/context/privacy-drops?user_id=local_user&limit=50').catch((error) => ({ error: error.message, drops: [] })),
+        fetchJson('/v1/auth/consent?user_id=local_user').catch((error) => ({ error: error.message, permissions: [] })),
+      ]);
+
+      state.summary = summary;
+      state.living = living;
+      state.predictions = predictions;
+      state.stored = stored;
+      state.contracts = contracts.contracts || [];
+      state.logs = logs.logs || [];
+      state.pclProfile = pclProfile;
+      state.pclApps = pclApps.apps || [];
+      state.featureUsage = featureUsage.features || [];
+      state.pclLogs = pclLogs.logs || [];
+      state.onboarding = onboarding;
+      state.integrations = integrations.integrations || [];
+      state.contextBundle = contextBundle;
+      state.contextActivity = contextActivity;
+      state.contextSignals = contextSignals.features || [];
+      state.contextBrief = contextBrief;
+      state.refreshJobs = refreshJobs.jobs || [];
+      state.privacyDrops = privacyDrops.drops || [];
+      state.consents = consents.permissions || [];
+
+      renderMetrics();
+      renderActiveView();
+      $('#status').textContent = '';
+    }
+
+    function renderMetrics() {
+      const metrics = $('#metrics');
+      clear(metrics);
+      [
+        ['Browsing events', state.summary.events],
+        ['Feed items', state.summary.feed_items],
+        ['Signals', state.summary.persona_signals],
+        ['Shareable', state.summary.shareable_signals],
+        ['Active contracts', state.summary.active_contracts],
+        ['Access logs', state.summary.access_logs],
+        ['PCL queries', state.summary.pcl_query_logs || 0],
+        ['CL signals', state.contextSignals.length || 0],
+        ['Refresh jobs', state.refreshJobs.length || 0],
+        ['Privacy drops', state.privacyDrops.length || 0],
+      ].forEach(([label, value]) => {
+        const item = el('article', 'metric');
+        item.append(el('span', 'metric-label', label));
+        item.append(el('strong', 'metric-value', String(value)));
+        metrics.append(item);
+      });
+    }
+
+    function renderActiveView() {
+      document.querySelectorAll('.tab').forEach((tab) => {
+        tab.classList.toggle('active', tab.dataset.view === state.activeView);
+      });
+
+      if (state.activeView === 'living') renderLivingPersona();
+      if (state.activeView === 'predictions') renderPredictions();
+      if (state.activeView === 'pclProfile') renderPclProfile();
+      if (state.activeView === 'pclApps') renderPclApps();
+      if (state.activeView === 'integrations') renderIntegrations();
+      if (state.activeView === 'featureUsage') renderFeatureUsage();
+      if (state.activeView === 'contextLayer') renderContextLayer();
+      if (state.activeView === 'consent') renderConsent();
+      if (state.activeView === 'pclAudit') renderPclAuditLog();
+      if (state.activeView === 'privacy') renderPrivacyControls();
+      if (state.activeView === 'onboarding') renderOnboarding();
+      if (state.activeView === 'stored') renderStoredPersona();
+      if (state.activeView === 'contracts') renderContracts();
+      if (state.activeView === 'audit') renderAuditLog();
+    }
+
+    function renderIntegrations() {
+      const content = $('#content');
+      clear(content);
+      content.className = 'content list';
+      if (!state.integrations.length) {
+        content.append(emptyState('No first-party integrations available.'));
+        return;
       }
+      state.integrations.forEach((integration) => {
+        const item = el('article', 'row-card');
+        const header = el('div', 'row-header');
+        header.append(el('strong', '', integration.name));
+        header.append(el('span', `badge ${integration.status}`, integration.status));
+        item.append(header);
+        item.append(el('p', '', integration.description || ''));
+        item.append(el('p', '', `Source: ${integration.source}`));
+        item.append(el('p', '', `Scopes: ${text(integration.scopes)}`));
+        item.append(el('p', '', `Last sync: ${integration.last_sync_at || '-'} - ${integration.last_sync_status || 'not synced'}`));
+        if (integration.error) item.append(el('p', '', `Import note: ${integration.error}`));
+
+        const actions = el('div', 'button-row');
+        if (integration.status === 'connected') {
+          const sync = el('button', '', 'Sync');
+          sync.type = 'button';
+          sync.addEventListener('click', () => syncIntegration(integration.source));
+          const disconnect = el('button', 'danger inline', 'Disconnect');
+          disconnect.type = 'button';
+          disconnect.addEventListener('click', () => disconnectIntegration(integration.source));
+          const remove = el('button', 'danger inline', 'Delete data');
+          remove.type = 'button';
+          remove.addEventListener('click', () => deleteIntegrationData(integration.source));
+          actions.append(sync, disconnect, remove);
+        } else {
+          const connect = el('button', '', 'Connect');
+          connect.type = 'button';
+          connect.addEventListener('click', () => connectIntegration(integration.source));
+          const remove = el('button', 'danger inline', 'Delete data');
+          remove.type = 'button';
+          remove.addEventListener('click', () => deleteIntegrationData(integration.source));
+          actions.append(connect, remove);
+        }
+        item.append(actions);
+        content.append(item);
+      });
     }
 
-    function showError() {
-      document.getElementById('loading').style.display = 'none';
-      document.getElementById('error').style.display = 'block';
+    async function connectIntegration(source) {
+      await fetchJson(`/pcl/integrations/${source}/connect`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ metadata: {} }),
+      });
+      await loadAll();
     }
 
-    function renderPersona(p) {
-      document.getElementById('loading').style.display = 'none';
-      document.getElementById('persona').style.display = 'grid';
+    async function disconnectIntegration(source) {
+      await fetchJson(`/pcl/integrations/${source}/disconnect`, { method: 'POST' });
+      await loadAll();
+    }
 
-      const id = p.identity || {};
-      document.getElementById('identity-card').innerHTML = `
-        <h2>Identity</h2>
-        <p><strong>Role:</strong> ${id.role || '—'}</p>
-        <p><strong>Current project:</strong> ${id.current_project || '—'}</p>
-        <p><strong>Expertise:</strong> ${(id.expertise || []).join(', ') || '—'}</p>
-      `;
+    async function syncIntegration(source) {
+      await fetchJson(`/pcl/integrations/${source}/sync`, { method: 'POST' });
+      await loadAll();
+    }
 
-      const ctx = p.context || {};
-      document.getElementById('context-card').innerHTML = `
-        <h2>Current Focus</h2>
-        <p><strong>Building:</strong> ${ctx.building || '—'}</p>
-        <p><strong>Blocked on:</strong> ${ctx.blocked_on || '—'}</p>
-        <p><strong>Learning:</strong> ${(ctx.learning_this_week || []).join(', ') || '—'}</p>
-        <p><strong>Active hours:</strong> ${ctx.active_hours || '—'}</p>
-      `;
+    async function deleteIntegrationData(source) {
+      if (!window.confirm(`Delete stored ${source} integration data?`)) return;
+      await fetchJson(`/pcl/integrations/${source}/data`, { method: 'DELETE' });
+      await loadAll();
+    }
 
-      const int = p.interests || {};
-      const depth = int.depth || {};
-      document.getElementById('interests-card').innerHTML = `
-        <h2>Interests</h2>
-        <p><strong>Obsessions:</strong> ${(int.obsessions || []).join(', ') || '—'}</p>
-        <p><strong>Expert in:</strong> ${(depth.expert || []).join(', ') || '—'}</p>
-        <p><strong>Learning:</strong> ${(depth.learning || []).join(', ') || '—'}</p>
-      `;
+    function renderPclProfile() {
+      const content = $('#content');
+      clear(content);
+      content.className = 'content grid';
 
-      const v = p.voice || {};
-      document.getElementById('voice-card').innerHTML = `
-        <h2>Communication Style</h2>
-        <p><strong>Style:</strong> ${v.style || '—'}</p>
-        <p><strong>Formality:</strong> ${v.formality || '—'}</p>
-        <p><strong>Emoji:</strong> ${v.emoji ? 'Yes' : 'No'}</p>
-      `;
+      if (state.pclProfile.error) {
+        content.className = 'content';
+        content.append(emptyState('No PCL profile available yet.'));
+        return;
+      }
 
-      const val = p.values || {};
-      document.getElementById('values-card').innerHTML = `
-        <h2>Values</h2>
-        <p><strong>Trusts:</strong> ${(val.trusts || []).join(', ') || '—'}</p>
-        <p><strong>Dislikes:</strong> ${(val.dislikes || []).join(', ') || '—'}</p>
-      `;
+      content.append(detailCard('Identity Role', [
+        ['Role', state.pclProfile.identity?.role],
+        ['Domain', state.pclProfile.identity?.domain],
+        ['Skill level', state.pclProfile.identity?.skill_level],
+        ['Current project', state.pclProfile.identity?.current_project],
+        ['Expertise', state.pclProfile.identity?.expertise],
+      ]));
+      content.append(detailCard('Behavior Patterns', [
+        ['Active hours', state.pclProfile.behavior?.active_hours],
+        ['Workflow style', state.pclProfile.behavior?.workflow_style],
+        ['Preferred depth', state.pclProfile.behavior?.preferred_depth],
+      ]));
+      content.append(detailCard('Active Context', [
+        ['Current project', state.pclProfile.active_context?.current_project],
+        ['Current goal', state.pclProfile.active_context?.current_goal],
+        ['Active tools', state.pclProfile.active_context?.active_tools],
+        ['Blockers', state.pclProfile.active_context?.blockers],
+      ]));
 
-      const meta = p.meta || {};
-      document.getElementById('meta-card').innerHTML = `
-        <h2>Meta</h2>
-        <p><strong>Last updated:</strong> ${meta.updated_at || '—'}</p>
-        <p><strong>Events analyzed:</strong> ${meta.event_count || '—'}</p>
-        <p><strong>Data window:</strong> ${meta.data_window_days || 7} days</p>
-      `;
+      const prefs = el('section', 'panel');
+      prefs.append(el('h2', '', 'Explicit Preferences'));
+      const rows = state.pclProfile.explicit_preferences || [];
+      if (!rows.length) {
+        prefs.append(el('p', 'empty', 'No explicit preferences yet.'));
+      } else {
+        rows.forEach((pref) => {
+          const row = el('div', 'signal-row');
+          const main = el('div', 'signal-main');
+          main.append(el('strong', '', pref.key));
+          main.append(el('span', '', `value ${text(pref.value)} - source ${text(pref.source)}`));
+          row.append(main);
+          prefs.append(row);
+        });
+      }
+      content.append(prefs);
+    }
+
+    function renderPclApps() {
+      const content = $('#content');
+      clear(content);
+      content.className = 'content list';
+      if (!state.pclApps.length) {
+        content.append(emptyState('No apps registered yet.'));
+        return;
+      }
+      state.pclApps.forEach((app) => {
+        const item = el('article', 'row-card');
+        const header = el('div', 'row-header');
+        header.append(el('strong', '', app.name || app.app_id));
+        header.append(el('span', `badge ${app.status}`, app.status));
+        item.append(header);
+        item.append(el('p', '', `App ID: ${app.app_id}`));
+        item.append(el('p', '', `Allowed layers: ${text(app.allowed_layers)}`));
+        if (app.status !== 'revoked') {
+          const actions = el('div', 'button-row');
+          const button = el('button', 'danger inline', 'Revoke');
+          button.type = 'button';
+          button.addEventListener('click', () => revokePclApp(app.app_id));
+          actions.append(button);
+          const remove = el('button', 'danger inline', 'Delete data');
+          remove.type = 'button';
+          remove.addEventListener('click', () => deletePclAppData(app.app_id));
+          actions.append(remove);
+          item.append(actions);
+        } else {
+          const remove = el('button', 'danger', 'Delete data');
+          remove.type = 'button';
+          remove.addEventListener('click', () => deletePclAppData(app.app_id));
+          item.append(remove);
+        }
+        content.append(item);
+      });
+    }
+
+    async function revokePclApp(appId) {
+      await fetchJson(`/pcl/apps/${appId}/revoke`, { method: 'POST' });
+      await loadAll();
+    }
+
+    async function deletePclAppData(appId) {
+      if (!window.confirm(`Delete app record, feature events, and query logs for ${appId}?`)) return;
+      await fetchJson(`/pcl/apps/${appId}/data`, { method: 'DELETE' });
+      await loadAll();
+    }
+
+    function renderFeatureUsage() {
+      const content = $('#content');
+      clear(content);
+      content.className = 'content list';
+      if (!state.featureUsage.length) {
+        content.append(emptyState('No app feature usage has been emitted yet.'));
+        return;
+      }
+      state.featureUsage.forEach((feature) => {
+        const item = el('article', 'row-card compact');
+        const header = el('div', 'row-header');
+        header.append(el('strong', '', feature.feature_name || feature.feature_id));
+        header.append(el('span', '', `${feature.use_count} uses`));
+        item.append(header);
+        item.append(el('p', '', `Feature ID: ${feature.feature_id}`));
+        item.append(el('p', '', `Total weight: ${feature.total_weight}`));
+        item.append(el('p', '', `Last used: ${feature.last_used_at || '-'}`));
+        content.append(item);
+      });
+    }
+
+    function renderContextLayer() {
+      const content = $('#content');
+      clear(content);
+      content.className = 'content grid';
+
+      if (state.contextBundle?.error) {
+        content.className = 'content';
+        content.append(emptyState(`ContextLayer bundle unavailable: ${state.contextBundle.error}`));
+        return;
+      }
+
+      content.append(detailCard('Runtime Bundle', [
+        ['Bundle ID', state.contextBundle?.bundle_id],
+        ['Stale', state.contextBundle?.stale],
+        ['Urgent synthesis job', state.contextBundle?.urgent_synthesis_job_id],
+        ['Confidence', state.contextBundle?.confidence],
+        ['Style', state.contextBundle?.style],
+        ['Timing', state.contextBundle?.timing],
+        ['Permission', state.contextBundle?.permission?.status],
+        ['Scopes', state.contextBundle?.permission?.scopes],
+      ]));
+
+      content.append(detailCard('Active Context', [
+        ['Project', state.contextBundle?.active_context?.project || state.contextBundle?.active_context?.current_project],
+        ['Apps', state.contextBundle?.active_context?.active_apps || state.contextBundle?.active_context?.active_tools],
+        ['Intent', state.contextBundle?.active_context?.inferred_intent],
+        ['Depth', state.contextBundle?.active_context?.session_depth],
+        ['Last heartbeat', state.contextBundle?.active_context?.last_heartbeat],
+      ]));
+
+      content.append(detailCard('Copy Context Brief', [
+        ['Brief', state.contextBrief?.context_brief],
+        ['Daily insight', state.contextBrief?.daily_insight],
+        ['Timezone', state.contextBrief?.timezone],
+        ['Last refresh', state.contextBrief?.last_refresh_at],
+        ['Last synthesized', state.contextBrief?.last_synthesized_at],
+      ]));
+
+      const jobPanel = el('section', 'panel');
+      jobPanel.append(el('h2', '', 'Refresh Jobs'));
+      if (!state.refreshJobs.length) {
+        jobPanel.append(el('p', 'empty', 'No refresh jobs recorded yet.'));
+      } else {
+        state.refreshJobs.slice(0, 8).forEach((job) => {
+          const row = el('div', 'signal-row');
+          const main = el('div', 'signal-main');
+          main.append(el('strong', '', job.id));
+          main.append(el('span', '', `${job.status} - step ${job.step_completed} - ${job.timezone}`));
+          row.append(main);
+          jobPanel.append(row);
+        });
+      }
+      content.append(jobPanel);
+
+      const signalPanel = el('section', 'panel');
+      signalPanel.append(el('h2', '', 'Feature Signals'));
+      if (!state.contextSignals.length) {
+        signalPanel.append(el('p', 'empty', 'No v1 feature signals yet.'));
+      } else {
+        state.contextSignals.slice(0, 18).forEach((signal) => {
+          const row = el('div', 'signal-row');
+          const main = el('div', 'signal-main');
+          main.append(el('strong', '', `${signal.app_id}:${signal.feature_id}`));
+          main.append(el('span', '', `score ${signal.recency_score} - ${signal.tier} - ${signal.is_synthetic ? 'synthetic' : 'observed'}`));
+          row.append(main);
+          signalPanel.append(row);
+        });
+      }
+      content.append(signalPanel);
+
+      const activityPanel = el('section', 'panel');
+      activityPanel.append(el('h2', '', 'Recent Activity'));
+      const rawEvents = state.contextActivity?.raw_events || [];
+      if (!rawEvents.length) {
+        activityPanel.append(el('p', 'empty', 'No raw events in the current 7-day window.'));
+      } else {
+        rawEvents.slice(0, 10).forEach((event) => {
+          const row = el('div', 'signal-row');
+          const main = el('div', 'signal-main');
+          main.append(el('strong', '', `${event.app_id}:${event.feature_id}`));
+          main.append(el('span', '', `${event.action} - ${event.source} - ${JSON.stringify(event.metadata || {})}`));
+          row.append(main);
+          activityPanel.append(row);
+        });
+      }
+      content.append(activityPanel);
+
+      const actions = el('section', 'panel');
+      actions.append(el('h2', '', 'Maintenance'));
+      const refresh = el('button', '', 'Run daily refresh');
+      refresh.type = 'button';
+      refresh.addEventListener('click', runDailyRefresh);
+      const due = el('button', '', 'Run due local-time refreshes');
+      due.type = 'button';
+      due.addEventListener('click', runDueDailyRefreshes);
+      const cold = el('button', '', 'Generate cold-start for dashboard');
+      cold.type = 'button';
+      cold.addEventListener('click', generateDashboardColdStart);
+      const clear = el('button', 'danger', 'Hard delete ContextLayer data');
+      clear.type = 'button';
+      clear.addEventListener('click', deleteAllContextLayerData);
+      actions.append(refresh, due, cold, clear);
+      content.append(actions);
+    }
+
+    function renderConsent() {
+      const content = $('#content');
+      clear(content);
+      content.className = 'content grid';
+
+      const consentPanel = el('section', 'panel');
+      consentPanel.append(el('h2', '', 'App Permissions'));
+      if (!state.consents.length) {
+        consentPanel.append(el('p', 'empty', 'No app consent records for local_user yet.'));
+      } else {
+        state.consents.forEach((permission) => {
+          const row = el('div', 'signal-row');
+          const main = el('div', 'signal-main');
+          main.append(el('strong', '', permission.app_id));
+          main.append(el('span', '', `${permission.is_active ? 'active' : 'revoked'} - scopes ${text(permission.scopes)}`));
+          const actions = el('div', 'signal-actions');
+          if (permission.is_active) {
+            const revoke = el('button', 'danger inline icon-btn', 'Revoke');
+            revoke.type = 'button';
+            revoke.addEventListener('click', () => revokeConsent(permission.app_id));
+            actions.append(revoke);
+          }
+          row.append(main, actions);
+          consentPanel.append(row);
+        });
+      }
+
+      const grantPanel = el('section', 'panel');
+      grantPanel.append(el('h2', '', 'Grant Dashboard Consent'));
+      grantPanel.append(el('p', '', 'Grant local_user access to dashboard for getFeatureUsage and getProfile.'));
+      const grant = el('button', '', 'Grant dashboard consent');
+      grant.type = 'button';
+      grant.addEventListener('click', grantDashboardConsent);
+      grantPanel.append(grant);
+
+      const devPanel = el('section', 'panel');
+      devPanel.append(el('h2', '', 'Developer Local Key'));
+      devPanel.append(el('p', '', 'Create a local test developer, dashboard app, and API key. The raw key is shown once in the status bar.'));
+      const dev = el('button', '', 'Create developer key');
+      dev.type = 'button';
+      dev.addEventListener('click', createDashboardDeveloperKey);
+      devPanel.append(dev);
+
+      content.append(consentPanel, grantPanel, devPanel);
+    }
+
+    async function runDailyRefresh() {
+      const result = await fetchJson('/v1/jobs/daily-refresh', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: 'local_user', timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC' }),
+      });
+      await loadAll();
+      $('#status').textContent = `Daily refresh ${result.status}: ${result.logs?.length || 0} steps`;
+    }
+
+    async function runDueDailyRefreshes() {
+      const result = await fetchJson('/v1/jobs/daily-refresh/due', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ now: new Date().toISOString() }),
+      });
+      await loadAll();
+      $('#status').textContent = `Due refresh checked: ${result.refreshed} users refreshed`;
+    }
+
+    async function generateDashboardColdStart() {
+      await fetchJson('/v1/context/cold-start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: 'local_user',
+          app_id: 'dashboard',
+          app_name: 'PersonaLayer Dashboard',
+          features: ['context bundle', 'daily refresh', 'consent controls'],
+          role: 'builder',
+          domain: 'personal context',
+        }),
+      });
+      await loadAll();
+    }
+
+    async function deleteAllContextLayerData() {
+      if (!window.confirm('Hard delete all local_user ContextLayer v1 data?')) return;
+      await fetchJson('/v1/context/all?user_id=local_user', { method: 'DELETE' });
+      await loadAll();
+    }
+
+    async function grantDashboardConsent() {
+      await fetchJson('/v1/auth/consent', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: 'local_user',
+          app_id: 'dashboard',
+          scopes: ['getFeatureUsage', 'getProfile'],
+          granted_via: 'dashboard',
+        }),
+      });
+      await loadAll();
+    }
+
+    async function revokeConsent(appId) {
+      await fetchJson(`/v1/auth/consent/${appId}?user_id=local_user`, { method: 'DELETE' });
+      await loadAll();
+    }
+
+    async function createDashboardDeveloperKey() {
+      const developer = await fetchJson('/v1/developer/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: 'dashboard@example.local', name: 'Dashboard Local Developer' }),
+      });
+      await fetchJson('/v1/developer/apps', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          developer_id: developer.developer.id,
+          app_id: 'dashboard',
+          name: 'PersonaLayer Dashboard',
+          domain: 'localhost',
+        }),
+      });
+      const key = await fetchJson('/v1/developer/keys', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ developer_id: developer.developer.id, app_id: 'dashboard', env: 'test' }),
+      });
+      await loadAll();
+      $('#status').textContent = `Created key ${key.api_key.key}`;
+    }
+
+    function renderPclAuditLog() {
+      const content = $('#content');
+      clear(content);
+      content.className = 'content list';
+      if (!state.pclLogs.length) {
+        content.append(emptyState('No PCL app queries yet.'));
+        return;
+      }
+      state.pclLogs.forEach((log) => {
+        const item = el('article', 'row-card compact');
+        const header = el('div', 'row-header');
+        header.append(el('strong', '', `${log.app_id} - ${log.status}`));
+        header.append(el('span', '', log.created_at));
+        item.append(header);
+        item.append(el('p', '', `User: ${log.user_id}`));
+        item.append(el('p', '', `Purpose: ${log.purpose || '-'}`));
+        item.append(el('p', '', `Requested: ${text(log.requested_layers)}`));
+        item.append(el('p', '', `Returned: ${text(log.returned_layers)}`));
+        item.append(el('p', '', `Features: ${text(log.feature_ids)}`));
+        if (log.reason) item.append(el('p', '', `Reason: ${log.reason}`));
+        content.append(item);
+      });
+    }
+
+    function renderPrivacyControls() {
+      const content = $('#content');
+      clear(content);
+      content.className = 'content grid';
+
+      const userPanel = el('section', 'panel');
+      userPanel.append(el('h2', '', 'User Data'));
+      userPanel.append(el('p', '', 'Delete local_user onboarding seed, feature usage, and PCL query history.'));
+      const deleteUser = el('button', 'danger', 'Delete local_user data');
+      deleteUser.type = 'button';
+      deleteUser.addEventListener('click', deleteLocalUserData);
+      userPanel.append(deleteUser);
+
+      const queryPanel = el('section', 'panel');
+      queryPanel.append(el('h2', '', 'Query Log'));
+      queryPanel.append(el('p', '', `${state.pclLogs.length} recent PCL queries loaded.`));
+      const clearLogs = el('button', 'danger', 'Clear query log');
+      clearLogs.type = 'button';
+      clearLogs.addEventListener('click', clearPclQueryLog);
+      queryPanel.append(clearLogs);
+
+      const rawPanel = el('section', 'panel');
+      rawPanel.append(el('h2', '', 'Raw Event Window'));
+      rawPanel.append(el('p', '', `${state.contextActivity?.raw_events?.length || 0} recent raw ContextLayer events loaded.`));
+      const cleanup = el('button', 'danger', 'Delete raw events older than 7 days');
+      cleanup.type = 'button';
+      cleanup.addEventListener('click', cleanupRawContextEvents);
+      rawPanel.append(cleanup);
+
+      const dropsPanel = el('section', 'panel');
+      dropsPanel.append(el('h2', '', 'Privacy Filter Drops'));
+      if (!state.privacyDrops.length) {
+        dropsPanel.append(el('p', 'empty', 'No rejected ContextLayer events for local_user.'));
+      } else {
+        state.privacyDrops.forEach((drop) => {
+          const row = el('div', 'signal-row');
+          const main = el('div', 'signal-main');
+          main.append(el('strong', '', `${drop.app_id || 'unknown'}:${drop.feature_id || 'unknown'}`));
+          main.append(el('span', '', `${drop.reason} - ${drop.source || '-'}`));
+          row.append(main);
+          dropsPanel.append(row);
+        });
+      }
+
+      const appPanel = el('section', 'panel');
+      appPanel.append(el('h2', '', 'App Access'));
+      if (!state.pclApps.length) {
+        appPanel.append(el('p', 'empty', 'No app records.'));
+      } else {
+        state.pclApps.forEach((app) => {
+          const row = el('div', 'signal-row');
+          const main = el('div', 'signal-main');
+          main.append(el('strong', '', app.name || app.app_id));
+          main.append(el('span', '', `${app.app_id} - ${app.status}`));
+          const actions = el('div', 'signal-actions');
+          const remove = el('button', 'danger inline icon-btn', 'Delete data');
+          remove.type = 'button';
+          remove.addEventListener('click', () => deletePclAppData(app.app_id));
+          actions.append(remove);
+          row.append(main, actions);
+          appPanel.append(row);
+        });
+      }
+
+      const integrationPanel = el('section', 'panel');
+      integrationPanel.append(el('h2', '', 'Integration Imports'));
+      state.integrations.forEach((integration) => {
+        const row = el('div', 'signal-row');
+        const main = el('div', 'signal-main');
+        main.append(el('strong', '', integration.name));
+        main.append(el('span', '', `${integration.source} - ${integration.status}`));
+        const actions = el('div', 'signal-actions');
+        const remove = el('button', 'danger inline icon-btn', 'Delete data');
+        remove.type = 'button';
+        remove.addEventListener('click', () => deleteIntegrationData(integration.source));
+        actions.append(remove);
+        row.append(main, actions);
+        integrationPanel.append(row);
+      });
+
+      content.append(userPanel, queryPanel, rawPanel, dropsPanel, appPanel, integrationPanel);
+    }
+
+    async function deleteLocalUserData() {
+      if (!window.confirm('Delete local_user PCL data?')) return;
+      await fetchJson('/pcl/users/local_user/data', { method: 'DELETE' });
+      await loadAll();
+    }
+
+    async function clearPclQueryLog() {
+      if (!window.confirm('Clear the PCL query log?')) return;
+      await fetchJson('/pcl/query-log', { method: 'DELETE' });
+      await loadAll();
+    }
+
+    async function cleanupRawContextEvents() {
+      const result = await fetchJson('/v1/context/raw-events/cleanup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: 'local_user', older_than_days: 7 }),
+      });
+      await loadAll();
+      $('#status').textContent = `Deleted ${result.deleted} raw events older than ${result.older_than_days} days`;
+    }
+
+    function renderOnboarding() {
+      const content = $('#content');
+      clear(content);
+      content.className = 'content grid';
+
+      if (state.onboarding.error) {
+        content.className = 'content';
+        content.append(emptyState('No onboarding seed saved for local_user yet.'));
+        return;
+      }
+
+      content.append(detailCard('Seed Metadata', [
+        ['User', state.onboarding.user_id],
+        ['Created', state.onboarding.created_at],
+        ['Updated', state.onboarding.updated_at],
+      ]));
+      content.append(jsonPanel('Answers', state.onboarding.answers));
+      content.append(jsonPanel('Profile Seed', state.onboarding.profile_seed));
+    }
+
+    function jsonPanel(title, data) {
+      const card = el('section', 'panel');
+      card.append(el('h2', '', title));
+      const pre = el('pre', 'json-block');
+      pre.textContent = JSON.stringify(data || {}, null, 2);
+      card.append(pre);
+      return card;
+    }
+
+    function renderLivingPersona() {
+      const content = $('#content');
+      clear(content);
+      content.className = 'content grid';
+
+      const groups = [
+        ['Interests', 'interests'],
+        ['Skills', 'skills'],
+        ['Tools', 'tools'],
+        ['Work Domains', 'work_domains'],
+        ['Task Patterns', 'task_patterns'],
+        ['Trends', 'trends'],
+      ];
+
+      groups.forEach(([title, key]) => {
+        const card = el('section', 'panel');
+        card.append(el('h2', '', title));
+        const rows = state.living[key] || [];
+        if (!rows.length) {
+          card.append(el('p', 'empty', 'No signals yet.'));
+        } else {
+          rows.slice(0, 10).forEach((row) => card.append(signalRow(signalTypeFor(key), row)));
+        }
+        content.append(card);
+      });
+    }
+
+    function signalTypeFor(key) {
+      return {
+        interests: 'interest',
+        skills: 'skill',
+        tools: 'tool',
+        work_domains: 'work_domain',
+        task_patterns: 'task_pattern',
+        trends: 'interest',
+      }[key] || key;
+    }
+
+    function signalRow(type, row) {
+      const wrap = el('div', 'signal-row');
+      const main = el('div', 'signal-main');
+      main.append(el('strong', '', row.name || '-'));
+      const detail = row.direction
+        ? `${row.direction} - recent ${row.recent_score || 0}`
+        : `score ${row.score || 0} - confidence ${row.confidence || 0}`;
+      main.append(el('span', '', detail));
+
+      const actions = el('div', 'signal-actions');
+      ['confirm', 'boost', 'hide', 'reject'].forEach((action) => {
+        const button = el('button', 'icon-btn', action);
+        button.type = 'button';
+        button.addEventListener('click', () => recordFeedback(type, row.name, action));
+        actions.append(button);
+      });
+
+      wrap.append(main, actions);
+      return wrap;
+    }
+
+    async function recordFeedback(signalType, name, action) {
+      await fetchJson('/persona/feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ signal_type: signalType, name, action }),
+      });
+      await loadAll();
+    }
+
+    function renderStoredPersona() {
+      const content = $('#content');
+      clear(content);
+      content.className = 'content grid';
+
+      if (state.stored.error) {
+        content.className = 'content';
+        content.append(emptyState('No stored persona yet. Run extraction after collecting activity.'));
+        return;
+      }
+
+      const sections = [
+        ['Identity', [
+          ['Role', state.stored.identity?.role],
+          ['Current project', state.stored.identity?.current_project],
+          ['Expertise', state.stored.identity?.expertise],
+        ]],
+        ['Current Focus', [
+          ['Building', state.stored.context?.building],
+          ['Blocked on', state.stored.context?.blocked_on],
+          ['Learning', state.stored.context?.learning_this_week],
+          ['Active hours', state.stored.context?.active_hours],
+        ]],
+        ['Communication', [
+          ['Style', state.stored.voice?.style],
+          ['Formality', state.stored.voice?.formality],
+          ['Emoji', state.stored.voice?.emoji],
+        ]],
+        ['Values', [
+          ['Trusts', state.stored.values?.trusts],
+          ['Dislikes', state.stored.values?.dislikes],
+        ]],
+      ];
+
+      sections.forEach(([title, rows]) => content.append(detailCard(title, rows)));
+    }
+
+    function renderPredictions() {
+      const content = $('#content');
+      clear(content);
+      content.className = 'content grid';
+
+      const p = state.predictions.prediction || {};
+      content.append(detailCard('Next Context', [
+        ['Next task', p.next_task],
+        ['Work domain', p.work_domain],
+        ['Recommended action', p.recommended_action],
+        ['Confidence', p.confidence],
+      ]));
+
+      const contextCard = el('section', 'panel');
+      contextCard.append(el('h2', '', 'Needed Context'));
+      const fields = p.needed_context || [];
+      if (!fields.length) {
+        contextCard.append(el('p', 'empty', 'No strong context prediction yet.'));
+      } else {
+        fields.forEach((field) => {
+          const row = el('div', 'signal-row');
+          const main = el('div', 'signal-main');
+          main.append(el('strong', '', field.name));
+          main.append(el('span', '', `score ${field.score} - confidence ${field.confidence}`));
+          row.append(main);
+          contextCard.append(row);
+        });
+      }
+      content.append(contextCard);
+
+      const signalGroups = state.predictions.signals || {};
+      [
+        ['Likely Tasks', signalGroups.likely_tasks],
+        ['Likely Domains', signalGroups.likely_domains],
+        ['Likely Tools', signalGroups.likely_tools],
+        ['Active Sources', signalGroups.active_sources],
+      ].forEach(([title, rows]) => {
+        const card = el('section', 'panel');
+        card.append(el('h2', '', title));
+        if (!rows || !rows.length) {
+          card.append(el('p', 'empty', 'No signal yet.'));
+        } else {
+          rows.forEach((row) => {
+            const item = el('div', 'signal-row');
+            const main = el('div', 'signal-main');
+            main.append(el('strong', '', row.name));
+            main.append(el('span', '', `score ${row.score} - confidence ${row.confidence}`));
+            item.append(main);
+            card.append(item);
+          });
+        }
+        content.append(card);
+      });
+    }
+
+    function detailCard(title, rows) {
+      const card = el('section', 'panel');
+      card.append(el('h2', '', title));
+      rows.forEach(([label, value]) => {
+        const row = el('p', 'detail');
+        row.append(el('strong', '', `${label}: `), document.createTextNode(text(value)));
+        card.append(row);
+      });
+      return card;
+    }
+
+    function renderContracts() {
+      const content = $('#content');
+      clear(content);
+      content.className = 'content list';
+      if (!state.contracts.length) {
+        content.append(emptyState('No context contracts yet.'));
+        return;
+      }
+      state.contracts.forEach((contract) => {
+        const item = el('article', 'row-card');
+        const header = el('div', 'row-header');
+        header.append(el('strong', '', contract.platform_type));
+        header.append(el('span', `badge ${contract.status}`, contract.status));
+        item.append(header);
+        item.append(el('p', '', `Facilities: ${text(contract.facilities)}`));
+        item.append(el('p', '', `Granted: ${text(contract.granted_context)}`));
+        item.append(el('p', '', `Denied: ${text(contract.denied_context)}`));
+        if (contract.status !== 'revoked') {
+          const button = el('button', 'danger', 'Revoke');
+          button.type = 'button';
+          button.addEventListener('click', () => revokeContract(contract.contract_id));
+          item.append(button);
+        }
+        content.append(item);
+      });
+    }
+
+    async function revokeContract(contractId) {
+      await fetchJson(`/context/${contractId}/revoke`, { method: 'POST' });
+      await loadAll();
+    }
+
+    function renderAuditLog() {
+      const content = $('#content');
+      clear(content);
+      content.className = 'content list';
+      if (!state.logs.length) {
+        content.append(emptyState('No access logs yet.'));
+        return;
+      }
+      state.logs.forEach((log) => {
+        const item = el('article', 'row-card compact');
+        const header = el('div', 'row-header');
+        header.append(el('strong', '', log.action));
+        header.append(el('span', '', log.created_at));
+        item.append(header);
+        item.append(el('p', '', `Platform: ${text(log.platform_type)}`));
+        item.append(el('p', '', `Fields: ${text(log.fields_returned)}`));
+        content.append(item);
+      });
+    }
+
+    function emptyState(message) {
+      const box = el('div', 'empty-state');
+      box.append(el('p', '', message));
+      return box;
     }
 
     async function runExtraction() {
-      const btn = document.getElementById('extract-btn');
-      btn.textContent = 'Running...';
-      btn.disabled = true;
+      const button = $('#extract-btn');
+      button.disabled = true;
+      button.textContent = 'Running...';
       try {
-        const resp = await fetch('/extract', { method: 'POST' });
-        const data = await resp.json();
-        if (data.status === 'ok') {
-          await loadPersona();
-        } else {
-          alert('Extraction failed: ' + (data.error || 'unknown error'));
-        }
-      } catch (e) {
-        alert('Server not running or extraction failed.');
+        const data = await fetchJson('/extract', { method: 'POST' });
+        if (data.status !== 'ok') throw new Error(data.error || 'Extraction failed');
+        await loadAll();
+      } catch (error) {
+        $('#status').textContent = error.message;
+        $('#status').className = 'status error';
       } finally {
-        btn.textContent = 'Run Extraction Now';
-        btn.disabled = false;
+        button.disabled = false;
+        button.textContent = 'Run Extraction';
       }
     }
 
-    loadPersona();
+    document.querySelectorAll('.tab').forEach((tab) => {
+      tab.addEventListener('click', () => {
+        state.activeView = tab.dataset.view;
+        renderActiveView();
+      });
+    });
+    $('#refresh-btn').addEventListener('click', loadAll);
+    $('#extract-btn').addEventListener('click', runExtraction);
+
+    loadAll().catch((error) => {
+      $('#status').textContent = error.message || 'Server unavailable.';
+      $('#status').className = 'status error';
+    });
   </script>
 </body>
 </html>
