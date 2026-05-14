@@ -88,12 +88,42 @@ def _hour_bucket(timestamp_ms: int) -> str:
     return "late_night"
 
 
-def _finish_sync(source: str, count: int, status: str = "ok", error: str = "") -> dict:
+def _incremental_items(
+    integration: dict,
+    items: list[dict],
+    timestamp_keys: tuple[str, ...],
+) -> tuple[list[tuple[dict, int]], dict]:
+    cursor = integration.get("sync_cursor") or {}
+    last_seen = int(cursor.get("last_timestamp_ms", 0) or 0)
+    selected: list[tuple[dict, int]] = []
+    max_seen = last_seen
+    for item in items:
+        ts = _timestamp_ms(next((item.get(key) for key in timestamp_keys if item.get(key)), None))
+        if ts <= last_seen:
+            continue
+        selected.append((item, ts))
+        max_seen = max(max_seen, ts)
+    next_cursor = {
+        **cursor,
+        "last_timestamp_ms": max_seen,
+        "last_item_count": len(selected),
+    }
+    return selected, next_cursor
+
+
+def _finish_sync(
+    source: str,
+    count: int,
+    status: str = "ok",
+    error: str = "",
+    sync_cursor: dict | None = None,
+) -> dict:
     updated = update_pcl_integration_sync(
         source=source,
         status=status,
         items_synced=count,
         error=error,
+        sync_cursor=sync_cursor,
     )
     return {"status": status, "items_synced": count, "integration": updated}
 
@@ -119,9 +149,9 @@ def _sync_gmail(integration: dict, user_id: str = "local_user") -> dict:
     if not messages:
         return _missing_payload("gmail", "metadata.messages[]")
 
+    selected, cursor = _incremental_items(integration, messages, ("timestamp", "date"))
     saved = 0
-    for message in messages:
-        ts = _timestamp_ms(message.get("timestamp") or message.get("date"))
+    for message, ts in selected:
         labels = [
             str(label).strip().lower()
             for label in message.get("labels", [])
@@ -192,7 +222,7 @@ def _sync_gmail(integration: dict, user_id: str = "local_user") -> dict:
             )
         saved += 1
 
-    return _finish_sync("gmail", saved)
+    return _finish_sync("gmail", saved, sync_cursor=cursor)
 
 
 def _sync_calendar(integration: dict, user_id: str = "local_user") -> dict:
@@ -201,9 +231,9 @@ def _sync_calendar(integration: dict, user_id: str = "local_user") -> dict:
     if not events:
         return _missing_payload("calendar", "metadata.events[]")
 
+    selected, cursor = _incremental_items(integration, events, ("start", "timestamp"))
     saved = 0
-    for event in events:
-        ts = _timestamp_ms(event.get("start") or event.get("timestamp"))
+    for event, ts in selected:
         duration = max(0, int(event.get("duration_minutes", 0) or 0))
         attendees = max(0, int(event.get("attendee_count", 0) or 0))
         content = {
@@ -257,7 +287,7 @@ def _sync_calendar(integration: dict, user_id: str = "local_user") -> dict:
             )
         saved += 1
 
-    return _finish_sync("calendar", saved)
+    return _finish_sync("calendar", saved, sync_cursor=cursor)
 
 
 def _sync_notion(integration: dict, user_id: str = "local_user") -> dict:
@@ -266,9 +296,9 @@ def _sync_notion(integration: dict, user_id: str = "local_user") -> dict:
     if not pages:
         return _missing_payload("notion", "metadata.pages[]")
 
+    selected, cursor = _incremental_items(integration, pages, ("last_edited_time", "timestamp"))
     saved = 0
-    for page in pages:
-        ts = _timestamp_ms(page.get("last_edited_time") or page.get("timestamp"))
+    for page, ts in selected:
         object_type = str(page.get("object_type", page.get("type", "page")))[:80]
         workspace = str(page.get("workspace", ""))[:120]
         tags = [str(tag).strip().lower() for tag in page.get("tags", []) if str(tag).strip()]
@@ -322,7 +352,7 @@ def _sync_notion(integration: dict, user_id: str = "local_user") -> dict:
             )
         saved += 1
 
-    return _finish_sync("notion", saved)
+    return _finish_sync("notion", saved, sync_cursor=cursor)
 
 
 def _sync_github(integration: dict, user_id: str = "local_user") -> dict:
@@ -369,9 +399,9 @@ def _sync_spotify(integration: dict, user_id: str = "local_user") -> dict:
     if not plays:
         return _missing_payload("spotify", "metadata.recently_played[]")
 
+    selected, cursor = _incremental_items(integration, plays, ("played_at", "timestamp"))
     saved = 0
-    for play in plays:
-        ts = _timestamp_ms(play.get("played_at") or play.get("timestamp"))
+    for play, ts in selected:
         duration = max(0, int(play.get("duration_minutes", 0) or play.get("session_minutes", 0) or 0))
         genres = [str(genre).strip().lower() for genre in play.get("genres", []) if str(genre).strip()]
         content = {
@@ -415,7 +445,7 @@ def _sync_spotify(integration: dict, user_id: str = "local_user") -> dict:
             )
         saved += 1
 
-    return _finish_sync("spotify", saved)
+    return _finish_sync("spotify", saved, sync_cursor=cursor)
 
 
 def _sync_youtube(integration: dict, user_id: str = "local_user") -> dict:
@@ -424,9 +454,9 @@ def _sync_youtube(integration: dict, user_id: str = "local_user") -> dict:
     if not videos:
         return _missing_payload("youtube", "metadata.watch_history[]")
 
+    selected, cursor = _incremental_items(integration, videos, ("watched_at", "timestamp"))
     saved = 0
-    for video in videos:
-        ts = _timestamp_ms(video.get("watched_at") or video.get("timestamp"))
+    for video, ts in selected:
         category = _feature_token(video.get("category", video.get("topic", "video")))
         duration = max(0, int(video.get("duration_minutes", 0) or 0))
         content = {
@@ -469,7 +499,7 @@ def _sync_youtube(integration: dict, user_id: str = "local_user") -> dict:
             )
         saved += 1
 
-    return _finish_sync("youtube", saved)
+    return _finish_sync("youtube", saved, sync_cursor=cursor)
 
 
 def _sync_apple_health(integration: dict, user_id: str = "local_user") -> dict:
@@ -478,9 +508,9 @@ def _sync_apple_health(integration: dict, user_id: str = "local_user") -> dict:
     if not samples:
         return _missing_payload("apple_health", "metadata.activity[]")
 
+    selected, cursor = _incremental_items(integration, samples, ("date", "timestamp"))
     saved = 0
-    for sample in samples:
-        ts = _timestamp_ms(sample.get("date") or sample.get("timestamp"))
+    for sample, ts in selected:
         active_minutes = max(0, int(sample.get("active_minutes", 0) or 0))
         stand_hours = max(0, int(sample.get("stand_hours", 0) or 0))
         sleep_hours = max(0.0, float(sample.get("sleep_hours", 0) or 0))
@@ -534,7 +564,7 @@ def _sync_apple_health(integration: dict, user_id: str = "local_user") -> dict:
             )
         saved += 1
 
-    return _finish_sync("apple_health", saved)
+    return _finish_sync("apple_health", saved, sync_cursor=cursor)
 
 
 def _emit_connector_event(

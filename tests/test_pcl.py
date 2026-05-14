@@ -43,6 +43,45 @@ def test_strip_raw_content_keeps_behavioral_fields_only():
     }
 
 
+def test_sanitize_integration_metadata_drops_secret_fields():
+    from pcl.privacy import sanitize_integration_metadata
+
+    sanitized = sanitize_integration_metadata({
+        "username": "octocat",
+        "access_token": "ghp_secretsecretsecret",
+        "nested": {
+            "refresh_token": "ya29_secretsecretsecret",
+            "labels": ["Work"],
+        },
+    })
+
+    assert sanitized == {
+        "username": "octocat",
+        "nested": {"labels": ["Work"]},
+    }
+
+
+def test_local_embedding_shape_and_similarity():
+    from pcl.embeddings import (
+        DIMENSION,
+        cosine_similarity,
+        deserialize_embedding,
+        embed_label,
+        serialize_embedding,
+    )
+
+    design_system = embed_label("design system")
+    design_systems = embed_label("design systems")
+    unrelated = embed_label("calendar meeting")
+    blob = serialize_embedding(design_system)
+
+    assert len(design_system) == DIMENSION
+    assert len(blob) == DIMENSION * 4
+    assert deserialize_embedding(blob)[:3] == design_system[:3]
+    assert cosine_similarity(design_system, design_systems) >= 0.92
+    assert cosine_similarity(design_system, unrelated) < 0.92
+
+
 def test_decision_bundle_ranks_features_and_exposes_typed_context():
     from pcl.composer import compose_decision_bundle
     from pcl.models import (

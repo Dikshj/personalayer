@@ -92,6 +92,38 @@ def test_gmail_integration_sync_imports_metadata(monkeypatch, tmp_path):
     assert database.get_feature_signal("local_user", "gmail", "label-work")["usage_count"] == 1
 
 
+def test_gmail_integration_sync_uses_incremental_cursor(monkeypatch, tmp_path):
+    import database
+
+    monkeypatch.setattr(database, 'DATA_DIR', tmp_path)
+    monkeypatch.setattr(database, 'DB_PATH', tmp_path / 'integration_jobs_gmail_cursor.db')
+    database.create_tables()
+    database.connect_pcl_integration(
+        source="gmail",
+        name="Gmail",
+        scopes=["email_metadata"],
+        metadata={
+            "messages": [
+                {"labels": ["Work"], "thread_size": 1, "timestamp": 1700000000000},
+                {"labels": ["Planning"], "thread_size": 1, "timestamp": 1700000100000},
+            ]
+        },
+    )
+
+    from pcl.integration_jobs import sync_integration
+    first = sync_integration("gmail")
+    second = sync_integration("gmail")
+
+    assert first["items_synced"] == 2
+    assert second["status"] == "ok"
+    assert second["items_synced"] == 0
+    integration = database.get_pcl_integration("gmail")
+    assert integration["sync_cursor"]["last_timestamp_ms"] == 1700000100000
+    assert integration["sync_cursor"]["last_item_count"] == 0
+    assert len(database.get_feed_items_last_n_days(3650, source="gmail")) == 2
+    assert database.get_feature_signal("local_user", "gmail", "label-work")["usage_count"] == 1
+
+
 def test_calendar_and_notion_sync_import_metadata(monkeypatch, tmp_path):
     import database
 

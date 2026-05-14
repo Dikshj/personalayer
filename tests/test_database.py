@@ -195,17 +195,125 @@ def test_pcl_integration_lifecycle():
         name="Gmail",
         scopes=["email_metadata"],
         metadata={"account": "user"},
+        account_hint="user@example.com",
+        auth_status="authorized",
+        auth_expires_at=1700000000000,
     )
     assert connected["status"] == "connected"
     assert get_pcl_integration("gmail")["scopes"] == ["email_metadata"]
+    assert get_pcl_integration("gmail")["sync_cursor"] == {}
+    assert get_pcl_integration("gmail")["account_hint"] == "user@example.com"
+    assert get_pcl_integration("gmail")["auth_status"] == "authorized"
+    assert get_pcl_integration("gmail")["auth_expires_at"] == 1700000000000
     assert list_pcl_integrations()[0]["source"] == "gmail"
 
-    synced = update_pcl_integration_sync("gmail", "stubbed", 0, "not implemented")
+    synced = update_pcl_integration_sync(
+        "gmail",
+        "stubbed",
+        0,
+        "not implemented",
+        sync_cursor={"last_timestamp_ms": 123},
+        next_sync_after=456,
+    )
     assert synced["last_sync_status"] == "stubbed"
     assert synced["error"] == "not implemented"
+    assert synced["sync_cursor"]["last_timestamp_ms"] == 123
+    assert synced["next_sync_after"] == 456
 
     assert disconnect_pcl_integration("gmail") is True
     assert get_pcl_integration("gmail")["status"] == "disconnected"
+
+
+def test_pcl_integration_oauth_state_lifecycle():
+    from database import (
+        consume_pcl_integration_oauth_state,
+        create_pcl_integration_oauth_state,
+        get_pcl_integration_oauth_state,
+    )
+
+    created = create_pcl_integration_oauth_state(
+        source="gmail",
+        user_id="user_1",
+        redirect_uri="http://localhost/callback",
+        code_verifier="verifier",
+    )
+
+    loaded = get_pcl_integration_oauth_state(created["state"])
+    consumed = consume_pcl_integration_oauth_state(created["state"])
+    consumed_again = consume_pcl_integration_oauth_state(created["state"])
+
+    assert loaded["source"] == "gmail"
+    assert loaded["status"] == "pending"
+    assert consumed["status"] == "consumed"
+    assert consumed["consumed_at"]
+    assert consumed_again is None
+
+
+def test_pcl_integration_oauth_token_store_masks_and_decrypts():
+    from database import (
+        get_decrypted_pcl_integration_oauth_token,
+        list_pcl_integration_oauth_tokens,
+        revoke_pcl_integration_oauth_token,
+        store_pcl_integration_oauth_token,
+    )
+
+    token = store_pcl_integration_oauth_token(
+        source="gmail",
+        user_id="user_1",
+        account_hint="user@example.com",
+        scopes=["gmail.metadata"],
+        expires_at=1700000000000,
+        token_payload={
+            "access_token": "access_secret_123",
+            "refresh_token": "refresh_secret_123",
+            "token_type": "Bearer",
+        },
+    )
+    listed = list_pcl_integration_oauth_tokens("user_1")
+    decrypted = get_decrypted_pcl_integration_oauth_token("gmail", "user_1")
+    revoked = revoke_pcl_integration_oauth_token("gmail", "user_1")
+
+    assert token["source"] == "gmail"
+    assert token["has_refresh_token"] is True
+    assert token["scopes"] == ["gmail.metadata"]
+    assert "access_secret_123" not in str(token)
+    assert "refresh_secret_123" not in str(listed)
+    assert decrypted["access_token"] == "access_secret_123"
+    assert revoked is True
+    assert list_pcl_integration_oauth_tokens("user_1")[0]["status"] == "revoked"
+
+
+def test_push_token_and_notification_route_lifecycle():
+    from database import (
+        list_notification_routes,
+        list_push_tokens,
+        queue_notification_routes,
+        register_push_token,
+        revoke_push_token,
+    )
+
+    token = register_push_token(
+        user_id="user_1",
+        device_id="iphone-1",
+        apns_token="apns_token_123456789",
+        platform="ios",
+        environment="sandbox",
+    )
+    queued = queue_notification_routes(
+        user_id="user_1",
+        notification_type="daily_insight_ready",
+        deliver_after=1700000000000,
+    )
+    routes = list_notification_routes("user_1")
+    revoked = revoke_push_token("user_1", "iphone-1")
+
+    assert token["token_prefix"] == "apns_token_1"
+    assert token["apns_token"] == "apns_token_123456789"
+    assert queued["queued"] == 1
+    assert routes[0]["payload_kind"] == "silent_local_insight"
+    assert "insight" not in routes[0]
+    assert revoked is True
+    assert list_push_tokens("user_1") == []
 
 
 def test_pcl_delete_user_app_integration_and_query_data():

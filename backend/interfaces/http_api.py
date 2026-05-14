@@ -2,9 +2,9 @@
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlparse
 
-from fastapi import FastAPI, Header
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import FastAPI, Header, Request, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict
 
@@ -21,12 +21,17 @@ from database import (
     disconnect_pcl_integration,
     get_activity_summary,
     grant_app_consent,
+    grant_web_domain_permission,
     get_user_profile_record,
+    check_web_domain_permission,
     list_app_permissions,
+    list_web_domain_permissions,
+    list_notification_routes,
     list_daily_refresh_jobs,
     list_feature_signals,
     list_privacy_filter_drops,
     list_developer_api_keys,
+    list_push_tokens,
     get_context_access_logs,
     get_pcl_app,
     get_pcl_feature_usage,
@@ -38,14 +43,19 @@ from database import (
     list_context_contracts,
     list_pcl_apps,
     list_pcl_integrations,
+    list_pcl_integration_oauth_tokens,
     list_pcl_query_logs,
     create_developer_api_key,
     delete_old_raw_context_events,
     register_pcl_app,
     register_developer_app,
+    register_push_token,
     revoke_pcl_app,
+    revoke_pcl_integration_oauth_token,
     revoke_context_contract,
     revoke_app_consent,
+    revoke_push_token,
+    revoke_web_domain_permission,
     save_pcl_onboarding_seed,
     upsert_developer,
     update_pcl_integration_sync,
@@ -62,9 +72,10 @@ from pcl.models import (
 from pcl.permissions import resolve_allowed_layers
 from pcl.onboarding import ONBOARDING_QUESTIONS, build_onboarding_seed
 from pcl.profile import build_local_user_context_profile
-from pcl.privacy import strip_raw_content
+from pcl.privacy import sanitize_integration_metadata, strip_raw_content
 from pcl.integrations import default_integration, integration_catalog
 from pcl.integration_jobs import sync_integration
+from pcl.oauth import complete_oauth_flow, start_oauth_flow
 from pcl.contextlayer import (
     apply_context_feedback,
     authorize_developer_context_request,
@@ -82,6 +93,7 @@ from pcl.assistant import personal_assistant_chat
 from pcl.cold_start import generate_cold_start_signals
 from pcl.daily_refresh import run_daily_refresh, run_due_daily_refreshes
 from pcl.proxy import proxy_chat_completion
+from pcl.shared_context import read_shared_context_bundle, shared_context_bundle_path
 from predictions import predict_next_context
 from scheduler import create_scheduler, start_background_collectors
 
@@ -98,12 +110,41 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="PersonaLayer", lifespan=lifespan)
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["chrome-extension://*", "http://localhost:*"],
-    allow_methods=["POST", "GET", "DELETE"],
-    allow_headers=["Content-Type"],
-)
+_CORS_METHODS = "POST, GET, DELETE, OPTIONS"
+_CORS_HEADERS = "Content-Type, Authorization, x-user-token"
+
+
+@app.middleware("http")
+async def scoped_local_cors(request: Request, call_next):
+    origin = request.headers.get("origin", "")
+    cors_allowed = _is_cors_origin_allowed(origin)
+    if request.method == "OPTIONS" and origin:
+        if not cors_allowed:
+            return Response(status_code=403)
+        response = Response(status_code=204)
+    else:
+        response = await call_next(request)
+    if cors_allowed:
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Access-Control-Allow-Methods"] = _CORS_METHODS
+        response.headers["Access-Control-Allow-Headers"] = _CORS_HEADERS
+        response.headers["Vary"] = "Origin"
+    return response
+
+
+def _is_cors_origin_allowed(origin: str) -> bool:
+    if not origin:
+        return False
+    parsed = urlparse(origin)
+    host = (parsed.hostname or "").lower()
+    scheme = (parsed.scheme or "").lower()
+    if scheme in {"chrome-extension", "safari-web-extension"}:
+        return True
+    if scheme in {"http", "https"} and host in {"localhost", "127.0.0.1", "::1"}:
+        return True
+    if scheme in {"http", "https"} and host:
+        return bool(check_web_domain_permission("local_user", host, []).get("authorized"))
+    return False
 
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 DASHBOARD_DIR = PROJECT_ROOT / "dashboard"
@@ -224,6 +265,21 @@ class PclOnboardingSeedRequest(BaseModel):
 
 class PclIntegrationConnectRequest(BaseModel):
     metadata: dict = {}
+    account_hint: Optional[str] = ""
+    auth_status: Optional[str] = "local_metadata"
+    auth_expires_at: Optional[int] = None
+
+
+class PclIntegrationOAuthStartRequest(BaseModel):
+    user_id: str = "local_user"
+    redirect_uri: str = "http://127.0.0.1:7824/pcl/integrations/oauth/callback"
+
+
+class PclIntegrationOAuthCallbackRequest(BaseModel):
+    state: str
+    code: str
+    account_hint: Optional[str] = ""
+    token_response: Optional[dict] = None
 
 
 class ContextLayerEventRequest(BaseModel):
@@ -310,6 +366,26 @@ class ConsentRequest(BaseModel):
     developer_id: Optional[str] = ""
     scopes: list[str] = ["getFeatureUsage"]
     granted_via: str = "explicit"
+
+
+class WebDomainPermissionRequest(BaseModel):
+    user_id: str = "local_user"
+    domain: str
+    scopes: list[str] = ["getFeatureUsage", "track"]
+
+
+class WebDomainPermissionCheckRequest(BaseModel):
+    user_id: str = "local_user"
+    domain: str
+    requested_scopes: list[str] = []
+
+
+class DevicePushTokenRequest(BaseModel):
+    user_id: str = "local_user"
+    device_id: str
+    apns_token: str
+    platform: str = "ios"
+    environment: str = "development"
 
 
 class DeveloperRegistrationRequest(BaseModel):
@@ -446,12 +522,22 @@ async def get_pcl_integrations():
                 "last_sync_at": None,
                 "last_sync_status": "",
                 "items_synced": 0,
+                "sync_cursor": {},
+                "next_sync_after": None,
+                "account_hint": "",
+                "auth_status": "not_connected",
+                "auth_expires_at": None,
                 "error": "",
                 "connected_at": None,
                 "disconnected_at": None,
             }),
         })
     return {"integrations": rows}
+
+
+@app.get("/pcl/integrations/oauth/tokens")
+async def get_pcl_integration_oauth_tokens(user_id: str = "local_user"):
+    return {"user_id": user_id, "tokens": list_pcl_integration_oauth_tokens(user_id)}
 
 
 @app.post("/pcl/integrations/{source}/connect")
@@ -464,9 +550,37 @@ async def connect_pcl_integration_endpoint(source: str, payload: PclIntegrationC
         source=source,
         name=config["name"],
         scopes=config["scopes"],
-        metadata=payload.metadata,
+        metadata=sanitize_integration_metadata(payload.metadata),
+        account_hint=payload.account_hint or "",
+        auth_status=payload.auth_status or "local_metadata",
+        auth_expires_at=payload.auth_expires_at,
     )
     return {"status": "connected", "integration": integration}
+
+
+@app.post("/pcl/integrations/{source}/oauth/start")
+async def start_pcl_integration_oauth(source: str, payload: PclIntegrationOAuthStartRequest):
+    return start_oauth_flow(
+        source=source,
+        user_id=payload.user_id,
+        redirect_uri=payload.redirect_uri,
+    )
+
+
+@app.post("/pcl/integrations/oauth/callback")
+async def complete_pcl_integration_oauth(payload: PclIntegrationOAuthCallbackRequest):
+    return complete_oauth_flow(
+        state=payload.state,
+        code=payload.code,
+        account_hint=payload.account_hint or "",
+        token_response=payload.token_response,
+    )
+
+
+@app.delete("/pcl/integrations/{source}/oauth/token")
+async def revoke_pcl_integration_oauth_token_endpoint(source: str, user_id: str = "local_user"):
+    revoked = revoke_pcl_integration_oauth_token(source=source, user_id=user_id)
+    return {"status": "revoked" if revoked else "not_found_or_already_revoked"}
 
 
 @app.post("/pcl/integrations/{source}/disconnect")
@@ -760,6 +874,23 @@ async def get_contextlayer_brief(user_id: str = "local_user"):
     }
 
 
+@app.get("/v1/context/shared-bundle")
+async def get_contextlayer_shared_bundle(user_id: str = "local_user"):
+    path = shared_context_bundle_path(user_id)
+    if not path.exists():
+        return {"error": "shared_bundle_not_found", "user_id": user_id}
+    try:
+        bundle = read_shared_context_bundle(user_id)
+    except ValueError as exc:
+        return {"error": str(exc), "user_id": user_id}
+    return {
+        "status": "ok",
+        "user_id": user_id,
+        "bundle": bundle,
+        "source": "local_shared_context_file",
+    }
+
+
 @app.post("/v1/context/cold-start")
 async def generate_contextlayer_cold_start(payload: ColdStartRequest):
     return generate_cold_start_signals(
@@ -794,6 +925,64 @@ async def list_contextlayer_consents(user_id: str = "local_user"):
 async def revoke_contextlayer_consent(app_id: str, user_id: str = "local_user"):
     revoked = revoke_app_consent(user_id=user_id, app_id=app_id)
     return {"status": "revoked" if revoked else "not_found_or_already_revoked"}
+
+
+@app.post("/v1/web/permissions")
+async def grant_contextlayer_web_permission(payload: WebDomainPermissionRequest):
+    permission = grant_web_domain_permission(
+        user_id=payload.user_id,
+        domain=payload.domain,
+        scopes=payload.scopes,
+    )
+    return {"status": "granted", "permission": permission}
+
+
+@app.get("/v1/web/permissions")
+async def list_contextlayer_web_permissions(user_id: str = "local_user"):
+    return {"user_id": user_id, "permissions": list_web_domain_permissions(user_id)}
+
+
+@app.post("/v1/web/permissions/check")
+async def check_contextlayer_web_permission(payload: WebDomainPermissionCheckRequest):
+    return check_web_domain_permission(
+        user_id=payload.user_id,
+        domain=payload.domain,
+        requested_scopes=payload.requested_scopes,
+    )
+
+
+@app.delete("/v1/web/permissions/{domain}")
+async def revoke_contextlayer_web_permission(domain: str, user_id: str = "local_user"):
+    revoked = revoke_web_domain_permission(user_id=user_id, domain=domain)
+    return {"status": "revoked" if revoked else "not_found_or_already_revoked"}
+
+
+@app.post("/v1/devices/push-token")
+async def register_contextlayer_push_token(payload: DevicePushTokenRequest):
+    token = register_push_token(
+        user_id=payload.user_id,
+        device_id=payload.device_id,
+        apns_token=payload.apns_token,
+        platform=payload.platform,
+        environment=payload.environment,
+    )
+    return {"status": "registered", "token": token}
+
+
+@app.get("/v1/devices/push-token")
+async def list_contextlayer_push_tokens(user_id: str = "local_user", active_only: bool = True):
+    return {"user_id": user_id, "tokens": list_push_tokens(user_id=user_id, active_only=active_only)}
+
+
+@app.delete("/v1/devices/push-token/{device_id}")
+async def revoke_contextlayer_push_token(device_id: str, user_id: str = "local_user"):
+    revoked = revoke_push_token(user_id=user_id, device_id=device_id)
+    return {"status": "revoked" if revoked else "not_found_or_already_revoked"}
+
+
+@app.get("/v1/notifications/routes")
+async def list_contextlayer_notification_routes(user_id: str = "local_user", limit: int = 100):
+    return {"user_id": user_id, "routes": list_notification_routes(user_id=user_id, limit=limit)}
 
 
 @app.post("/v1/developer/register")

@@ -1,79 +1,27 @@
 {
   "manifest_version": 3,
-  "name": "PersonaLayer",
-  "version": "1.1.0",
-  "description": "Builds your AI persona from browsing activity. All data stays local.",
-  "permissions": ["tabs", "storage"],
-  "host_permissions": ["http://localhost:7823/*", "http://127.0.0.1:7823/*"],
+  "name": "Personal Layer",
+  "version": "0.1.0",
+  "description": "ContextLayer bridge for Personal Layer",
+  "permissions": ["storage", "activeTab", "scripting"],
+  "host_permissions": ["http://127.0.0.1:7432/*", "http://localhost:7432/*"],
   "background": {
     "service_worker": "background.js"
   },
   "content_scripts": [
     {
-      "matches": ["http://*/*", "https://*/*"],
+      "matches": ["<all_urls>"],
       "js": ["content.js"],
-      "exclude_matches": [
-        "*://localhost/*",
-        "*://127.0.0.1/*"
-      ]
-    },
-    {
-      "matches": ["https://x.com/*", "https://twitter.com/*"],
-      "js": ["content-x.js"],
-      "run_at": "document_idle"
-    },
-    {
-      "matches": ["https://www.linkedin.com/*"],
-      "js": ["content-linkedin.js"],
-      "run_at": "document_idle"
-    },
-    {
-      "matches": ["https://www.youtube.com/*"],
-      "js": ["content-youtube.js"],
-      "run_at": "document_idle"
-    },
-    {
-      "matches": ["https://www.google.com/search*"],
-      "js": ["content-google.js"],
-      "run_at": "document_idle"
-    },
-    {
-      "matches": ["https://chat.openai.com/*", "https://chatgpt.com/*"],
-      "js": ["signal-extractor.js", "content-chatgpt.js"],
-      "run_at": "document_idle"
-    },
-    {
-      "matches": ["https://claude.ai/*"],
-      "js": ["signal-extractor.js", "content-claude.js"],
-      "run_at": "document_idle"
-    },
-    {
-      "matches": ["https://www.perplexity.ai/*", "https://perplexity.ai/*"],
-      "js": ["signal-extractor.js", "content-perplexity.js"],
-      "run_at": "document_idle"
-    },
-    {
-      "matches": [
-        "https://opencode.ai/*",
-        "https://app.opencode.ai/*",
-        "https://cursor.sh/*",
-        "https://gemini.google.com/*",
-        "https://grok.com/*",
-        "https://grok.x.ai/*",
-        "https://copilot.microsoft.com/*",
-        "https://github.com/copilot*"
-      ],
-      "js": ["signal-extractor.js", "content-opencode.js"],
-      "run_at": "document_idle"
+      "run_at": "document_start"
     }
   ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "128": "icons/icon128.png"
+    }
+  },
   "icons": {
     "128": "icons/icon128.png"
-  },
-  "web_accessible_resources": [
-    {
-      "resources": ["app-registry.json"],
-      "matches": ["http://*/*", "https://*/*"]
-    }
-  ]
+  }
 }

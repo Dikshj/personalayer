@@ -100,8 +100,12 @@ Current implementation:
 - `GET /pcl/feature-usage`: inspect app-emitted feature usage signals.
 - `GET /pcl/onboarding/seed`: inspect the saved cold-start seed.
 - `GET /pcl/integrations/catalog`: list first-party integrations available for connection.
-- `GET /pcl/integrations`: inspect connection and sync status.
-- `POST /pcl/integrations/{source}/connect`: mark a first-party integration connected.
+- `GET /pcl/integrations/catalog`: includes each connector's auth type and a raw-content-free metadata example for local import testing.
+- `GET /pcl/integrations`: inspect account hint, auth status, connection state, cursor state, and sync status.
+- `POST /pcl/integrations/{source}/connect`: mark a first-party integration connected with an account hint, auth status, optional expiry, and sanitized local metadata.
+- `POST /pcl/integrations/{source}/oauth/start`: create an OAuth state and return a provider authorization URL when the relevant `*_OAUTH_CLIENT_ID` env var is configured. Without a client id, it returns the missing env var and state for local setup.
+- `POST /pcl/integrations/oauth/callback`: consume a pending OAuth state, write a local encrypted token envelope, and mark the integration `oauth_connected_local_token_store`.
+- `GET /pcl/integrations/oauth/tokens` and `DELETE /pcl/integrations/{source}/oauth/token`: inspect or revoke masked local OAuth token metadata. These routes never return raw access or refresh tokens.
 - `POST /pcl/integrations/{source}/disconnect`: revoke integration connection.
 - `DELETE /pcl/integrations/{source}/data`: delete integration state and imported records from that source.
 - `POST /pcl/integrations/{source}/sync`: run import/sync jobs. GitHub uses the existing public activity collector when a username is configured. Gmail, Calendar, Notion, Spotify, YouTube, and Apple Health import metadata payloads from the connected integration record and emit sanitized feed items/persona signals without storing raw message, event, page, transcript, track, or health-note content. Connector jobs also normalize metadata into strict v1 `ContextEvent`s with `source: "connector"` so the same privacy filter, raw event window, feature signals, refresh pipeline, and bundle composer see connector-derived behavior.
@@ -113,6 +117,13 @@ Current implementation:
 - `DELETE /pcl/query-log`: clear query audit logs.
 - `DELETE /pcl/users/{user_id}/data`: delete user-scoped PCL seed, feature events, and query logs.
 - `POST /v1/context/cold-start`: generate low-confidence synthetic episodic signals for a new app/user before real behavioral history exists.
+- Accepted v1 ContextLayer events now also write a local knowledge graph reference model: `kg_nodes` for app/feature entities, `kg_edges` for app-feature relations, and `temporal_chains` for ordered accesses with a context hash. This mirrors the v4 Swift/GRDB target schema in the Python prototype without sending graph data to cloud services.
+- Graph nodes store 384-dimensional embedding BLOBs in the Python reference runtime. The current embedding is deterministic local hash embedding for tests and entity-resolution plumbing; the production Swift target should replace it with on-device all-MiniLM-L6-v2 through Core ML.
+- `GET /v1/context/shared-bundle`: local prototype read path for the Step 9 encrypted shared context file. This is the FastAPI reference contract for the future macOS `127.0.0.1:7432` NWListener endpoint.
+- `/v1/web/permissions`: local web-domain grant, check, list, and revoke endpoints. The extension bridge uses these to block web bundle/track calls until a domain has explicit local permission.
+- Localhost CORS is dynamic: extension origins and localhost dashboard origins are allowed, while ordinary website origins receive CORS headers only when their domain has an active local web permission grant.
+- `/v1/devices/push-token`: local reference for device APNs token registration, listing, and revoke.
+- `GET /v1/notifications/routes`: local reference for queued notification routes. Routes carry device routing metadata and `payload_kind`; they do not store the daily insight sentence or any behavioral text.
 - `GET /v1/context/privacy-drops`: return privacy-filter rejection logs for user-visible audit.
 - `POST /v1/context/raw-events/cleanup`: delete raw events older than a requested retention window, normally 7 days.
 - `POST /v1/auth/consent`: record user consent for an app and its granted scopes.
@@ -125,9 +136,11 @@ Current implementation:
 - `POST /v1/chat/completions`: OpenAI-compatible local ContextLayer proxy. If any message includes `{cl_context}`, the proxy resolves a live context bundle, injects a system context prefix, strips the token from the user message, and forwards to the upstream OpenAI-compatible API when an upstream key is configured. Without an upstream key, it returns a dry-run payload for local verification.
 - `POST /v1/assistant/chat`: user-facing personal context assistant. It builds a full bundle for the user, constructs a system prompt from identity, abstract profile, top features, behavior, active context, and preferences, and answers through the configured upstream LLM. Without an upstream key, it returns a dry-run synthesized summary plus the exact payload.
 - `sdk/python/personal_context_layer.py`: developer SDK for app registration, feature tracking, personalization queries, revoke, and delete flows.
-- `sdk/javascript/personal-context-layer.js`: JavaScript SDK for web or Node apps with runtime query and cleanup helpers.
+- `sdk/javascript/personal-context-layer.js`: JavaScript SDK for web or Node apps with runtime query, cleanup, web-domain permission, masked OAuth-token inspection, local push-token, and notification-route helpers.
+- Web bridge exports in `sdk/javascript/personal-context-layer.js`: `isAvailable()`, `getBundle()`, and `track()` use the extension marker plus `window.postMessage`; missing extension returns `null` by default. Trusted macOS/local shells can explicitly pass `allowLocalhostFallback: true` to use the local daemon endpoint without introducing any cloud fallback.
+- `PersonalContextLayer.getSharedBundle()`: local prototype helper for `/v1/context/shared-bundle`; production web pages should use the extension bridge instead.
 - `sdk/javascript/examples/feature-ranking-demo.html`: browser demo that ranks and dims UI features from a PCL decision bundle.
-- `dashboard/index.html`: user-facing inspection surface for profile, apps, integrations, feature usage, onboarding, and query logs.
+- `dashboard/index.html`: user-facing inspection surface for profile, apps, integrations, masked OAuth token records, feature usage, onboarding, query logs, consent, local web-domain bridge permissions, registered push devices, and queued notification routes.
 - MCP tools in `backend/interfaces/mcp_server.py`: legacy persona tools plus `getProfile`, `getFeatureUsage`, `getContext`, `getContextBundle`, `getFeatureSignals`, `getActiveContext`, and `getConstraints`.
 - Existing local daemon remains the prototype runtime for ingestion, policy, MCP, and dashboard flows.
 
@@ -234,7 +247,7 @@ The assistant builds a full ContextLayer bundle and prompt from synthesized prof
 
 ## Daily Refresh Architecture
 
-The local prototype now models the daily refresh pipeline at `/v1/jobs/daily-refresh`. Production should schedule one isolated job per active user at 3:00 AM in the user's local timezone. The local implementation stores resumable job state in `daily_refresh_jobs` and step audit rows in `daily_refresh_step_logs`.
+The local prototype now models the daily refresh pipeline at `/v1/jobs/daily-refresh`. Production should schedule one isolated job per active user at 3:00 AM in the user's local timezone. The local scheduler has only one ContextLayer processing job, `contextlayer_daily_refresh`, on a 3:00 AM cron; older interval synthesis/reflection jobs are not scheduled. The local implementation stores resumable job state in `daily_refresh_jobs` and step audit rows in `daily_refresh_step_logs`.
 
 Pipeline steps:
 
@@ -245,14 +258,16 @@ Pipeline steps:
 5. Inside Out decay engine
 6. Bi-Mem inductive promotion
 7. Bi-Mem reflective demotion
-8. TSUBASA monthly long-horizon distillation
-9. Brief regeneration for "Copy my context"
+8. Tier maintenance for local graph nodes
+9. Write shared context file for local SDK reads
 10. Daily insight generation
-11. Raw event cleanup beyond 7 days
+11. Raw event and temporal-chain cleanup beyond 7 days
 
 Resume behavior: pass an existing `job_id` and `step_completed`; completed steps are skipped and the job continues from the next step. `POST /v1/jobs/daily-refresh/due` evaluates each stored profile in its own timezone and runs only users past 3:00 AM local time who have not refreshed today. `GET /v1/jobs/daily-refresh` returns job history, and `GET /v1/context/brief` serves the regenerated context brief plus daily insight. Context bundles include `stale: true` if the user's `last_synthesized_at` is missing or more than 26 hours old; stale bundles also record an urgent synthesis job id.
 
-Step 1 now calls connected first-party integration sync jobs for that user. Connector outputs are behavioral events only, for example Gmail `label-work`, Calendar `long-meeting`, Notion `tag-roadmap`, Spotify `long-focus-session`, YouTube `category-ai-tutorial`, and Apple Health `active-day`.
+Step 1 now calls connected first-party integration sync jobs for that user. Connector outputs are behavioral events only, for example Gmail `label-work`, Calendar `long-meeting`, Notion `tag-roadmap`, Spotify `long-focus-session`, YouTube `category-ai-tutorial`, and Apple Health `active-day`. Each connector stores an incremental `sync_cursor.last_timestamp_ms` so repeated local syncs skip already-imported metadata instead of duplicating feed items, persona signals, or v1 feature signals.
+
+Step 8 now maintains local graph memory tiers. HOT nodes older than 48 hours move to WARM. WARM and COOL nodes decay with tier-specific rates, move downward when stale or weak, and COOL/COLD nodes can reactivate to WARM when current HOT labels provide a strong context cue. Step 9 writes `~/.personalayer/shared/bundle_{userId}.json` as an encrypted local reference bundle containing feature signals, WARM/HOT graph nodes, active context, and abstract attributes without raw events or temporal chains. The Python prototype uses a local reference encryption envelope; the Swift/App Group target should use AES-256 with the device key. Step 10 writes the daily insight locally and queues silent notification routes for active devices; the route payload does not include the insight text, so APNs/cloud routing never receives behavioral-derived content. Step 11 deletes `temporal_chains` older than 7 days while preserving synthesized graph nodes.
 
 ## Developer Auth And Consent
 
@@ -262,24 +277,30 @@ The local prototype verifies the developer API key against `api_keys`, checks th
 
 The MCP v1 tools use the same authorization path. Because MCP tool calls do not carry HTTP headers in this local server, pass `developer_api_key` and `user_token` in the tool arguments for `getContextBundle`, `getFeatureSignals`, `getActiveContext`, and `getConstraints`. Omitting `developer_api_key` keeps local dashboard-style behavior.
 
+## Thin Cloud Schema
+
+`supabase/migrations/001_thin_cloud_registry.sql` defines the production cloud boundary: `developers`, `apps`, `api_keys`, `app_permissions`, `push_tokens`, and `notification_routes`, with RLS enabled. The migration intentionally excludes local memory tables such as raw events, temporal chains, graph nodes, feature signals, embeddings, context bundles, and synthesized attributes.
+
 ## Research Implementation Map
 
-- FileGram: strict `ContextEvent` ingestion and no content fields in `/v1/ingest/*`. The only accepted metadata fields are `hour_of_day`, `day_of_week`, and `subject_category`. Unknown top-level fields are preserved by the HTTP request model long enough to be rejected and logged by the privacy filter.
+- FileGram: strict `ContextEvent` ingestion and no content fields in `/v1/ingest/*`. The only accepted metadata fields are `hour_of_day`, `day_of_week`, and `subject_category`. Unknown top-level fields are preserved by the HTTP request model long enough to be rejected and logged by the privacy filter. Accepted events write local graph nodes, edges, and temporal chains only after this gate.
 - SensorPersona: daily refresh plus stale bundle flag after 26 hours.
 - MemMachine: `feature_signals.tier` with core promotion gated by usage, recency, and 5 distinct sessions.
 - Bi-Mem: separate inductive and reflective refresh steps.
 - Inside Out: λ decay, core `0.02`, episodic `0.12`, archive/delete thresholds.
 - STEP-BACK PROFILING: Step 4 synthesizer prompt and structured abstract attributes.
-- TSUBASA: monthly Step 8 long-horizon distillation.
+- Four-tier memory reference model: local graph nodes carry `hot`, `warm`, `cool`, and `cold` tiers, decay score, access count, and compression state. The Python prototype implements tier movement and cue-based reactivation as a reference for the Swift/GRDB target.
+- Semantic deduplication reference: graph node creation embeds labels locally and reuses an existing same-type node when cosine similarity is at least `0.92`. `subject_category` metadata creates concept nodes and `relates_to` edges, so connector signals like `design system` and `design systems` resolve to one concept node.
 - HingeMem: per-request `resolve_intent_boundary`, never cached.
 - Contextual Bandits: `/v1/context/feedback` reward/penalty updates.
 - Asking Clarifying Questions: five-question onboarding seed.
 - Context Steering: `/v1/chat/completions` injects context at inference time.
+- Extension bridge only for web: content script injects `data-cl-ext="1"`, handles `CL_GET_BUNDLE` and `CL_TRACK`, and returns `CL_BUNDLE_RESPONSE` / `CL_TRACK_RESPONSE` through `window.postMessage`. The background worker checks local `web_domain_permissions` before serving a bundle or writing a track event.
 - Synthetic Interaction Data: `/v1/context/cold-start` creates low-confidence `is_synthetic` episodic signals from role/domain/app priors. Real usage clears the synthetic flag and overwrites these rapidly; full LLM generation remains a production TODO.
 - App consent and developer access: local `developers`, `apps`, `api_keys`, and `app_permissions` tables model the Supabase production schema. Revoked consent blocks `/v1/context/bundle` for that user/app.
 
 ## Immediate Build Plan
 
-1. Add OAuth/account connection flow for cloud-backed Gmail, Calendar, and Notion imports.
-2. Add connector-specific backfill cursors and incremental sync windows.
+1. Add provider-specific token exchange and encrypted token storage for Gmail, Calendar, and Notion.
+2. Expand connector-specific backfill cursors from local metadata imports to provider OAuth delta tokens and sync windows.
 3. Add cloud account and sync boundary after the local prototype behavior is solid.

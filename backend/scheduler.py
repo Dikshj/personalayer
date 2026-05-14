@@ -34,26 +34,6 @@ def refresh_living_persona() -> None:
         logger.error("Living persona refresh failed: %s", exc)
 
 
-def run_contextlayer_synthesis_cycle() -> None:
-    try:
-        from pcl.contextlayer import run_inductive_memory_job, run_profile_synthesizer
-        synth = run_profile_synthesizer()
-        inductive = run_inductive_memory_job()
-        logger.info("ContextLayer synthesis: %s, inductive: %s", synth, inductive)
-    except Exception as exc:
-        logger.error("ContextLayer synthesis failed: %s", exc)
-
-
-def run_contextlayer_reflection_cycle() -> None:
-    try:
-        from pcl.contextlayer import run_decay_engine, run_reflective_memory_job
-        decay = run_decay_engine()
-        reflective = run_reflective_memory_job()
-        logger.info("ContextLayer decay: %s, reflective: %s", decay, reflective)
-    except Exception as exc:
-        logger.error("ContextLayer reflection failed: %s", exc)
-
-
 def run_contextlayer_daily_refresh_cycle() -> None:
     try:
         from pcl.daily_refresh import run_due_daily_refreshes
@@ -89,20 +69,6 @@ def create_scheduler() -> BackgroundScheduler:
         refresh_living_persona,
         IntervalTrigger(minutes=15),
         id="living_persona_refresh",
-        replace_existing=True,
-    )
-
-    scheduler.add_job(
-        run_contextlayer_synthesis_cycle,
-        IntervalTrigger(hours=6),
-        id="contextlayer_synthesis",
-        replace_existing=True,
-    )
-
-    scheduler.add_job(
-        run_contextlayer_reflection_cycle,
-        CronTrigger(hour=3, minute=0),
-        id="contextlayer_reflection",
         replace_existing=True,
     )
 

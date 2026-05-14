@@ -53,6 +53,67 @@ def test_daily_refresh_runs_all_steps_and_writes_profile_fields():
     assert after["stale"] is False
 
 
+def test_daily_refresh_writes_encrypted_shared_context_file():
+    from pcl.contextlayer import ingest_context_event
+    from pcl.daily_refresh import run_daily_refresh
+    from pcl.shared_context import read_shared_context_bundle, shared_context_bundle_path
+
+    ingest_context_event(
+        {
+            "user_id": "user_1",
+            "app_id": "figma",
+            "feature_id": "auto-layout",
+            "action": "used",
+            "session_id": "s1",
+            "timestamp": int(time.time() * 1000),
+        },
+        source="extension",
+    )
+
+    result = run_daily_refresh("user_1", today=datetime(2026, 5, 13))
+    path = shared_context_bundle_path("user_1")
+    raw_file = path.read_text(encoding="utf-8")
+    bundle = read_shared_context_bundle("user_1")
+
+    assert next(log for log in result["logs"] if log["step_number"] == 9)["step_name"] == "shared_context_file"
+    assert path.exists()
+    assert "auto-layout" not in raw_file
+    assert bundle["user_id"] == "user_1"
+    assert bundle["privacy"]["raw_events_included"] is False
+    assert bundle["features"][0]["feature_id"] == "auto-layout"
+
+
+def test_daily_refresh_queues_silent_daily_insight_route():
+    import database
+    from pcl.contextlayer import ingest_context_event
+    from pcl.daily_refresh import run_daily_refresh
+
+    database.register_push_token(
+        user_id="user_1",
+        device_id="iphone-1",
+        apns_token="apns_token_123456789",
+    )
+    ingest_context_event(
+        {
+            "user_id": "user_1",
+            "app_id": "figma",
+            "feature_id": "auto-layout",
+            "action": "used",
+            "timestamp": int(time.time() * 1000),
+        },
+        source="extension",
+    )
+
+    result = run_daily_refresh("user_1", today=datetime(2026, 5, 13))
+    routes = database.list_notification_routes("user_1")
+
+    assert result["status"] == "complete"
+    assert routes[0]["notification_type"] == "daily_insight_ready"
+    assert routes[0]["payload_kind"] == "silent_local_insight"
+    assert routes[0]["device_id"] == "iphone-1"
+    assert "auto-layout" not in str(routes[0])
+
+
 def test_daily_refresh_can_resume_from_completed_step():
     from pcl.contextlayer import ingest_context_event
     from pcl.daily_refresh import run_daily_refresh
@@ -80,6 +141,59 @@ def test_daily_refresh_can_resume_from_completed_step():
     assert result["status"] == "complete"
     assert result["job"]["id"] == "resume-job"
     assert [log["step_number"] for log in result["logs"]] == [6, 7, 8, 9, 10, 11]
+
+
+def test_daily_refresh_maintains_graph_tiers_and_cleans_temporal_chains():
+    import database
+    from pcl.contextlayer import ingest_context_event
+    from pcl.daily_refresh import run_daily_refresh
+
+    now_ms = int(datetime(2026, 5, 13, 3, 0, tzinfo=timezone.utc).timestamp() * 1000)
+    old_ms = now_ms - (91 * 24 * 60 * 60 * 1000)
+    recent_ms = now_ms - 1_000
+
+    ingest_context_event(
+        {
+            "user_id": "user_1",
+            "app_id": "notion",
+            "feature_id": "design-systems",
+            "action": "used",
+            "session_id": "old",
+            "timestamp": old_ms,
+        },
+        source="sdk",
+    )
+    ingest_context_event(
+        {
+            "user_id": "user_1",
+            "app_id": "figma",
+            "feature_id": "design-review",
+            "action": "used",
+            "session_id": "recent",
+            "timestamp": recent_ms,
+        },
+        source="extension",
+    )
+    design_systems = database.get_kg_node("user_1", "feature", "design-systems")
+    with database.get_connection() as conn:
+        conn.execute(
+            "UPDATE kg_nodes SET tier = 'cool', decay_score = 0.01, last_seen = ? WHERE id = ?",
+            (old_ms, design_systems["id"]),
+        )
+        conn.commit()
+
+    result = run_daily_refresh("user_1", today=datetime(2026, 5, 13, 3, 0, tzinfo=timezone.utc))
+
+    reactivated = database.get_kg_node("user_1", "feature", "design-systems")
+    chains = database.list_temporal_chains("user_1")
+    tier_log = next(log for log in result["logs"] if log["step_number"] == 8)
+
+    assert result["status"] == "complete"
+    assert tier_log["step_name"] == "tier_maintenance"
+    assert reactivated["tier"] == "warm"
+    assert reactivated["compressed"] is False
+    assert len(chains) == 1
+    assert chains[0]["signal_type"] == "used"
 
 
 def test_daily_refresh_due_selection_uses_user_local_timezone():
@@ -122,7 +236,7 @@ def test_daily_refresh_not_due_before_3am_local_after_same_day_refresh():
     ) is False
 
 
-def test_monthly_refresh_runs_tsubasa_step():
+def test_daily_refresh_step_8_is_tier_maintenance_not_monthly_distillation():
     import database
     from pcl.contextlayer import ingest_context_event
     from pcl.daily_refresh import run_daily_refresh
@@ -145,8 +259,9 @@ def test_monthly_refresh_runs_tsubasa_step():
     profile = database.get_user_profile_record("user_1")
 
     assert result["status"] == "complete"
-    assert any(
-        attr["attribute"] == "long-horizon-tool-pattern"
+    assert next(log for log in result["logs"] if log["step_number"] == 8)["step_name"] == "tier_maintenance"
+    assert not any(
+        attr.get("attribute") == "long-horizon-tool-pattern"
         for attr in profile["abstract_attributes"]
     )
 

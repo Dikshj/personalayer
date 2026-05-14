@@ -107,6 +107,32 @@ def test_developer_context_authorization_enforces_consent_and_scopes():
     assert denied_scope["error"] == "scope_not_granted"
 
 
+def test_web_domain_permission_lifecycle():
+    from database import (
+        check_web_domain_permission,
+        grant_web_domain_permission,
+        list_web_domain_permissions,
+        revoke_web_domain_permission,
+    )
+
+    missing = check_web_domain_permission("user_1", "https://www.mail.example.com/inbox", ["getFeatureUsage"])
+    granted = grant_web_domain_permission("user_1", "https://www.mail.example.com/inbox")
+    allowed = check_web_domain_permission("user_1", "mail.example.com", ["getFeatureUsage", "track"])
+    denied_scope = check_web_domain_permission("user_1", "mail.example.com", ["getConstraints"])
+    listed = list_web_domain_permissions("user_1")
+    revoked = revoke_web_domain_permission("user_1", "mail.example.com")
+    after_revoke = check_web_domain_permission("user_1", "mail.example.com", ["getFeatureUsage"])
+
+    assert missing["error"] == "web_domain_permission_required"
+    assert granted["domain"] == "mail.example.com"
+    assert granted["scopes"] == ["getFeatureUsage", "track"]
+    assert allowed["authorized"] is True
+    assert denied_scope["error"] == "web_domain_scope_not_granted"
+    assert listed[0]["domain"] == "mail.example.com"
+    assert revoked is True
+    assert after_revoke["error"] == "web_domain_permission_required"
+
+
 @pytest.mark.asyncio
 async def test_consent_and_developer_endpoints(client):
     async with client as c:
@@ -141,6 +167,34 @@ async def test_consent_and_developer_endpoints(client):
     assert "key" not in keys.json()["keys"][0]
     assert consent.json()["status"] == "granted"
     assert consents.json()["permissions"][0]["app_id"] == "mail_app"
+    assert revoked.json()["status"] == "revoked"
+
+
+@pytest.mark.asyncio
+async def test_web_domain_permission_endpoints(client):
+    async with client as c:
+        missing = await c.post("/v1/web/permissions/check", json={
+            "user_id": "user_1",
+            "domain": "mail.example.com",
+            "requested_scopes": ["getFeatureUsage"],
+        })
+        granted = await c.post("/v1/web/permissions", json={
+            "user_id": "user_1",
+            "domain": "https://www.mail.example.com/inbox",
+        })
+        allowed = await c.post("/v1/web/permissions/check", json={
+            "user_id": "user_1",
+            "domain": "mail.example.com",
+            "requested_scopes": ["getFeatureUsage", "track"],
+        })
+        permissions = await c.get("/v1/web/permissions", params={"user_id": "user_1"})
+        revoked = await c.delete("/v1/web/permissions/mail.example.com", params={"user_id": "user_1"})
+
+    assert missing.json()["error"] == "web_domain_permission_required"
+    assert granted.json()["status"] == "granted"
+    assert granted.json()["permission"]["domain"] == "mail.example.com"
+    assert allowed.json()["authorized"] is True
+    assert permissions.json()["permissions"][0]["scopes"] == ["getFeatureUsage", "track"]
     assert revoked.json()["status"] == "revoked"
 
 
@@ -192,6 +246,40 @@ async def test_context_bundle_endpoint_accepts_developer_auth_after_consent(clie
     assert denied.json()["error"] == "missing_user_consent"
     assert allowed.json()["auth"]["mode"] == "developer"
     assert allowed.json()["permission"]["status"] == "granted"
+
+
+@pytest.mark.asyncio
+async def test_scoped_cors_uses_local_web_domain_permissions(client):
+    from database import grant_web_domain_permission
+
+    grant_web_domain_permission("local_user", "mail.example.com")
+
+    async with client as c:
+        allowed_preflight = await c.options(
+            "/v1/context/bundle",
+            headers={
+                "Origin": "https://mail.example.com",
+                "Access-Control-Request-Method": "POST",
+            },
+        )
+        denied_preflight = await c.options(
+            "/v1/context/bundle",
+            headers={
+                "Origin": "https://unapproved.example.com",
+                "Access-Control-Request-Method": "POST",
+            },
+        )
+        local_response = await c.get(
+            "/health",
+            headers={"Origin": "http://localhost:3000"},
+        )
+
+    assert allowed_preflight.status_code == 204
+    assert allowed_preflight.headers["access-control-allow-origin"] == "https://mail.example.com"
+    assert "POST" in allowed_preflight.headers["access-control-allow-methods"]
+    assert denied_preflight.status_code == 403
+    assert "access-control-allow-origin" not in denied_preflight.headers
+    assert local_response.headers["access-control-allow-origin"] == "http://localhost:3000"
 
 
 @pytest.fixture

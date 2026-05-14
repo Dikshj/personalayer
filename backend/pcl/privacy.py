@@ -5,6 +5,18 @@ from typing import Any
 EMAIL_RE = re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.IGNORECASE)
 PHONE_RE = re.compile(r"(?<!\d)(?:\+?\d[\d\s().-]{7,}\d)(?!\d)")
 TOKEN_RE = re.compile(r"\b(?:sk|pk|ghp|gho|xoxb|xoxp|ya29)[-_A-Za-z0-9]{12,}\b")
+SECRET_KEY_PARTS = (
+    "access_token",
+    "refresh_token",
+    "id_token",
+    "client_secret",
+    "authorization",
+    "password",
+    "secret",
+    "token",
+    "cookie",
+    "credential",
+)
 
 
 def scrub_pii(value: Any) -> Any:
@@ -36,3 +48,23 @@ def strip_raw_content(signal: dict) -> dict:
     }
     filtered = {key: value for key, value in signal.items() if key in allowed}
     return scrub_pii(filtered)
+
+
+def sanitize_integration_metadata(metadata: Any) -> dict:
+    if not isinstance(metadata, dict):
+        return {}
+    return _drop_secret_keys(scrub_pii(metadata))
+
+
+def _drop_secret_keys(value: Any) -> Any:
+    if isinstance(value, list):
+        return [_drop_secret_keys(item) for item in value]
+    if isinstance(value, dict):
+        clean = {}
+        for key, item in value.items():
+            normalized = str(key).lower()
+            if any(part in normalized for part in SECRET_KEY_PARTS):
+                continue
+            clean[key] = _drop_secret_keys(item)
+        return clean
+    return value

@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from database import (
     create_or_resume_daily_refresh_job,
     delete_old_raw_context_events,
+    delete_old_temporal_chains,
     get_daily_refresh_job,
     get_user_profile_record,
     insert_daily_refresh_step_log,
@@ -16,9 +17,11 @@ from database import (
     list_feature_signals,
     list_raw_context_events,
     list_user_profile_records,
+    maintain_knowledge_graph_tiers,
     mark_daily_refresh_complete,
     mark_daily_refresh_failed,
     promote_episodic_feature_signals,
+    queue_notification_routes,
     update_daily_refresh_step,
     update_user_profile_record,
 )
@@ -153,7 +156,7 @@ def queue_urgent_synthesis(user_id: str) -> dict:
 
 
 def _steps(today: datetime) -> list[RefreshStep]:
-    steps = [
+    return [
         RefreshStep(1, "connector_sync", connector_sync),
         RefreshStep(2, "privacy_filter", privacy_filter_batch),
         RefreshStep(3, "signal_classifier", signal_classifier_route),
@@ -161,17 +164,11 @@ def _steps(today: datetime) -> list[RefreshStep]:
         RefreshStep(5, "decay_engine", decay_engine),
         RefreshStep(6, "bi_mem_inductive", bi_mem_inductive),
         RefreshStep(7, "bi_mem_reflective", bi_mem_reflective),
-    ]
-    if today.day == 1:
-        steps.append(RefreshStep(8, "tsubasa_distillation", tsubasa_distillation))
-    else:
-        steps.append(RefreshStep(8, "tsubasa_distillation_skipped", lambda user_id: {"skipped": True}))
-    steps.extend([
-        RefreshStep(9, "brief_regeneration", brief_regeneration),
+        RefreshStep(8, "tier_maintenance", tier_maintenance),
+        RefreshStep(9, "shared_context_file", shared_context_file),
         RefreshStep(10, "daily_insight_generation", daily_insight_generation),
         RefreshStep(11, "raw_event_cleanup", raw_event_cleanup),
-    ])
-    return steps
+    ]
 
 
 def connector_sync(user_id: str) -> dict:
@@ -208,6 +205,10 @@ def bi_mem_reflective(user_id: str) -> dict:
     from database import demote_stale_core_feature_signals
 
     return {"demoted": demote_stale_core_feature_signals(user_id=user_id)}
+
+
+def tier_maintenance(user_id: str) -> dict:
+    return maintain_knowledge_graph_tiers(user_id=user_id)
 
 
 def tsubasa_distillation(user_id: str) -> dict:
@@ -247,6 +248,14 @@ def brief_regeneration(user_id: str) -> dict:
     return {"context_brief": brief}
 
 
+def shared_context_file(user_id: str) -> dict:
+    from pcl.shared_context import write_shared_context_bundle
+
+    brief = brief_regeneration(user_id)
+    shared = write_shared_context_bundle(user_id)
+    return {"context_brief": brief["context_brief"], "shared_context": shared}
+
+
 def daily_insight_generation(user_id: str) -> dict:
     signals = list_feature_signals(user_id=user_id)[:5]
     if not signals:
@@ -258,11 +267,28 @@ def daily_insight_generation(user_id: str) -> dict:
         else:
             insight = f"{top['feature_id']} is your strongest recent {top['app_id']} signal."
     update_user_profile_record(user_id, daily_insight=insight)
-    return {"daily_insight": insight, "prompt_template": DAILY_INSIGHT_PROMPT}
+    delivery = queue_notification_routes(
+        user_id=user_id,
+        notification_type="daily_insight_ready",
+        deliver_after=_next_local_8am_ms(),
+        payload_kind="silent_local_insight",
+    )
+    return {
+        "daily_insight": insight,
+        "prompt_template": DAILY_INSIGHT_PROMPT,
+        "notification_routing": {
+            "queued": delivery["queued"],
+            "payload_kind": "silent_local_insight",
+            "behavioral_text_sent_to_cloud": False,
+        },
+    }
 
 
 def raw_event_cleanup(user_id: str) -> dict:
-    return {"deleted": delete_old_raw_context_events(user_id=user_id)}
+    return {
+        "raw_events_deleted": delete_old_raw_context_events(user_id=user_id),
+        "temporal_chains_deleted": delete_old_temporal_chains(user_id=user_id),
+    }
 
 
 def should_mark_bundle_stale(user_id: str, now_ms: int | None = None) -> bool:
@@ -285,3 +311,13 @@ def _zoneinfo(tz_name: str) -> ZoneInfo:
         return ZoneInfo(tz_name)
     except ZoneInfoNotFoundError:
         return ZoneInfo("UTC")
+
+
+def _next_local_8am_ms(now: datetime | None = None) -> int:
+    now = now or datetime.now()
+    target = now.replace(hour=8, minute=0, second=0, microsecond=0)
+    if target <= now:
+        from datetime import timedelta
+
+        target = target + timedelta(days=1)
+    return int(target.timestamp() * 1000)

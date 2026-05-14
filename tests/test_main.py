@@ -345,12 +345,15 @@ async def test_pcl_integration_endpoints(client):
         catalog = await c.get("/pcl/integrations/catalog")
         initial = await c.get("/pcl/integrations")
         connected = await c.post("/pcl/integrations/gmail/connect", json={
+            "account_hint": "user@example.com",
+            "auth_status": "authorized",
             "metadata": {
                 "messages": [
                     {
                         "from": "person@example.com",
                         "labels": ["Work"],
                         "timestamp": 1700000000000,
+                        "access_token": "ghp_secretsecretsecret",
                     }
                 ]
             },
@@ -361,10 +364,16 @@ async def test_pcl_integration_endpoints(client):
         unknown = await c.post("/pcl/integrations/unknown/connect", json={})
 
     assert "gmail" in {item["source"] for item in catalog.json()["integrations"]}
+    gmail_catalog = next(item for item in catalog.json()["integrations"] if item["source"] == "gmail")
+    assert gmail_catalog["auth_type"] == "oauth_or_local_metadata"
+    assert "messages" in gmail_catalog["metadata_example"]
     assert next(item for item in initial.json()["integrations"] if item["source"] == "gmail")["status"] == "available"
     assert connected.json()["status"] == "connected"
     assert synced.json()["status"] == "ok"
     gmail = next(item for item in after_sync.json()["integrations"] if item["source"] == "gmail")
+    assert gmail["account_hint"] == "user@example.com"
+    assert gmail["auth_status"] == "authorized"
+    assert "access_token" not in str(gmail["metadata"])
     assert gmail["last_sync_status"] == "ok"
     assert gmail["items_synced"] == 1
     assert disconnected.json()["status"] == "disconnected"
@@ -388,6 +397,104 @@ async def test_pcl_github_integration_sync_endpoint(client, monkeypatch):
     assert synced.json()["status"] == "ok"
     assert synced.json()["items_synced"] == 3
     assert github["last_sync_status"] == "ok"
+
+
+@pytest.mark.asyncio
+async def test_context_shared_bundle_endpoint_reads_local_file(client):
+    async with client as c:
+        missing = await c.get("/v1/context/shared-bundle", params={"user_id": "user_1"})
+        await c.post("/v1/ingest/sdk", json={
+            "user_id": "user_1",
+            "app_id": "figma",
+            "feature_id": "auto-layout",
+            "action": "used",
+            "session_id": "s1",
+            "timestamp": int(time.time() * 1000),
+        })
+        await c.post("/v1/jobs/daily-refresh", json={
+            "user_id": "user_1",
+            "timezone": "UTC",
+        })
+        found = await c.get("/v1/context/shared-bundle", params={"user_id": "user_1"})
+
+    assert missing.json()["error"] == "shared_bundle_not_found"
+    data = found.json()
+    assert data["status"] == "ok"
+    assert data["source"] == "local_shared_context_file"
+    assert data["bundle"]["privacy"]["raw_events_included"] is False
+    assert data["bundle"]["features"][0]["feature_id"] == "auto-layout"
+
+
+@pytest.mark.asyncio
+async def test_device_push_token_and_notification_route_endpoints(client):
+    async with client as c:
+        registered = await c.post("/v1/devices/push-token", json={
+            "user_id": "user_1",
+            "device_id": "iphone-1",
+            "apns_token": "apns_token_123456789",
+            "platform": "ios",
+            "environment": "sandbox",
+        })
+        tokens = await c.get("/v1/devices/push-token", params={"user_id": "user_1"})
+        await c.post("/v1/ingest/sdk", json={
+            "user_id": "user_1",
+            "app_id": "figma",
+            "feature_id": "auto-layout",
+            "action": "used",
+            "timestamp": int(time.time() * 1000),
+        })
+        await c.post("/v1/jobs/daily-refresh", json={"user_id": "user_1"})
+        routes = await c.get("/v1/notifications/routes", params={"user_id": "user_1"})
+        revoked = await c.delete("/v1/devices/push-token/iphone-1", params={"user_id": "user_1"})
+
+    assert registered.json()["status"] == "registered"
+    assert tokens.json()["tokens"][0]["token_prefix"] == "apns_token_1"
+    route = routes.json()["routes"][0]
+    assert route["notification_type"] == "daily_insight_ready"
+    assert route["payload_kind"] == "silent_local_insight"
+    assert "auto-layout" not in str(route)
+    assert revoked.json()["status"] == "revoked"
+
+
+@pytest.mark.asyncio
+async def test_pcl_integration_oauth_flow_endpoints(client, monkeypatch):
+    monkeypatch.delenv("GOOGLE_OAUTH_CLIENT_ID", raising=False)
+
+    async with client as c:
+        missing_config = await c.post("/pcl/integrations/gmail/oauth/start", json={
+            "user_id": "user_1",
+            "redirect_uri": "http://localhost/callback",
+        })
+        callback = await c.post("/pcl/integrations/oauth/callback", json={
+            "state": missing_config.json()["state"],
+            "code": "local-code",
+            "account_hint": "user@example.com",
+        })
+        integrations = await c.get("/pcl/integrations")
+        tokens = await c.get("/pcl/integrations/oauth/tokens", params={"user_id": "user_1"})
+        revoked_token = await c.delete("/pcl/integrations/gmail/oauth/token", params={"user_id": "user_1"})
+        invalid = await c.post("/pcl/integrations/oauth/callback", json={
+            "state": missing_config.json()["state"],
+            "code": "local-code",
+        })
+        unsupported = await c.post("/pcl/integrations/github/oauth/start", json={
+            "user_id": "user_1",
+            "redirect_uri": "http://localhost/callback",
+        })
+
+    gmail = next(item for item in integrations.json()["integrations"] if item["source"] == "gmail")
+    assert missing_config.json()["status"] == "configuration_required"
+    assert missing_config.json()["client_id_env"] == "GOOGLE_OAUTH_CLIENT_ID"
+    assert callback.json()["status"] == "connected"
+    assert gmail["account_hint"] == "user@example.com"
+    assert gmail["auth_status"] == "oauth_connected_local_token_store"
+    assert gmail["auth_expires_at"]
+    assert tokens.json()["tokens"][0]["has_refresh_token"] is True
+    assert "local-code" not in str(tokens.json())
+    assert "local_access" not in str(tokens.json())
+    assert revoked_token.json()["status"] == "revoked"
+    assert invalid.json()["error"] == "invalid_or_consumed_state"
+    assert unsupported.json()["error"] == "oauth_not_supported"
 
 
 @pytest.mark.asyncio

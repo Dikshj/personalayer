@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  python-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install -r backend/requirements.txt
+      - run: pytest tests/ -q -n 4
+
+  js-sdk-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: cd sdk/javascript && npm install
+      - run: cd sdk/javascript && npm test
+
+  supabase-schema-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - run: supabase db start
+      - run: supabase db lint
+      - run: pytest tests/test_supabase_schema.py
+
+  swift-lint-check:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: swift package --package-path native/macos/PersonalLayer resolve
+      - run: swift build --package-path native/macos/PersonalLayer
+      - run: swift build --package-path native/ios/PersonalLayer
+      - run: swift build --package-path sdk/swift

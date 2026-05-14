@@ -1,10 +1,21 @@
 {
-  "name": "@personal-context-layer/sdk",
-  "version": "0.0.0",
-  "private": true,
-  "type": "module",
-  "main": "personal-context-layer.js",
+  "name": "@personalayer/sdk",
+  "version": "0.1.0",
+  "description": "Personal Layer JavaScript SDK",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": ["dist/"],
   "scripts": {
-    "test": "node --test personal-context-layer.test.mjs"
+    "build": "tsc",
+    "test": "jest",
+    "prepublishOnly": "npm run build"
+  },
+  "type": "module",
+  "keywords": ["personal-layer", "context-layer", "privacy"],
+  "author": "Personal Layer Team",
+  "license": "MIT",
+  "devDependencies": {
+    "typescript": "^5.3.0",
+    "jest": "^29.7.0"
   }
 }

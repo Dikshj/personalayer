@@ -67,6 +67,7 @@
       pclLogs: [],
       onboarding: null,
       integrations: [],
+      integrationTokens: [],
       contextBundle: null,
       contextActivity: null,
       contextSignals: [],
@@ -74,6 +75,9 @@
       refreshJobs: [],
       privacyDrops: [],
       consents: [],
+      webPermissions: [],
+      pushTokens: [],
+      notificationRoutes: [],
     };
 
     const $ = (selector) => document.querySelector(selector);
@@ -107,7 +111,7 @@
       $('#status').textContent = 'Loading...';
       $('#status').className = 'status';
 
-      const [summary, living, predictions, stored, contracts, logs, pclProfile, pclApps, featureUsage, pclLogs, onboarding, integrations, contextBundle, contextActivity, contextSignals, contextBrief, refreshJobs, privacyDrops, consents] = await Promise.all([
+      const [summary, living, predictions, stored, contracts, logs, pclProfile, pclApps, featureUsage, pclLogs, onboarding, integrations, integrationTokens, contextBundle, contextActivity, contextSignals, contextBrief, refreshJobs, privacyDrops, consents, webPermissions, pushTokens, notificationRoutes] = await Promise.all([
         fetchJson('/activity/summary?days=30'),
         fetchJson('/persona/living?days=30'),
         fetchJson('/predictions/next-context?days=14'),
@@ -120,6 +124,7 @@
         fetchJson('/pcl/query-log?limit=100'),
         fetchJson('/pcl/onboarding/seed?user_id=local_user').catch((error) => ({ error: error.message })),
         fetchJson('/pcl/integrations'),
+        fetchJson('/pcl/integrations/oauth/tokens?user_id=local_user').catch((error) => ({ error: error.message, tokens: [] })),
         fetchJson('/v1/context/bundle', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -131,6 +136,9 @@
         fetchJson('/v1/jobs/daily-refresh?user_id=local_user&limit=20').catch((error) => ({ error: error.message, jobs: [] })),
         fetchJson('/v1/context/privacy-drops?user_id=local_user&limit=50').catch((error) => ({ error: error.message, drops: [] })),
         fetchJson('/v1/auth/consent?user_id=local_user').catch((error) => ({ error: error.message, permissions: [] })),
+        fetchJson('/v1/web/permissions?user_id=local_user').catch((error) => ({ error: error.message, permissions: [] })),
+        fetchJson('/v1/devices/push-token?user_id=local_user&active_only=false').catch((error) => ({ error: error.message, tokens: [] })),
+        fetchJson('/v1/notifications/routes?user_id=local_user&limit=50').catch((error) => ({ error: error.message, routes: [] })),
       ]);
 
       state.summary = summary;
@@ -145,6 +153,7 @@
       state.pclLogs = pclLogs.logs || [];
       state.onboarding = onboarding;
       state.integrations = integrations.integrations || [];
+      state.integrationTokens = integrationTokens.tokens || [];
       state.contextBundle = contextBundle;
       state.contextActivity = contextActivity;
       state.contextSignals = contextSignals.features || [];
@@ -152,6 +161,9 @@
       state.refreshJobs = refreshJobs.jobs || [];
       state.privacyDrops = privacyDrops.drops || [];
       state.consents = consents.permissions || [];
+      state.webPermissions = webPermissions.permissions || [];
+      state.pushTokens = pushTokens.tokens || [];
+      state.notificationRoutes = notificationRoutes.routes || [];
 
       renderMetrics();
       renderActiveView();
@@ -172,6 +184,10 @@
         ['CL signals', state.contextSignals.length || 0],
         ['Refresh jobs', state.refreshJobs.length || 0],
         ['Privacy drops', state.privacyDrops.length || 0],
+        ['Web grants', state.webPermissions.filter((item) => item.is_active).length || 0],
+        ['OAuth tokens', state.integrationTokens.filter((item) => item.status === 'active').length || 0],
+        ['Devices', state.pushTokens.filter((item) => item.is_active).length || 0],
+        ['Routes', state.notificationRoutes.length || 0],
       ].forEach(([label, value]) => {
         const item = el('article', 'metric');
         item.append(el('span', 'metric-label', label));
@@ -217,12 +233,24 @@
         item.append(header);
         item.append(el('p', '', integration.description || ''));
         item.append(el('p', '', `Source: ${integration.source}`));
+        if (integration.account_hint) item.append(el('p', '', `Account: ${integration.account_hint}`));
+        item.append(el('p', '', `Auth: ${integration.auth_status || 'not_connected'}`));
+        item.append(el('p', '', `Connection: ${integration.auth_type || 'local_metadata'}`));
         item.append(el('p', '', `Scopes: ${text(integration.scopes)}`));
         item.append(el('p', '', `Last sync: ${integration.last_sync_at || '-'} - ${integration.last_sync_status || 'not synced'}`));
+        if (integration.sync_cursor?.last_timestamp_ms) {
+          item.append(el('p', '', `Cursor: ${new Date(integration.sync_cursor.last_timestamp_ms).toLocaleString()}`));
+        }
         if (integration.error) item.append(el('p', '', `Import note: ${integration.error}`));
 
         const actions = el('div', 'button-row');
         if (integration.status === 'connected') {
+          if (integration.oauth) {
+            const oauth = el('button', 'inline', 'OAuth');
+            oauth.type = 'button';
+            oauth.addEventListener('click', () => startOAuthIntegration(integration.source));
+            actions.append(oauth);
+          }
           const sync = el('button', '', 'Sync');
           sync.type = 'button';
           sync.addEventListener('click', () => syncIntegration(integration.source));
@@ -234,6 +262,12 @@
           remove.addEventListener('click', () => deleteIntegrationData(integration.source));
           actions.append(sync, disconnect, remove);
         } else {
+          if (integration.oauth) {
+            const oauth = el('button', '', 'OAuth');
+            oauth.type = 'button';
+            oauth.addEventListener('click', () => startOAuthIntegration(integration.source));
+            actions.append(oauth);
+          }
           const connect = el('button', '', 'Connect');
           connect.type = 'button';
           connect.addEventListener('click', () => connectIntegration(integration.source));
@@ -248,10 +282,55 @@
     }
 
     async function connectIntegration(source) {
+      const accountHint = window.prompt(`Account hint for ${source} (email, username, or workspace):`, '') || '';
+      const rawMetadata = window.prompt(
+        `Optional ${source} import metadata as JSON. Leave blank to connect account only:`,
+        JSON.stringify(state.integrations.find((item) => item.source === source)?.metadata_example || {}, null, 2),
+      ) || '{}';
+      let metadata = {};
+      try {
+        metadata = JSON.parse(rawMetadata);
+      } catch (error) {
+        setStatus(`Invalid JSON metadata for ${source}.`, true);
+        return;
+      }
       await fetchJson(`/pcl/integrations/${source}/connect`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ metadata: {} }),
+        body: JSON.stringify({
+          account_hint: accountHint,
+          auth_status: 'local_metadata',
+          metadata,
+        }),
+      });
+      await loadAll();
+    }
+
+    async function startOAuthIntegration(source) {
+      const response = await fetchJson(`/pcl/integrations/${source}/oauth/start`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: 'local_user',
+          redirect_uri: `${window.location.origin}/pcl/integrations/oauth/callback`,
+        }),
+      });
+      if (response.auth_url) {
+        window.prompt(`Open this ${source} authorization URL:`, response.auth_url);
+      } else if (response.client_id_env) {
+        window.prompt(`Set ${response.client_id_env}, then retry. OAuth state for local testing:`, response.state || '');
+      }
+      const code = window.prompt(`Paste ${source} authorization code to complete local callback, or leave blank:`, '');
+      if (!code) return;
+      const accountHint = window.prompt(`Account hint for ${source}:`, '') || '';
+      await fetchJson('/pcl/integrations/oauth/callback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          state: response.state,
+          code,
+          account_hint: accountHint,
+        }),
       });
       await loadAll();
     }
@@ -529,6 +608,54 @@
       grant.addEventListener('click', grantDashboardConsent);
       grantPanel.append(grant);
 
+      const webPanel = el('section', 'panel');
+      webPanel.append(el('h2', '', 'Web Domain Permissions'));
+      if (!state.webPermissions.length) {
+        webPanel.append(el('p', 'empty', 'No website domains have extension bridge access yet.'));
+      } else {
+        state.webPermissions.forEach((permission) => {
+          const row = el('div', 'signal-row');
+          const main = el('div', 'signal-main');
+          main.append(el('strong', '', permission.domain));
+          main.append(el('span', '', `${permission.is_active ? 'active' : 'revoked'} - scopes ${text(permission.scopes)}`));
+          const actions = el('div', 'signal-actions');
+          if (permission.is_active) {
+            const revoke = el('button', 'danger inline icon-btn', 'Revoke');
+            revoke.type = 'button';
+            revoke.addEventListener('click', () => revokeWebDomainPermission(permission.domain));
+            actions.append(revoke);
+          }
+          row.append(main, actions);
+          webPanel.append(row);
+        });
+      }
+      const grantWeb = el('button', '', 'Grant website domain');
+      grantWeb.type = 'button';
+      grantWeb.addEventListener('click', grantWebDomainPermission);
+      webPanel.append(grantWeb);
+
+      const oauthPanel = el('section', 'panel');
+      oauthPanel.append(el('h2', '', 'Integration OAuth Tokens'));
+      if (!state.integrationTokens.length) {
+        oauthPanel.append(el('p', 'empty', 'No local OAuth token records stored yet.'));
+      } else {
+        state.integrationTokens.forEach((token) => {
+          const row = el('div', 'signal-row');
+          const main = el('div', 'signal-main');
+          main.append(el('strong', '', `${token.source} ${token.account_hint || ''}`.trim()));
+          main.append(el('span', '', `${text(token.status)} - refresh ${token.has_refresh_token ? 'yes' : 'no'} - fp ${text(token.token_fingerprint)} - expires ${token.expires_at ? new Date(token.expires_at).toLocaleString() : '-'}`));
+          const actions = el('div', 'signal-actions');
+          if (token.status === 'active') {
+            const revoke = el('button', 'danger inline icon-btn', 'Revoke');
+            revoke.type = 'button';
+            revoke.addEventListener('click', () => revokeIntegrationOAuthToken(token.source));
+            actions.append(revoke);
+          }
+          row.append(main, actions);
+          oauthPanel.append(row);
+        });
+      }
+
       const devPanel = el('section', 'panel');
       devPanel.append(el('h2', '', 'Developer Local Key'));
       devPanel.append(el('p', '', 'Create a local test developer, dashboard app, and API key. The raw key is shown once in the status bar.'));
@@ -537,7 +664,48 @@
       dev.addEventListener('click', createDashboardDeveloperKey);
       devPanel.append(dev);
 
-      content.append(consentPanel, grantPanel, devPanel);
+      const devicePanel = el('section', 'panel');
+      devicePanel.append(el('h2', '', 'Device Push Tokens'));
+      if (!state.pushTokens.length) {
+        devicePanel.append(el('p', 'empty', 'No local device push tokens registered yet.'));
+      } else {
+        state.pushTokens.forEach((device) => {
+          const row = el('div', 'signal-row');
+          const main = el('div', 'signal-main');
+          main.append(el('strong', '', device.device_id));
+          main.append(el('span', '', `${device.is_active ? 'active' : 'revoked'} - ${text(device.platform)} ${text(device.environment)} - token ${text(device.token_prefix)}`));
+          const actions = el('div', 'signal-actions');
+          if (device.is_active) {
+            const revoke = el('button', 'danger inline icon-btn', 'Revoke');
+            revoke.type = 'button';
+            revoke.addEventListener('click', () => revokePushToken(device.device_id));
+            actions.append(revoke);
+          }
+          row.append(main, actions);
+          devicePanel.append(row);
+        });
+      }
+      const register = el('button', '', 'Register local test device');
+      register.type = 'button';
+      register.addEventListener('click', registerPushToken);
+      devicePanel.append(register);
+
+      const routePanel = el('section', 'panel');
+      routePanel.append(el('h2', '', 'Notification Routes'));
+      if (!state.notificationRoutes.length) {
+        routePanel.append(el('p', 'empty', 'No local notification routes have been queued yet.'));
+      } else {
+        state.notificationRoutes.forEach((route) => {
+          const row = el('div', 'signal-row');
+          const main = el('div', 'signal-main');
+          main.append(el('strong', '', `${route.notification_type} -> ${route.device_id}`));
+          main.append(el('span', '', `${text(route.status)} - ${text(route.payload_kind)} - after ${new Date(route.deliver_after).toLocaleString()}`));
+          row.append(main);
+          routePanel.append(row);
+        });
+      }
+
+      content.append(consentPanel, grantPanel, webPanel, oauthPanel, devicePanel, routePanel, devPanel);
     }
 
     async function runDailyRefresh() {
@@ -598,6 +766,58 @@
 
     async function revokeConsent(appId) {
       await fetchJson(`/v1/auth/consent/${appId}?user_id=local_user`, { method: 'DELETE' });
+      await loadAll();
+    }
+
+    async function grantWebDomainPermission() {
+      const domain = window.prompt('Website domain to allow for extension bridge access:', '');
+      if (!domain) return;
+      await fetchJson('/v1/web/permissions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: 'local_user',
+          domain,
+          scopes: ['getFeatureUsage', 'track'],
+        }),
+      });
+      await loadAll();
+    }
+
+    async function revokeWebDomainPermission(domain) {
+      if (!window.confirm(`Revoke extension bridge access for ${domain}?`)) return;
+      await fetchJson(`/v1/web/permissions/${encodeURIComponent(domain)}?user_id=local_user`, { method: 'DELETE' });
+      await loadAll();
+    }
+
+    async function revokeIntegrationOAuthToken(source) {
+      if (!window.confirm(`Revoke local OAuth token for ${source}?`)) return;
+      await fetchJson(`/pcl/integrations/${encodeURIComponent(source)}/oauth/token?user_id=local_user`, { method: 'DELETE' });
+      await loadAll();
+    }
+
+    async function registerPushToken() {
+      const deviceId = window.prompt('Device ID:', 'local-iphone');
+      if (!deviceId) return;
+      const apnsToken = window.prompt('APNs token:', 'dev_apns_token_local');
+      if (!apnsToken) return;
+      await fetchJson('/v1/devices/push-token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: 'local_user',
+          device_id: deviceId,
+          apns_token: apnsToken,
+          platform: 'ios',
+          environment: 'development',
+        }),
+      });
+      await loadAll();
+    }
+
+    async function revokePushToken(deviceId) {
+      if (!window.confirm(`Revoke push token for ${deviceId}?`)) return;
+      await fetchJson(`/v1/devices/push-token/${encodeURIComponent(deviceId)}?user_id=local_user`, { method: 'DELETE' });
       await loadAll();
     }
 
@@ -679,6 +899,19 @@
       cleanup.addEventListener('click', cleanupRawContextEvents);
       rawPanel.append(cleanup);
 
+      const graphPanel = el('section', 'panel');
+      const graph = state.contextActivity?.knowledge_graph || {};
+      graphPanel.append(el('h2', '', 'Local Knowledge Graph'));
+      graphPanel.append(el('p', '', `${graph.nodes?.length || 0} recent nodes, ${graph.temporal_chains?.length || 0} temporal accesses.`));
+      (graph.nodes || []).slice(0, 8).forEach((node) => {
+        const row = el('div', 'signal-row');
+        const main = el('div', 'signal-main');
+        main.append(el('strong', '', node.label));
+        main.append(el('span', '', `${node.type} - ${node.tier} - ${node.access_count} accesses`));
+        row.append(main);
+        graphPanel.append(row);
+      });
+
       const dropsPanel = el('section', 'panel');
       dropsPanel.append(el('h2', '', 'Privacy Filter Drops'));
       if (!state.privacyDrops.length) {
@@ -730,7 +963,7 @@
         integrationPanel.append(row);
       });
 
-      content.append(userPanel, queryPanel, rawPanel, dropsPanel, appPanel, integrationPanel);
+      content.append(userPanel, queryPanel, rawPanel, graphPanel, dropsPanel, appPanel, integrationPanel);
     }
 
     async function deleteLocalUserData() {

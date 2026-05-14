@@ -117,6 +117,108 @@ export class PersonalContextLayer {
     });
   }
 
+  getSharedBundle({userId = "local_user"} = {}) {
+    const params = new URLSearchParams({user_id: userId});
+    return this.get(`/v1/context/shared-bundle?${params.toString()}`);
+  }
+
+  grantWebDomain({
+    userId = "local_user",
+    domain,
+    scopes = ["getFeatureUsage", "track"],
+  } = {}) {
+    if (!domain) {
+      throw new Error("domain is required");
+    }
+    return this.post("/v1/web/permissions", {
+      user_id: userId,
+      domain,
+      scopes,
+    });
+  }
+
+  checkWebDomain({
+    userId = "local_user",
+    domain,
+    requestedScopes = [],
+  } = {}) {
+    if (!domain) {
+      throw new Error("domain is required");
+    }
+    return this.post("/v1/web/permissions/check", {
+      user_id: userId,
+      domain,
+      requested_scopes: requestedScopes,
+    });
+  }
+
+  revokeWebDomain({userId = "local_user", domain} = {}) {
+    if (!domain) {
+      throw new Error("domain is required");
+    }
+    const params = new URLSearchParams({user_id: userId});
+    return this.delete(`/v1/web/permissions/${encodeURIComponent(domain)}?${params.toString()}`);
+  }
+
+  listIntegrationOAuthTokens({userId = "local_user"} = {}) {
+    const params = new URLSearchParams({user_id: userId});
+    return this.get(`/pcl/integrations/oauth/tokens?${params.toString()}`);
+  }
+
+  revokeIntegrationOAuthToken({userId = "local_user", source} = {}) {
+    if (!source) {
+      throw new Error("source is required");
+    }
+    const params = new URLSearchParams({user_id: userId});
+    return this.delete(`/pcl/integrations/${encodeURIComponent(source)}/oauth/token?${params.toString()}`);
+  }
+
+  registerPushToken({
+    userId = "local_user",
+    deviceId,
+    apnsToken,
+    platform = "ios",
+    environment = "development",
+  } = {}) {
+    if (!deviceId) {
+      throw new Error("deviceId is required");
+    }
+    if (!apnsToken) {
+      throw new Error("apnsToken is required");
+    }
+    return this.post("/v1/devices/push-token", {
+      user_id: userId,
+      device_id: deviceId,
+      apns_token: apnsToken,
+      platform,
+      environment,
+    });
+  }
+
+  listPushTokens({userId = "local_user", activeOnly = true} = {}) {
+    const params = new URLSearchParams({
+      user_id: userId,
+      active_only: String(activeOnly),
+    });
+    return this.get(`/v1/devices/push-token?${params.toString()}`);
+  }
+
+  revokePushToken({userId = "local_user", deviceId} = {}) {
+    if (!deviceId) {
+      throw new Error("deviceId is required");
+    }
+    const params = new URLSearchParams({user_id: userId});
+    return this.delete(`/v1/devices/push-token/${encodeURIComponent(deviceId)}?${params.toString()}`);
+  }
+
+  listNotificationRoutes({userId = "local_user", limit = 100} = {}) {
+    const params = new URLSearchParams({
+      user_id: userId,
+      limit: String(limit),
+    });
+    return this.get(`/v1/notifications/routes?${params.toString()}`);
+  }
+
   heartbeat({
     userId = "local_user",
     project = "",
@@ -242,10 +344,207 @@ export class PersonalContextLayer {
   }
 }
 
+export function isAvailable({documentRef = globalThis.document} = {}) {
+  return documentRef?.documentElement?.getAttribute("data-cl-ext") === "1";
+}
+
+export async function getBundle({
+  appId = globalThis.location?.hostname || "",
+  userId = "local_user",
+  intent = "adapt_ui",
+  requestedScopes = ["getFeatureUsage"],
+  timeoutMs = 1000,
+  windowRef = globalThis.window,
+  documentRef = globalThis.document,
+  allowLocalhostFallback = false,
+  localhostBaseUrl = "http://127.0.0.1:7432",
+  fetchImpl = globalThis.fetch,
+} = {}) {
+  if (!isAvailable({documentRef}) || !windowRef?.postMessage) {
+    if (allowLocalhostFallback) {
+      return localBundleRequest({
+        appId,
+        userId,
+        intent,
+        requestedScopes,
+        localhostBaseUrl,
+        fetchImpl,
+      });
+    }
+    return null;
+  }
+  return postBridgeRequest({
+    windowRef,
+    timeoutMs,
+    requestType: "CL_GET_BUNDLE",
+    responseType: "CL_BUNDLE_RESPONSE",
+    payload: {
+      appId,
+      intent,
+      requestedScopes,
+    },
+  });
+}
+
+export async function track({
+  appId = globalThis.location?.hostname || "",
+  userId = "local_user",
+  featureId,
+  action = "used",
+  sessionId = "",
+  timestamp = Date.now(),
+  metadata = {},
+  timeoutMs = 1000,
+  windowRef = globalThis.window,
+  documentRef = globalThis.document,
+  allowLocalhostFallback = false,
+  localhostBaseUrl = "http://127.0.0.1:7432",
+  fetchImpl = globalThis.fetch,
+} = {}) {
+  if (!featureId) {
+    throw new Error("featureId is required");
+  }
+  if (!isAvailable({documentRef}) || !windowRef?.postMessage) {
+    if (allowLocalhostFallback) {
+      return localTrackRequest({
+        appId,
+        userId,
+        featureId: normalizeFeatureId(featureId),
+        action,
+        sessionId,
+        timestamp,
+        metadata,
+        localhostBaseUrl,
+        fetchImpl,
+      });
+    }
+    return null;
+  }
+  return postBridgeRequest({
+    windowRef,
+    timeoutMs,
+    requestType: "CL_TRACK",
+    responseType: "CL_TRACK_RESPONSE",
+    payload: {
+      appId,
+      featureId: normalizeFeatureId(featureId),
+      action,
+      sessionId,
+      timestamp,
+      metadata,
+    },
+  });
+}
+
 function normalizeFeatureId(featureId) {
   return String(featureId)
     .toLowerCase()
     .replace(/^[a-z0-9-]+:/, "")
     .replace(/[^a-z0-9-]+/g, "-")
     .replace(/^-+|-+$/g, "");
+}
+
+function postBridgeRequest({
+  windowRef,
+  timeoutMs,
+  requestType,
+  responseType,
+  payload,
+}) {
+  const requestId = cryptoRandomId();
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      cleanup();
+      resolve(null);
+    }, timeoutMs);
+    function cleanup() {
+      clearTimeout(timer);
+      windowRef.removeEventListener("message", onMessage);
+    }
+    function onMessage(event) {
+      if (event.source && event.source !== windowRef) return;
+      const data = event.data || {};
+      if (data.type !== responseType || data.requestId !== requestId) return;
+      cleanup();
+      if (data.error) {
+        resolve(null);
+        return;
+      }
+      resolve(data.bundle || data.result || null);
+    }
+    windowRef.addEventListener("message", onMessage);
+    windowRef.postMessage({
+      type: requestType,
+      requestId,
+      ...payload,
+    }, "*");
+  });
+}
+
+async function localBundleRequest({
+  appId,
+  userId,
+  intent,
+  requestedScopes,
+  localhostBaseUrl,
+  fetchImpl,
+}) {
+  if (!fetchImpl) return null;
+  try {
+    const response = await fetchImpl(`${localhostBaseUrl.replace(/\/+$/, "")}/v1/context/bundle`, {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({
+        app_id: appId,
+        user_id: userId,
+        intent,
+        requested_scopes: requestedScopes,
+      }),
+    });
+    if (!response.ok) return null;
+    return response.json();
+  } catch (_) {
+    return null;
+  }
+}
+
+async function localTrackRequest({
+  appId,
+  userId,
+  featureId,
+  action,
+  sessionId,
+  timestamp,
+  metadata,
+  localhostBaseUrl,
+  fetchImpl,
+}) {
+  if (!fetchImpl) return null;
+  try {
+    const response = await fetchImpl(`${localhostBaseUrl.replace(/\/+$/, "")}/v1/ingest/extension`, {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({
+        app_id: appId,
+        user_id: userId,
+        feature_id: featureId,
+        action,
+        session_id: sessionId,
+        timestamp,
+        metadata,
+      }),
+    });
+    if (!response.ok) return null;
+    return response.json();
+  } catch (_) {
+    return null;
+  }
+}
+
+function cryptoRandomId() {
+  const cryptoRef = globalThis.crypto;
+  if (cryptoRef?.randomUUID) {
+    return cryptoRef.randomUUID();
+  }
+  return `cl_${Date.now()}_${Math.random().toString(16).slice(2)}`;
 }

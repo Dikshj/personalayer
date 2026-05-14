@@ -62,6 +62,89 @@ def test_ingest_context_event_updates_feature_signal():
     assert signal["recency_score"] == 0.1
 
 
+def test_ingest_context_event_writes_local_knowledge_graph():
+    import database
+    from pcl.contextlayer import ingest_context_event
+
+    now_ms = int(time.time() * 1000)
+    first = ingest_context_event(
+        {
+            "user_id": "user_1",
+            "app_id": "figma",
+            "feature_id": "auto-layout",
+            "action": "used",
+            "session_id": "s1",
+            "timestamp": now_ms,
+        },
+        source="extension",
+    )
+    second = ingest_context_event(
+        {
+            "user_id": "user_1",
+            "app_id": "figma",
+            "feature_id": "auto-layout",
+            "action": "used",
+            "session_id": "s1",
+            "timestamp": now_ms + 1,
+        },
+        source="extension",
+    )
+
+    nodes = database.list_kg_nodes("user_1")
+    edges = database.list_kg_edges("user_1")
+    chains = database.list_temporal_chains("user_1")
+
+    assert first["status"] == "ok"
+    assert second["status"] == "ok"
+    assert {(node["type"], node["label"]) for node in nodes} >= {
+        ("app", "figma"),
+        ("feature", "auto-layout"),
+    }
+    assert len(edges) == 1
+    assert edges[0]["relation"] == "used"
+    assert edges[0]["weight"] == 2.0
+    assert len(chains) == 2
+    assert chains[0]["context_hash"] == chains[1]["context_hash"]
+
+
+def test_knowledge_graph_semantically_deduplicates_concepts():
+    import database
+    from pcl.contextlayer import ingest_context_event
+
+    now_ms = int(time.time() * 1000)
+    ingest_context_event(
+        {
+            "user_id": "user_1",
+            "app_id": "youtube",
+            "feature_id": "category-design-video",
+            "action": "used",
+            "timestamp": now_ms,
+            "metadata": {"subject_category": "design system"},
+        },
+        source="connector",
+    )
+    ingest_context_event(
+        {
+            "user_id": "user_1",
+            "app_id": "notion",
+            "feature_id": "tag-design-systems",
+            "action": "used",
+            "timestamp": now_ms + 1,
+            "metadata": {"subject_category": "design systems"},
+        },
+        source="connector",
+    )
+
+    concepts = [node for node in database.list_kg_nodes("user_1") if node["type"] == "concept"]
+    edges = database.list_kg_edges("user_1")
+
+    assert len(concepts) == 1
+    assert concepts[0]["label"] == "design-system"
+    assert concepts[0]["access_count"] == 2
+    assert concepts[0]["embedding"]
+    assert sum(1 for edge in edges if edge["relation"] == "relates_to") == 2
+
+
 def test_context_bundle_uses_intent_boundary():
     from pcl.contextlayer import build_context_bundle, ingest_context_event
 
@@ -263,6 +346,8 @@ def test_active_context_activity_and_hard_delete():
     assert heartbeat["active_context"]["project"] == "ContextLayer"
     assert bundle["active_context"]["project"] == "ContextLayer"
     assert activity["raw_events"][0]["feature_id"] == "auto-layout"
+    assert activity["knowledge_graph"]["nodes"]
+    assert activity["knowledge_graph"]["temporal_chains"]
     assert activity["query_log"][0]["app_id"] == "figma"
 
     deleted = hard_delete_contextlayer_user("user_1")
@@ -271,6 +356,8 @@ def test_active_context_activity_and_hard_delete():
     assert database.list_raw_context_events("user_1") == []
     assert database.list_feature_signals("user_1") == []
     assert database.list_privacy_filter_drops(user_id="user_1") == []
+    assert database.list_kg_nodes("user_1") == []
+    assert database.list_temporal_chains("user_1") == []
     assert database.get_active_context("user_1") is None
 
 

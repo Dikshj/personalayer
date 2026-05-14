@@ -1,5 +1,10 @@
+import hashlib
+import hmac
 import sqlite3
+import base64
 import json
+import math
+import os
 import uuid
 from pathlib import Path
 from datetime import datetime, timedelta
@@ -170,9 +175,45 @@ def create_tables() -> None:
                 last_sync_at DATETIME,
                 last_sync_status TEXT DEFAULT '',
                 items_synced INTEGER DEFAULT 0,
+                sync_cursor TEXT DEFAULT '{}',
+                next_sync_after INTEGER,
+                account_hint TEXT DEFAULT '',
+                auth_status TEXT DEFAULT 'local_metadata',
+                auth_expires_at INTEGER,
                 error TEXT DEFAULT '',
                 connected_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 disconnected_at DATETIME
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS pcl_integration_oauth_states (
+                state TEXT PRIMARY KEY,
+                source TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                redirect_uri TEXT NOT NULL,
+                status TEXT DEFAULT 'pending',
+                code_verifier TEXT DEFAULT '',
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                consumed_at DATETIME
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS pcl_integration_oauth_tokens (
+                id TEXT PRIMARY KEY,
+                source TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                account_hint TEXT DEFAULT '',
+                encrypted_token_blob TEXT NOT NULL,
+                token_fingerprint TEXT NOT NULL,
+                scopes TEXT DEFAULT '[]',
+                expires_at INTEGER,
+                has_refresh_token INTEGER DEFAULT 0,
+                token_type TEXT DEFAULT 'Bearer',
+                status TEXT DEFAULT 'active',
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                revoked_at DATETIME,
+                UNIQUE(source, user_id)
             )
         """)
         conn.execute("""
@@ -315,6 +356,45 @@ def create_tables() -> None:
             )
         """)
         conn.execute("""
+            CREATE TABLE IF NOT EXISTS web_domain_permissions (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                domain TEXT NOT NULL,
+                scopes TEXT DEFAULT '["getFeatureUsage"]',
+                is_active INTEGER DEFAULT 1,
+                granted_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                revoked_at DATETIME,
+                UNIQUE(user_id, domain)
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS push_tokens (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                device_id TEXT NOT NULL,
+                apns_token TEXT NOT NULL,
+                platform TEXT DEFAULT 'ios',
+                environment TEXT DEFAULT 'development',
+                is_active INTEGER DEFAULT 1,
+                registered_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                revoked_at DATETIME,
+                UNIQUE(user_id, device_id)
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS notification_routes (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                device_id TEXT NOT NULL,
+                push_token_id TEXT NOT NULL,
+                notification_type TEXT NOT NULL,
+                deliver_after INTEGER NOT NULL,
+                payload_kind TEXT DEFAULT 'silent_local_insight',
+                status TEXT DEFAULT 'queued',
+                created_at INTEGER NOT NULL
+            )
+        """)
+        conn.execute("""
             CREATE TABLE IF NOT EXISTS user_profiles (
                 user_id TEXT PRIMARY KEY,
                 abstract_attributes TEXT DEFAULT '[]',
@@ -350,6 +430,47 @@ def create_tables() -> None:
                 status TEXT NOT NULL,
                 error TEXT DEFAULT '',
                 created_at INTEGER NOT NULL
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS kg_nodes (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                type TEXT NOT NULL CHECK(type IN ('app','concept','project','person','feature','place')),
+                label TEXT NOT NULL,
+                embedding BLOB,
+                tier TEXT DEFAULT 'hot' CHECK(tier IN ('hot','warm','cool','cold')),
+                decay_score REAL DEFAULT 1.0,
+                access_count INTEGER DEFAULT 0,
+                first_seen INTEGER NOT NULL,
+                last_seen INTEGER NOT NULL,
+                compressed INTEGER DEFAULT 0,
+                UNIQUE(user_id, type, label)
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS kg_edges (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                from_node TEXT NOT NULL,
+                to_node TEXT NOT NULL,
+                relation TEXT NOT NULL CHECK(relation IN ('used','mentions','relates_to','happened_at','created','skipped')),
+                weight REAL DEFAULT 1.0,
+                source_app TEXT DEFAULT '',
+                timestamp INTEGER NOT NULL,
+                tier TEXT DEFAULT 'hot' CHECK(tier IN ('hot','warm','cool','cold')),
+                UNIQUE(user_id, from_node, to_node, relation, source_app)
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS temporal_chains (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                entity_id TEXT NOT NULL,
+                timestamp INTEGER NOT NULL,
+                source TEXT NOT NULL,
+                signal_type TEXT NOT NULL,
+                context_hash TEXT NOT NULL
             )
         """)
         run_migrations(conn)
@@ -1089,12 +1210,22 @@ def delete_pcl_user_data(user_id: str) -> dict:
             "DELETE FROM pcl_query_logs WHERE user_id = ?",
             (user_id,),
         ).rowcount
+        oauth_tokens = conn.execute(
+            "DELETE FROM pcl_integration_oauth_tokens WHERE user_id = ?",
+            (user_id,),
+        ).rowcount
+        oauth_states = conn.execute(
+            "DELETE FROM pcl_integration_oauth_states WHERE user_id = ?",
+            (user_id,),
+        ).rowcount
         conn.commit()
     return {
         "user_id": user_id,
         "onboarding_seeds": onboarding_seeds,
         "feature_events": feature_events,
         "query_logs": query_logs,
+        "oauth_tokens": oauth_tokens,
+        "oauth_states": oauth_states,
     }
 
 
@@ -1103,13 +1234,25 @@ def connect_pcl_integration(
     name: str,
     scopes: list[str],
     metadata: Optional[dict] = None,
+    account_hint: str = "",
+    auth_status: str = "local_metadata",
+    auth_expires_at: Optional[int] = None,
 ) -> dict:
     with get_connection() as conn:
         conn.execute(
             """INSERT OR REPLACE INTO pcl_integrations
-               (source, name, status, scopes, metadata, disconnected_at)
-               VALUES (?, ?, 'connected', ?, ?, NULL)""",
-            (source, name, json.dumps(scopes), json.dumps(metadata or {})),
+               (source, name, status, scopes, metadata, account_hint, auth_status,
+                auth_expires_at, disconnected_at)
+               VALUES (?, ?, 'connected', ?, ?, ?, ?, ?, NULL)""",
+            (
+                source,
+                name,
+                json.dumps(scopes),
+                json.dumps(metadata or {}),
+                account_hint[:240],
+                auth_status[:80],
+                auth_expires_at,
+            ),
         )
         conn.commit()
     return get_pcl_integration(source) or {}
@@ -1160,13 +1303,179 @@ def delete_pcl_integration_data(source: str) -> dict:
             "DELETE FROM persona_signals WHERE source = ?",
             (source,),
         ).rowcount
+        oauth_states = conn.execute(
+            "DELETE FROM pcl_integration_oauth_states WHERE source = ?",
+            (source,),
+        ).rowcount
+        oauth_tokens = conn.execute(
+            "DELETE FROM pcl_integration_oauth_tokens WHERE source = ?",
+            (source,),
+        ).rowcount
         conn.commit()
     return {
         "source": source,
         "integrations": integrations,
         "feed_items": feed_items,
         "persona_signals": persona_signals,
+        "oauth_states": oauth_states,
+        "oauth_tokens": oauth_tokens,
     }
+
+
+def create_pcl_integration_oauth_state(
+    source: str,
+    user_id: str,
+    redirect_uri: str,
+    code_verifier: str = "",
+) -> dict:
+    state = str(uuid.uuid4())
+    with get_connection() as conn:
+        conn.execute(
+            """INSERT INTO pcl_integration_oauth_states
+               (state, source, user_id, redirect_uri, code_verifier)
+               VALUES (?, ?, ?, ?, ?)""",
+            (state, source, user_id, redirect_uri, code_verifier),
+        )
+        conn.commit()
+    return get_pcl_integration_oauth_state(state) or {}
+
+
+def get_pcl_integration_oauth_state(state: str) -> Optional[dict]:
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM pcl_integration_oauth_states WHERE state = ?",
+            (state,),
+        ).fetchone()
+    if not row:
+        return None
+    return {
+        "state": row["state"],
+        "source": row["source"],
+        "user_id": row["user_id"],
+        "redirect_uri": row["redirect_uri"],
+        "status": row["status"],
+        "code_verifier": row["code_verifier"],
+        "created_at": row["created_at"],
+        "consumed_at": row["consumed_at"],
+    }
+
+
+def consume_pcl_integration_oauth_state(state: str) -> Optional[dict]:
+    current = get_pcl_integration_oauth_state(state)
+    if not current or current["status"] != "pending":
+        return None
+    with get_connection() as conn:
+        conn.execute(
+            """UPDATE pcl_integration_oauth_states
+               SET status = 'consumed', consumed_at = CURRENT_TIMESTAMP
+               WHERE state = ? AND status = 'pending'""",
+            (state,),
+        )
+        conn.commit()
+    return get_pcl_integration_oauth_state(state)
+
+
+def store_pcl_integration_oauth_token(
+    source: str,
+    user_id: str,
+    token_payload: dict,
+    account_hint: str = "",
+    scopes: Optional[list[str]] = None,
+    expires_at: Optional[int] = None,
+) -> dict:
+    access_token = str(token_payload.get("access_token") or "")
+    refresh_token = str(token_payload.get("refresh_token") or "")
+    if not access_token:
+        raise ValueError("access_token is required")
+    token_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"contextlayer:integration-token:{source}:{user_id}"))
+    encrypted = _encrypt_local_secret_blob({
+        **token_payload,
+        "source": source,
+        "user_id": user_id,
+    })
+    fingerprint = hmac.new(
+        _local_secret_key(),
+        access_token.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+    with get_connection() as conn:
+        conn.execute(
+            """INSERT INTO pcl_integration_oauth_tokens
+               (id, source, user_id, account_hint, encrypted_token_blob,
+                token_fingerprint, scopes, expires_at, has_refresh_token,
+                token_type, status, revoked_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', NULL)
+               ON CONFLICT(source, user_id) DO UPDATE SET
+                 account_hint = excluded.account_hint,
+                 encrypted_token_blob = excluded.encrypted_token_blob,
+                 token_fingerprint = excluded.token_fingerprint,
+                 scopes = excluded.scopes,
+                 expires_at = excluded.expires_at,
+                 has_refresh_token = excluded.has_refresh_token,
+                 token_type = excluded.token_type,
+                 status = 'active',
+                 updated_at = CURRENT_TIMESTAMP,
+                 revoked_at = NULL""",
+            (
+                token_id,
+                source,
+                user_id,
+                account_hint[:240],
+                encrypted,
+                fingerprint,
+                json.dumps(_normalize_oauth_scopes(scopes or token_payload.get("scope", []))),
+                expires_at or token_payload.get("expires_at"),
+                1 if refresh_token else 0,
+                str(token_payload.get("token_type") or "Bearer")[:40],
+            ),
+        )
+        conn.commit()
+    return get_pcl_integration_oauth_token(source=source, user_id=user_id) or {}
+
+
+def get_pcl_integration_oauth_token(source: str, user_id: str) -> Optional[dict]:
+    with get_connection() as conn:
+        row = conn.execute(
+            """SELECT * FROM pcl_integration_oauth_tokens
+               WHERE source = ? AND user_id = ?""",
+            (source, user_id),
+        ).fetchone()
+    return _pcl_integration_oauth_token_row(row) if row else None
+
+
+def get_decrypted_pcl_integration_oauth_token(source: str, user_id: str) -> Optional[dict]:
+    with get_connection() as conn:
+        row = conn.execute(
+            """SELECT encrypted_token_blob FROM pcl_integration_oauth_tokens
+               WHERE source = ? AND user_id = ? AND status = 'active'""",
+            (source, user_id),
+        ).fetchone()
+    if not row:
+        return None
+    return _decrypt_local_secret_blob(row["encrypted_token_blob"])
+
+
+def list_pcl_integration_oauth_tokens(user_id: str = "local_user") -> list[dict]:
+    with get_connection() as conn:
+        rows = conn.execute(
+            """SELECT * FROM pcl_integration_oauth_tokens
+               WHERE user_id = ?
+               ORDER BY updated_at DESC""",
+            (user_id,),
+        ).fetchall()
+    return [_pcl_integration_oauth_token_row(row) for row in rows]
+
+
+def revoke_pcl_integration_oauth_token(source: str, user_id: str = "local_user") -> bool:
+    with get_connection() as conn:
+        revoked = conn.execute(
+            """UPDATE pcl_integration_oauth_tokens
+               SET status = 'revoked', revoked_at = CURRENT_TIMESTAMP
+               WHERE source = ? AND user_id = ? AND status = 'active'""",
+            (source, user_id),
+        ).rowcount
+        conn.commit()
+    return revoked > 0
 
 
 def update_pcl_integration_sync(
@@ -1174,17 +1483,44 @@ def update_pcl_integration_sync(
     status: str,
     items_synced: int = 0,
     error: str = "",
+    sync_cursor: Optional[dict] = None,
+    next_sync_after: Optional[int] = None,
 ) -> dict:
+    cursor_json = json.dumps(sync_cursor or {})
     with get_connection() as conn:
-        conn.execute(
-            """UPDATE pcl_integrations
-               SET last_sync_at = CURRENT_TIMESTAMP,
-                   last_sync_status = ?,
-                   items_synced = ?,
-                   error = ?
-               WHERE source = ?""",
-            (status, int(items_synced), error[:500], source),
-        )
+        if sync_cursor is None and next_sync_after is None:
+            conn.execute(
+                """UPDATE pcl_integrations
+                   SET last_sync_at = CURRENT_TIMESTAMP,
+                       last_sync_status = ?,
+                       items_synced = ?,
+                       error = ?
+                   WHERE source = ?""",
+                (status, int(items_synced), error[:500], source),
+            )
+        elif next_sync_after is None:
+            conn.execute(
+                """UPDATE pcl_integrations
+                   SET last_sync_at = CURRENT_TIMESTAMP,
+                       last_sync_status = ?,
+                       items_synced = ?,
+                       sync_cursor = ?,
+                       error = ?
+                   WHERE source = ?""",
+                (status, int(items_synced), cursor_json, error[:500], source),
+            )
+        else:
+            conn.execute(
+                """UPDATE pcl_integrations
+                   SET last_sync_at = CURRENT_TIMESTAMP,
+                       last_sync_status = ?,
+                       items_synced = ?,
+                       sync_cursor = ?,
+                       next_sync_after = ?,
+                       error = ?
+                   WHERE source = ?""",
+                (status, int(items_synced), cursor_json, int(next_sync_after), error[:500], source),
+            )
         conn.commit()
     return get_pcl_integration(source) or {}
 
@@ -1199,10 +1535,72 @@ def _pcl_integration_row(row: sqlite3.Row) -> dict:
         "last_sync_at": row["last_sync_at"],
         "last_sync_status": row["last_sync_status"],
         "items_synced": row["items_synced"],
+        "sync_cursor": json.loads(row["sync_cursor"] or "{}"),
+        "next_sync_after": row["next_sync_after"],
+        "account_hint": row["account_hint"],
+        "auth_status": row["auth_status"],
+        "auth_expires_at": row["auth_expires_at"],
         "error": row["error"],
         "connected_at": row["connected_at"],
         "disconnected_at": row["disconnected_at"],
     }
+
+
+def _pcl_integration_oauth_token_row(row: sqlite3.Row) -> dict:
+    return {
+        "id": row["id"],
+        "source": row["source"],
+        "user_id": row["user_id"],
+        "account_hint": row["account_hint"],
+        "token_fingerprint": row["token_fingerprint"][:16],
+        "scopes": json.loads(row["scopes"] or "[]"),
+        "expires_at": row["expires_at"],
+        "has_refresh_token": bool(row["has_refresh_token"]),
+        "token_type": row["token_type"],
+        "status": row["status"],
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+        "revoked_at": row["revoked_at"],
+    }
+
+
+def _normalize_oauth_scopes(scopes: object) -> list[str]:
+    if isinstance(scopes, str):
+        return [scope for scope in scopes.split() if scope]
+    if isinstance(scopes, list):
+        return [str(scope) for scope in scopes if str(scope).strip()]
+    return []
+
+
+def _local_secret_key() -> bytes:
+    DATA_DIR.mkdir(exist_ok=True)
+    key_path = DATA_DIR / "local_secret.key"
+    if not key_path.exists():
+        key_path.write_bytes(os.urandom(32))
+    return key_path.read_bytes()[:32].ljust(32, b"\0")
+
+
+def _encrypt_local_secret_blob(payload: dict) -> str:
+    plaintext = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    key = _local_secret_key()
+    cipher = bytes(byte ^ key[index % len(key)] for index, byte in enumerate(plaintext))
+    mac = hmac.new(key, cipher, hashlib.sha256).hexdigest()
+    return json.dumps({
+        "version": 1,
+        "ciphertext": base64.b64encode(cipher).decode("ascii"),
+        "mac": mac,
+    }, separators=(",", ":"))
+
+
+def _decrypt_local_secret_blob(envelope_json: str) -> dict:
+    envelope = json.loads(envelope_json)
+    key = _local_secret_key()
+    cipher = base64.b64decode(envelope["ciphertext"])
+    expected = hmac.new(key, cipher, hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(expected, envelope.get("mac", "")):
+        raise ValueError("local secret blob failed integrity check")
+    plaintext = bytes(byte ^ key[index % len(key)] for index, byte in enumerate(cipher))
+    return json.loads(plaintext.decode("utf-8"))
 
 
 def insert_raw_context_event(event: dict) -> dict:
@@ -1233,6 +1631,362 @@ def insert_raw_context_event(event: dict) -> dict:
     saved = {**event, "id": event_id, "timestamp": timestamp, "created_at": now_ms}
     upsert_feature_signal_from_event(saved)
     return saved
+
+
+def ingest_knowledge_graph_event(event: dict) -> dict:
+    user_id = event["user_id"]
+    timestamp = int(event["timestamp"])
+    app_node = upsert_kg_node(user_id, "app", event["app_id"], timestamp)
+    feature_node = upsert_kg_node(user_id, "feature", event["feature_id"], timestamp)
+    relation = "skipped" if event["action"] in {"skipped", "dismissed"} else "used"
+    edge = upsert_kg_edge(
+        user_id=user_id,
+        from_node=app_node["id"],
+        to_node=feature_node["id"],
+        relation=relation,
+        source_app=event["app_id"],
+        timestamp=timestamp,
+    )
+    nodes = [app_node, feature_node]
+    metadata = event.get("metadata", {})
+    category = metadata.get("subject_category") if isinstance(metadata, dict) else ""
+    if category:
+        concept_node = upsert_kg_node(user_id, "concept", category, timestamp)
+        upsert_kg_edge(
+            user_id=user_id,
+            from_node=feature_node["id"],
+            to_node=concept_node["id"],
+            relation="relates_to",
+            source_app=event["app_id"],
+            timestamp=timestamp,
+        )
+        nodes.append(concept_node)
+    chain = insert_temporal_chain(
+        user_id=user_id,
+        entity_id=feature_node["id"],
+        timestamp=timestamp,
+        source=event.get("source", "sdk"),
+        signal_type=event["action"],
+        context_hash=_context_hash(event),
+    )
+    return {"nodes": nodes, "edge": edge, "temporal_chain": chain}
+
+
+def upsert_kg_node(
+    user_id: str,
+    node_type: str,
+    label: str,
+    timestamp: int,
+    embedding: bytes | None = None,
+) -> dict:
+    clean_label = str(label).strip().lower()[:200]
+    embedding = embedding or _embed_kg_label(clean_label)
+    matched = _find_similar_kg_node(user_id, node_type, embedding)
+    if matched:
+        with get_connection() as conn:
+            conn.execute(
+                """UPDATE kg_nodes
+                   SET access_count = access_count + 1,
+                       last_seen = ?,
+                       tier = CASE WHEN tier = 'cold' THEN 'warm' ELSE tier END,
+                       decay_score = MIN(1.0, decay_score + 0.05)
+                   WHERE id = ?""",
+                (timestamp, matched["id"]),
+            )
+            conn.commit()
+        return get_kg_node_by_id(matched["id"]) or matched
+
+    node_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"contextlayer:kg:{user_id}:{node_type}:{clean_label}"))
+    with get_connection() as conn:
+        conn.execute(
+            """INSERT INTO kg_nodes
+               (id, user_id, type, label, embedding, tier, decay_score, access_count,
+                first_seen, last_seen, compressed)
+               VALUES (?, ?, ?, ?, ?, 'hot', 1.0, 1, ?, ?, 0)
+               ON CONFLICT(user_id, type, label) DO UPDATE SET
+                   access_count = access_count + 1,
+                   last_seen = excluded.last_seen,
+                   tier = CASE WHEN kg_nodes.tier = 'cold' THEN 'warm' ELSE kg_nodes.tier END,
+                   decay_score = MIN(1.0, kg_nodes.decay_score + 0.05)""",
+            (node_id, user_id, node_type, clean_label, embedding, timestamp, timestamp),
+        )
+        conn.commit()
+    return get_kg_node(user_id, node_type, clean_label) or {}
+
+
+def get_kg_node_by_id(node_id: str) -> Optional[dict]:
+    with get_connection() as conn:
+        row = conn.execute("SELECT * FROM kg_nodes WHERE id = ?", (node_id,)).fetchone()
+    return _kg_node_row(row) if row else None
+
+
+def get_kg_node(user_id: str, node_type: str, label: str) -> Optional[dict]:
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM kg_nodes WHERE user_id = ? AND type = ? AND label = ?",
+            (user_id, node_type, str(label).strip().lower()[:200]),
+        ).fetchone()
+    return _kg_node_row(row) if row else None
+
+
+def upsert_kg_edge(
+    user_id: str,
+    from_node: str,
+    to_node: str,
+    relation: str,
+    source_app: str,
+    timestamp: int,
+) -> dict:
+    edge_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"contextlayer:kg-edge:{user_id}:{from_node}:{to_node}:{relation}:{source_app}"))
+    with get_connection() as conn:
+        conn.execute(
+            """INSERT INTO kg_edges
+               (id, user_id, from_node, to_node, relation, weight, source_app, timestamp, tier)
+               VALUES (?, ?, ?, ?, ?, 1.0, ?, ?, 'hot')
+               ON CONFLICT(user_id, from_node, to_node, relation, source_app) DO UPDATE SET
+                   weight = weight + 1.0,
+                   timestamp = excluded.timestamp,
+                   tier = CASE WHEN kg_edges.tier = 'cold' THEN 'warm' ELSE kg_edges.tier END""",
+            (edge_id, user_id, from_node, to_node, relation, source_app, timestamp),
+        )
+        conn.commit()
+    with get_connection() as conn:
+        row = conn.execute("SELECT * FROM kg_edges WHERE id = ?", (edge_id,)).fetchone()
+    return _kg_edge_row(row) if row else {}
+
+
+def insert_temporal_chain(
+    user_id: str,
+    entity_id: str,
+    timestamp: int,
+    source: str,
+    signal_type: str,
+    context_hash: str,
+) -> dict:
+    chain_id = str(uuid.uuid4())
+    with get_connection() as conn:
+        conn.execute(
+            """INSERT INTO temporal_chains
+               (id, user_id, entity_id, timestamp, source, signal_type, context_hash)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (chain_id, user_id, entity_id, timestamp, source, signal_type, context_hash),
+        )
+        conn.commit()
+    return {
+        "id": chain_id,
+        "user_id": user_id,
+        "entity_id": entity_id,
+        "timestamp": timestamp,
+        "source": source,
+        "signal_type": signal_type,
+        "context_hash": context_hash,
+    }
+
+
+def list_kg_nodes(user_id: str, limit: int = 100) -> list[dict]:
+    limit = max(1, min(int(limit), 500))
+    with get_connection() as conn:
+        rows = conn.execute(
+            """SELECT * FROM kg_nodes
+               WHERE user_id = ?
+               ORDER BY last_seen DESC
+               LIMIT ?""",
+            (user_id, limit),
+        ).fetchall()
+    return [_kg_node_row(row) for row in rows]
+
+
+def _find_similar_kg_node(user_id: str, node_type: str, embedding: bytes, threshold: float = 0.92) -> Optional[dict]:
+    from pcl.embeddings import cosine_similarity, deserialize_embedding
+
+    candidate = deserialize_embedding(embedding)
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT * FROM kg_nodes WHERE user_id = ? AND type = ? AND embedding IS NOT NULL",
+            (user_id, node_type),
+        ).fetchall()
+    best_row = None
+    best_score = 0.0
+    for row in rows:
+        score = cosine_similarity(candidate, deserialize_embedding(row["embedding"]))
+        if score > best_score:
+            best_score = score
+            best_row = row
+    if best_row and best_score >= threshold:
+        result = _kg_node_row(best_row)
+        result["similarity"] = round(best_score, 4)
+        return result
+    return None
+
+
+def _embed_kg_label(label: str) -> bytes:
+    from pcl.embeddings import embed_label, serialize_embedding
+
+    return serialize_embedding(embed_label(label))
+
+
+def list_kg_edges(user_id: str, limit: int = 100) -> list[dict]:
+    limit = max(1, min(int(limit), 500))
+    with get_connection() as conn:
+        rows = conn.execute(
+            """SELECT * FROM kg_edges
+               WHERE user_id = ?
+               ORDER BY timestamp DESC
+               LIMIT ?""",
+            (user_id, limit),
+        ).fetchall()
+    return [_kg_edge_row(row) for row in rows]
+
+
+def list_temporal_chains(user_id: str, limit: int = 100) -> list[dict]:
+    limit = max(1, min(int(limit), 500))
+    with get_connection() as conn:
+        rows = conn.execute(
+            """SELECT * FROM temporal_chains
+               WHERE user_id = ?
+               ORDER BY timestamp DESC
+               LIMIT ?""",
+            (user_id, limit),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def maintain_knowledge_graph_tiers(user_id: str, now_ms: Optional[int] = None) -> dict:
+    now_ms = now_ms or int(datetime.now().timestamp() * 1000)
+    day_ms = 86_400_000
+    hot_cutoff = now_ms - (2 * day_ms)
+    warm_cutoff = now_ms - (14 * day_ms)
+    cool_cutoff = now_ms - (90 * day_ms)
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT id, label, tier, decay_score, last_seen FROM kg_nodes WHERE user_id = ?",
+            (user_id,),
+        ).fetchall()
+        hot_labels = {
+            row["label"]
+            for row in rows
+            if row["tier"] == "hot" and int(row["last_seen"]) >= hot_cutoff
+        }
+        updates: list[tuple[str, float, int, str]] = []
+        reactivated = 0
+        for row in rows:
+            tier = row["tier"]
+            last_seen = int(row["last_seen"])
+            days_since = max(0.0, (now_ms - last_seen) / day_ms)
+            score = float(row["decay_score"])
+            next_tier = tier
+            compressed = 1 if tier in {"cool", "cold"} else 0
+
+            if tier == "warm":
+                score = max(0.0, score * math.exp(-0.02 * days_since))
+            elif tier == "cool":
+                score = max(0.0, score * math.exp(-0.06 * days_since))
+
+            if tier == "hot" and last_seen < hot_cutoff:
+                next_tier = "warm"
+            elif tier == "warm" and (last_seen < warm_cutoff or score < 0.01):
+                next_tier = "cool"
+            elif tier == "warm" and score < 0.05:
+                next_tier = "cool"
+            elif tier == "cool" and last_seen < cool_cutoff:
+                next_tier = "cold"
+
+            if next_tier in {"cool", "cold"}:
+                compressed = 1
+
+            if next_tier in {"cool", "cold"} and _kg_context_cue_matches(row["label"], hot_labels):
+                next_tier = "warm"
+                compressed = 0
+                score = max(score, 0.25)
+                reactivated += 1
+
+            updates.append((next_tier, round(score, 4), compressed, row["id"]))
+
+        for tier, score, compressed, node_id in updates:
+            conn.execute(
+                """UPDATE kg_nodes
+                   SET tier = ?, decay_score = ?, compressed = ?
+                   WHERE id = ?""",
+                (tier, score, compressed, node_id),
+            )
+        conn.commit()
+    return {
+        "updated": len(updates),
+        "reactivated": reactivated,
+        "hot": sum(1 for tier, _, _, _ in updates if tier == "hot"),
+        "warm": sum(1 for tier, _, _, _ in updates if tier == "warm"),
+        "cool": sum(1 for tier, _, _, _ in updates if tier == "cool"),
+        "cold": sum(1 for tier, _, _, _ in updates if tier == "cold"),
+    }
+
+
+def delete_old_temporal_chains(user_id: Optional[str] = None, older_than_ms: Optional[int] = None) -> int:
+    older_than_ms = older_than_ms or int((datetime.now() - timedelta(days=7)).timestamp() * 1000)
+    with get_connection() as conn:
+        if user_id:
+            deleted = conn.execute(
+                "DELETE FROM temporal_chains WHERE user_id = ? AND timestamp < ?",
+                (user_id, older_than_ms),
+            ).rowcount
+        else:
+            deleted = conn.execute(
+                "DELETE FROM temporal_chains WHERE timestamp < ?",
+                (older_than_ms,),
+            ).rowcount
+        conn.commit()
+    return deleted
+
+
+def _kg_context_cue_matches(label: str, hot_labels: set[str]) -> bool:
+    label_tokens = {token for token in str(label).replace("-", " ").split() if len(token) >= 4}
+    if not label_tokens:
+        return False
+    for hot_label in hot_labels:
+        hot_tokens = {token for token in str(hot_label).replace("-", " ").split() if len(token) >= 4}
+        if label_tokens & hot_tokens:
+            return True
+    return False
+
+
+def _context_hash(event: dict) -> str:
+    payload = {
+        "app_id": event.get("app_id", ""),
+        "feature_id": event.get("feature_id", ""),
+        "source": event.get("source", ""),
+        "session_id": event.get("session_id", ""),
+        "metadata": event.get("metadata", {}),
+    }
+    return hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
+
+
+def _kg_node_row(row: sqlite3.Row) -> dict:
+    return {
+        "id": row["id"],
+        "user_id": row["user_id"],
+        "type": row["type"],
+        "label": row["label"],
+        "embedding": row["embedding"],
+        "tier": row["tier"],
+        "decay_score": row["decay_score"],
+        "access_count": row["access_count"],
+        "first_seen": row["first_seen"],
+        "last_seen": row["last_seen"],
+        "compressed": bool(row["compressed"]),
+    }
+
+
+def _kg_edge_row(row: sqlite3.Row) -> dict:
+    return {
+        "id": row["id"],
+        "user_id": row["user_id"],
+        "from_node": row["from_node"],
+        "to_node": row["to_node"],
+        "relation": row["relation"],
+        "weight": row["weight"],
+        "source_app": row["source_app"],
+        "timestamp": row["timestamp"],
+        "tier": row["tier"],
+    }
 
 
 def log_privacy_filter_drop(event: dict, reason: str) -> dict:
@@ -1662,8 +2416,26 @@ def list_contextlayer_activity(user_id: str, limit: int = 100) -> dict:
                LIMIT ?""",
             (user_id, limit),
         ).fetchall()
+        nodes = conn.execute(
+            """SELECT * FROM kg_nodes
+               WHERE user_id = ?
+               ORDER BY last_seen DESC
+               LIMIT ?""",
+            (user_id, limit),
+        ).fetchall()
+        temporal = conn.execute(
+            """SELECT * FROM temporal_chains
+               WHERE user_id = ?
+               ORDER BY timestamp DESC
+               LIMIT ?""",
+            (user_id, limit),
+        ).fetchall()
     return {
         "raw_events": [_raw_context_event_row(row) for row in raw],
+        "knowledge_graph": {
+            "nodes": [_kg_node_row(row) for row in nodes],
+            "temporal_chains": [dict(row) for row in temporal],
+        },
         "query_log": [
             {
                 **dict(row),
@@ -1695,6 +2467,14 @@ def delete_contextlayer_user_data(user_id: str) -> dict:
             "active_context": conn.execute("DELETE FROM active_context WHERE user_id = ?", (user_id,)).rowcount,
             "onboarding_seeds": conn.execute("DELETE FROM pcl_onboarding_seeds WHERE user_id = ?", (user_id,)).rowcount,
             "feature_events": conn.execute("DELETE FROM pcl_feature_events WHERE user_id = ?", (user_id,)).rowcount,
+            "kg_nodes": conn.execute("DELETE FROM kg_nodes WHERE user_id = ?", (user_id,)).rowcount,
+            "kg_edges": conn.execute("DELETE FROM kg_edges WHERE user_id = ?", (user_id,)).rowcount,
+            "temporal_chains": conn.execute("DELETE FROM temporal_chains WHERE user_id = ?", (user_id,)).rowcount,
+            "web_domain_permissions": conn.execute("DELETE FROM web_domain_permissions WHERE user_id = ?", (user_id,)).rowcount,
+            "push_tokens": conn.execute("DELETE FROM push_tokens WHERE user_id = ?", (user_id,)).rowcount,
+            "notification_routes": conn.execute("DELETE FROM notification_routes WHERE user_id = ?", (user_id,)).rowcount,
+            "oauth_tokens": conn.execute("DELETE FROM pcl_integration_oauth_tokens WHERE user_id = ?", (user_id,)).rowcount,
+            "oauth_states": conn.execute("DELETE FROM pcl_integration_oauth_states WHERE user_id = ?", (user_id,)).rowcount,
         }
         conn.commit()
     confirmation = str(uuid.uuid5(uuid.NAMESPACE_URL, f"contextlayer:{user_id}:{datetime.now().isoformat()}"))
@@ -1946,6 +2726,239 @@ def list_app_permissions(user_id: str) -> list[dict]:
         }
         for row in rows
     ]
+
+
+def grant_web_domain_permission(
+    user_id: str,
+    domain: str,
+    scopes: Optional[list[str]] = None,
+) -> dict:
+    clean_domain = _normalize_web_domain(domain)
+    permission_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"contextlayer:web-permission:{user_id}:{clean_domain}"))
+    scopes = scopes or ["getFeatureUsage", "track"]
+    with get_connection() as conn:
+        conn.execute(
+            """INSERT INTO web_domain_permissions
+               (id, user_id, domain, scopes, is_active, revoked_at)
+               VALUES (?, ?, ?, ?, 1, NULL)
+               ON CONFLICT(user_id, domain) DO UPDATE SET
+                 scopes = excluded.scopes,
+                 is_active = 1,
+                 revoked_at = NULL,
+                 granted_at = CURRENT_TIMESTAMP""",
+            (permission_id, user_id, clean_domain, json.dumps(scopes)),
+        )
+        conn.commit()
+    return get_web_domain_permission(user_id, clean_domain) or {}
+
+
+def revoke_web_domain_permission(user_id: str, domain: str) -> bool:
+    clean_domain = _normalize_web_domain(domain)
+    with get_connection() as conn:
+        revoked = conn.execute(
+            """UPDATE web_domain_permissions
+               SET is_active = 0, revoked_at = CURRENT_TIMESTAMP
+               WHERE user_id = ? AND domain = ? AND is_active = 1""",
+            (user_id, clean_domain),
+        ).rowcount
+        conn.commit()
+    return revoked > 0
+
+
+def get_web_domain_permission(user_id: str, domain: str) -> Optional[dict]:
+    clean_domain = _normalize_web_domain(domain)
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM web_domain_permissions WHERE user_id = ? AND domain = ?",
+            (user_id, clean_domain),
+        ).fetchone()
+    return _web_domain_permission_row(row) if row else None
+
+
+def list_web_domain_permissions(user_id: str) -> list[dict]:
+    with get_connection() as conn:
+        rows = conn.execute(
+            """SELECT * FROM web_domain_permissions
+               WHERE user_id = ?
+               ORDER BY granted_at DESC""",
+            (user_id,),
+        ).fetchall()
+    return [_web_domain_permission_row(row) for row in rows]
+
+
+def check_web_domain_permission(
+    user_id: str,
+    domain: str,
+    requested_scopes: Optional[list[str]] = None,
+) -> dict:
+    permission = get_web_domain_permission(user_id, domain)
+    if not permission or not permission["is_active"]:
+        return {"authorized": False, "error": "web_domain_permission_required"}
+    missing = sorted(set(requested_scopes or []) - set(permission["scopes"]))
+    if missing:
+        return {
+            "authorized": False,
+            "error": "web_domain_scope_not_granted",
+            "missing_scopes": missing,
+            "granted_scopes": permission["scopes"],
+        }
+    return {"authorized": True, "permission": permission}
+
+
+def _web_domain_permission_row(row: sqlite3.Row) -> dict:
+    return {
+        "id": row["id"],
+        "user_id": row["user_id"],
+        "domain": row["domain"],
+        "scopes": json.loads(row["scopes"]),
+        "is_active": bool(row["is_active"]),
+        "granted_at": row["granted_at"],
+        "revoked_at": row["revoked_at"],
+    }
+
+
+def _normalize_web_domain(domain: str) -> str:
+    clean = str(domain or "").strip().lower()
+    clean = clean.removeprefix("http://").removeprefix("https://").split("/")[0]
+    clean = clean.removeprefix("www.")
+    return clean[:240]
+
+
+def register_push_token(
+    user_id: str,
+    device_id: str,
+    apns_token: str,
+    platform: str = "ios",
+    environment: str = "development",
+) -> dict:
+    clean_device_id = str(device_id).strip()[:160]
+    clean_token = str(apns_token).strip()[:500]
+    token_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"contextlayer:push-token:{user_id}:{clean_device_id}"))
+    with get_connection() as conn:
+        conn.execute(
+            """INSERT INTO push_tokens
+               (id, user_id, device_id, apns_token, platform, environment, is_active, revoked_at)
+               VALUES (?, ?, ?, ?, ?, ?, 1, NULL)
+               ON CONFLICT(user_id, device_id) DO UPDATE SET
+                 apns_token = excluded.apns_token,
+                 platform = excluded.platform,
+                 environment = excluded.environment,
+                 is_active = 1,
+                 revoked_at = NULL,
+                 registered_at = CURRENT_TIMESTAMP""",
+            (
+                token_id,
+                user_id,
+                clean_device_id,
+                clean_token,
+                platform[:40],
+                environment[:40],
+            ),
+        )
+        conn.commit()
+    return get_push_token(user_id, clean_device_id) or {}
+
+
+def get_push_token(user_id: str, device_id: str) -> Optional[dict]:
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM push_tokens WHERE user_id = ? AND device_id = ?",
+            (user_id, device_id),
+        ).fetchone()
+    return _push_token_row(row) if row else None
+
+
+def list_push_tokens(user_id: str, active_only: bool = True) -> list[dict]:
+    query = "SELECT * FROM push_tokens WHERE user_id = ?"
+    params: list[object] = [user_id]
+    if active_only:
+        query += " AND is_active = 1"
+    query += " ORDER BY registered_at DESC"
+    with get_connection() as conn:
+        rows = conn.execute(query, tuple(params)).fetchall()
+    return [_push_token_row(row) for row in rows]
+
+
+def revoke_push_token(user_id: str, device_id: str) -> bool:
+    with get_connection() as conn:
+        revoked = conn.execute(
+            """UPDATE push_tokens
+               SET is_active = 0, revoked_at = CURRENT_TIMESTAMP
+               WHERE user_id = ? AND device_id = ? AND is_active = 1""",
+            (user_id, device_id),
+        ).rowcount
+        conn.commit()
+    return revoked > 0
+
+
+def queue_notification_routes(
+    user_id: str,
+    notification_type: str,
+    deliver_after: int,
+    payload_kind: str = "silent_local_insight",
+) -> dict:
+    tokens = list_push_tokens(user_id=user_id, active_only=True)
+    queued = []
+    now_ms = int(datetime.now().timestamp() * 1000)
+    with get_connection() as conn:
+        for token in tokens:
+            route_id = str(uuid.uuid4())
+            conn.execute(
+                """INSERT INTO notification_routes
+                   (id, user_id, device_id, push_token_id, notification_type,
+                    deliver_after, payload_kind, status, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', ?)""",
+                (
+                    route_id,
+                    user_id,
+                    token["device_id"],
+                    token["id"],
+                    notification_type[:80],
+                    int(deliver_after),
+                    payload_kind[:80],
+                    now_ms,
+                ),
+            )
+            queued.append({
+                "id": route_id,
+                "user_id": user_id,
+                "device_id": token["device_id"],
+                "push_token_id": token["id"],
+                "notification_type": notification_type,
+                "deliver_after": int(deliver_after),
+                "payload_kind": payload_kind,
+                "status": "queued",
+                "created_at": now_ms,
+            })
+        conn.commit()
+    return {"queued": len(queued), "routes": queued}
+
+
+def list_notification_routes(user_id: str, limit: int = 100) -> list[dict]:
+    with get_connection() as conn:
+        rows = conn.execute(
+            """SELECT * FROM notification_routes
+               WHERE user_id = ?
+               ORDER BY created_at DESC
+               LIMIT ?""",
+            (user_id, max(1, min(int(limit), 500))),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def _push_token_row(row: sqlite3.Row) -> dict:
+    return {
+        "id": row["id"],
+        "user_id": row["user_id"],
+        "device_id": row["device_id"],
+        "apns_token": row["apns_token"],
+        "token_prefix": str(row["apns_token"])[:12],
+        "platform": row["platform"],
+        "environment": row["environment"],
+        "is_active": bool(row["is_active"]),
+        "registered_at": row["registered_at"],
+        "revoked_at": row["revoked_at"],
+    }
 
 
 def get_or_create_user_profile(user_id: str, timezone: str = "UTC") -> dict:

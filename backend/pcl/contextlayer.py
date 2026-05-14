@@ -12,6 +12,7 @@ from database import (
     get_active_context,
     get_app_permission,
     get_developer_app,
+    ingest_knowledge_graph_event,
     insert_context_feedback,
     insert_pcl_query_log,
     insert_raw_context_event,
@@ -89,6 +90,7 @@ def ingest_context_event(event: dict, source: str) -> dict:
     candidate["metadata"] = normalize_context_metadata(candidate.get("metadata"), candidate["timestamp"])
     update_user_profile_record(candidate["user_id"])
     saved = insert_raw_context_event(candidate)
+    ingest_knowledge_graph_event(saved)
     return {"status": "ok", "event": saved}
 
 

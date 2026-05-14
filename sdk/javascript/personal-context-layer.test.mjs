@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import {PersonalContextLayer} from "./personal-context-layer.js";
+import {PersonalContextLayer, getBundle, isAvailable, track} from "./personal-context-layer.js";
 
 function mockFetch(calls) {
   return async (url, options) => {
@@ -157,6 +157,83 @@ test("getContextBundle posts intent-bounded request", async () => {
   });
 });
 
+test("getSharedBundle reads local shared bundle route", async () => {
+  const calls = [];
+  const pcl = new PersonalContextLayer({appId: "mail_app", fetchImpl: mockFetch(calls)});
+
+  await pcl.getSharedBundle({userId: "user_1"});
+
+  assert.equal(calls[0].url, "http://127.0.0.1:7823/v1/context/shared-bundle?user_id=user_1");
+  assert.equal(calls[0].options.method, "GET");
+});
+
+test("web domain helpers use local permission routes", async () => {
+  const calls = [];
+  const pcl = new PersonalContextLayer({appId: "mail_app", fetchImpl: mockFetch(calls)});
+
+  await pcl.grantWebDomain({userId: "user_1", domain: "mail.example.com"});
+  await pcl.checkWebDomain({userId: "user_1", domain: "mail.example.com", requestedScopes: ["getFeatureUsage"]});
+  await pcl.revokeWebDomain({userId: "user_1", domain: "mail.example.com"});
+
+  assert.equal(calls[0].url, "http://127.0.0.1:7823/v1/web/permissions");
+  assert.deepEqual(calls[0].body, {
+    user_id: "user_1",
+    domain: "mail.example.com",
+    scopes: ["getFeatureUsage", "track"],
+  });
+  assert.equal(calls[1].url, "http://127.0.0.1:7823/v1/web/permissions/check");
+  assert.deepEqual(calls[1].body, {
+    user_id: "user_1",
+    domain: "mail.example.com",
+    requested_scopes: ["getFeatureUsage"],
+  });
+  assert.equal(calls[2].url, "http://127.0.0.1:7823/v1/web/permissions/mail.example.com?user_id=user_1");
+  assert.equal(calls[2].options.method, "DELETE");
+});
+
+test("integration OAuth token helpers use masked local routes", async () => {
+  const calls = [];
+  const pcl = new PersonalContextLayer({appId: "mail_app", fetchImpl: mockFetch(calls)});
+
+  await pcl.listIntegrationOAuthTokens({userId: "user_1"});
+  await pcl.revokeIntegrationOAuthToken({userId: "user_1", source: "gmail"});
+
+  assert.equal(calls[0].url, "http://127.0.0.1:7823/pcl/integrations/oauth/tokens?user_id=user_1");
+  assert.equal(calls[0].options.method, "GET");
+  assert.equal(calls[1].url, "http://127.0.0.1:7823/pcl/integrations/gmail/oauth/token?user_id=user_1");
+  assert.equal(calls[1].options.method, "DELETE");
+});
+
+test("device push helpers use local routing routes", async () => {
+  const calls = [];
+  const pcl = new PersonalContextLayer({appId: "mail_app", fetchImpl: mockFetch(calls)});
+
+  await pcl.registerPushToken({
+    userId: "user_1",
+    deviceId: "iphone_1",
+    apnsToken: "apns_token_123",
+    environment: "production",
+  });
+  await pcl.listPushTokens({userId: "user_1", activeOnly: false});
+  await pcl.listNotificationRoutes({userId: "user_1", limit: 25});
+  await pcl.revokePushToken({userId: "user_1", deviceId: "iphone_1"});
+
+  assert.equal(calls[0].url, "http://127.0.0.1:7823/v1/devices/push-token");
+  assert.deepEqual(calls[0].body, {
+    user_id: "user_1",
+    device_id: "iphone_1",
+    apns_token: "apns_token_123",
+    platform: "ios",
+    environment: "production",
+  });
+  assert.equal(calls[1].url, "http://127.0.0.1:7823/v1/devices/push-token?user_id=user_1&active_only=false");
+  assert.equal(calls[1].options.method, "GET");
+  assert.equal(calls[2].url, "http://127.0.0.1:7823/v1/notifications/routes?user_id=user_1&limit=25");
+  assert.equal(calls[2].options.method, "GET");
+  assert.equal(calls[3].url, "http://127.0.0.1:7823/v1/devices/push-token/iphone_1?user_id=user_1");
+  assert.equal(calls[3].options.method, "DELETE");
+});
+
 test("heartbeat posts active context", async () => {
   const calls = [];
   const pcl = new PersonalContextLayer({appId: "mail_app", fetchImpl: mockFetch(calls)});
@@ -260,4 +337,155 @@ test("deleteUserData requires userId", () => {
 
 test("constructor requires appId", () => {
   assert.throws(() => new PersonalContextLayer({fetchImpl: mockFetch([])}), /appId is required/);
+});
+
+test("web bridge availability checks extension marker", () => {
+  const documentRef = {documentElement: {getAttribute: (name) => name === "data-cl-ext" ? "1" : null}};
+  const missingDocument = {documentElement: {getAttribute: () => null}};
+
+  assert.equal(isAvailable({documentRef}), true);
+  assert.equal(isAvailable({documentRef: missingDocument}), false);
+});
+
+test("getBundle returns null when extension bridge is unavailable", async () => {
+  const result = await getBundle({
+    documentRef: {documentElement: {getAttribute: () => null}},
+    windowRef: {},
+  });
+
+  assert.equal(result, null);
+});
+
+test("getBundle can explicitly use localhost fallback", async () => {
+  const calls = [];
+  const fetchImpl = async (url, options) => {
+    calls.push({url, options, body: JSON.parse(options.body)});
+    return {
+      ok: true,
+      json: async () => ({features: ["smart-reply"]}),
+    };
+  };
+
+  const result = await getBundle({
+    appId: "mail.example",
+    userId: "user_1",
+    intent: "adapt_ui",
+    requestedScopes: ["getFeatureUsage"],
+    allowLocalhostFallback: true,
+    localhostBaseUrl: "http://127.0.0.1:7432/",
+    fetchImpl,
+    documentRef: {documentElement: {getAttribute: () => null}},
+    windowRef: {},
+  });
+
+  assert.equal(calls[0].url, "http://127.0.0.1:7432/v1/context/bundle");
+  assert.deepEqual(calls[0].body, {
+    app_id: "mail.example",
+    user_id: "user_1",
+    intent: "adapt_ui",
+    requested_scopes: ["getFeatureUsage"],
+  });
+  assert.deepEqual(result, {features: ["smart-reply"]});
+});
+
+test("getBundle posts CL_GET_BUNDLE and resolves bridge response", async () => {
+  const listeners = new Map();
+  const posted = [];
+  const windowRef = {
+    addEventListener: (type, handler) => listeners.set(type, handler),
+    removeEventListener: (type) => listeners.delete(type),
+    postMessage: (message) => {
+      posted.push(message);
+      queueMicrotask(() => {
+        listeners.get("message")?.({
+          source: windowRef,
+          data: {
+            type: "CL_BUNDLE_RESPONSE",
+            requestId: message.requestId,
+            bundle: {features: ["smart-reply"]},
+          },
+        });
+      });
+    },
+  };
+  const documentRef = {documentElement: {getAttribute: () => "1"}};
+
+  const bundle = await getBundle({appId: "mail.example", windowRef, documentRef});
+
+  assert.equal(posted[0].type, "CL_GET_BUNDLE");
+  assert.equal(posted[0].appId, "mail.example");
+  assert.deepEqual(bundle, {features: ["smart-reply"]});
+});
+
+test("track can explicitly use localhost fallback", async () => {
+  const calls = [];
+  const fetchImpl = async (url, options) => {
+    calls.push({url, options, body: JSON.parse(options.body)});
+    return {
+      ok: true,
+      json: async () => ({status: "accepted"}),
+    };
+  };
+
+  const result = await track({
+    appId: "mail.example",
+    userId: "user_1",
+    featureId: "Smart Reply",
+    action: "used",
+    sessionId: "session_1",
+    timestamp: 1700000000000,
+    metadata: {subject_category: "email"},
+    allowLocalhostFallback: true,
+    localhostBaseUrl: "http://127.0.0.1:7432",
+    fetchImpl,
+    documentRef: {documentElement: {getAttribute: () => null}},
+    windowRef: {},
+  });
+
+  assert.equal(calls[0].url, "http://127.0.0.1:7432/v1/ingest/extension");
+  assert.deepEqual(calls[0].body, {
+    app_id: "mail.example",
+    user_id: "user_1",
+    feature_id: "smart-reply",
+    action: "used",
+    session_id: "session_1",
+    timestamp: 1700000000000,
+    metadata: {subject_category: "email"},
+  });
+  assert.deepEqual(result, {status: "accepted"});
+});
+
+test("track posts CL_TRACK and resolves result", async () => {
+  const listeners = new Map();
+  const posted = [];
+  const windowRef = {
+    addEventListener: (type, handler) => listeners.set(type, handler),
+    removeEventListener: (type) => listeners.delete(type),
+    postMessage: (message) => {
+      posted.push(message);
+      queueMicrotask(() => {
+        listeners.get("message")?.({
+          source: windowRef,
+          data: {
+            type: "CL_TRACK_RESPONSE",
+            requestId: message.requestId,
+            result: {status: "ok"},
+          },
+        });
+      });
+    },
+  };
+  const documentRef = {documentElement: {getAttribute: () => "1"}};
+
+  const result = await track({
+    appId: "mail.example",
+    featureId: "Smart Reply",
+    action: "used",
+    windowRef,
+    documentRef,
+  });
+
+  assert.equal(posted[0].type, "CL_TRACK");
+  assert.equal(posted[0].featureId, "smart-reply");
+  assert.deepEqual(result, {status: "ok"});
 });
