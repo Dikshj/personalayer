@@ -116,6 +116,7 @@
       transition: opacity 0.15s; font-family: inherit; white-space: nowrap;
     }
     .btn-primary:hover { opacity: 0.85; }
+    .btn-primary:disabled { opacity: 0.55; cursor: wait; }
     .hero-note { color: var(--text3); font-size: 0.8rem; margin-top: 1rem; position: relative; }
     .waitlist-count {
       display: flex; align-items: center; gap: 0.5rem;
@@ -351,6 +352,11 @@
       color: var(--green); padding: 1rem 1.5rem; border-radius: 8px;
       font-size: 0.9rem; margin-top: 1rem;
     }
+    .success-msg.error {
+      background: rgba(248,113,113,0.08);
+      border-color: rgba(248,113,113,0.25);
+      color: var(--red);
+    }
 
     /* ── FOOTER ── */
     footer {
@@ -405,8 +411,8 @@
 
   <p class="hero-sub">PersonaLayer learns who you are from what you do — then makes every AI feel like it's known you for months. Open Claude, Cursor, or GPT and they already know your project, your stack, and how you think.</p>
 
-  <form class="hero-form" onsubmit="submitWaitlist(event, 'hero-success')">
-    <input type="email" id="hero-email" placeholder="your@email.com" required>
+  <form class="hero-form waitlist-form" data-source="hero">
+    <input type="email" id="hero-email" name="email" placeholder="your@email.com" autocomplete="email" required>
     <button class="btn-primary" type="submit">Join Waitlist →</button>
   </form>
   <div id="hero-success" class="success-msg">✓ You're on the list! We'll reach out when you're in.</div>
@@ -782,8 +788,8 @@
     <h2 class="fade-in">The last time you'll explain your stack to an AI.</h2>
     <p class="fade-in">Free forever. Local-first. Open source. <br>Early access users shape the product.</p>
 
-    <form class="cta-form" onsubmit="submitWaitlist(event, 'cta-success')">
-      <input type="email" id="cta-email" placeholder="your@email.com" required>
+    <form class="cta-form waitlist-form" data-source="cta">
+      <input type="email" id="cta-email" name="email" placeholder="your@email.com" autocomplete="email" required>
       <button class="btn-primary" type="submit">Get Early Access →</button>
     </form>
     <div id="cta-success" class="success-msg">✓ You're on the list! We'll reach out when you're in.</div>
@@ -807,13 +813,13 @@
   // Option A (local dev):  set FORMSPREE_ID = null  →  hits localhost:7823
   // Option B (production): set FORMSPREE_ID = 'xyzabc123'  →  hits Formspree
   const FORMSPREE_ID = null; // ← PASTE your Formspree form ID here when deploying
-  const LOCAL_API   = 'http://localhost:7823';
+  const API_BASE = window.location.protocol === 'file:' ? 'http://127.0.0.1:7823' : window.location.origin;
 
   // Load waitlist count on page load (only works with local backend)
   async function loadWaitlistCount() {
-    if (FORMSPREE_ID) return; // Formspree doesn't expose count
     try {
-      const resp = await fetch(LOCAL_API + '/waitlist/count');
+      const resp = await fetch(API_BASE + '/waitlist/count');
+      if (!resp.ok) return;
       const data = await resp.json();
       const countEl = document.getElementById('waitlist-count');
       if (countEl && data.count) countEl.textContent = data.count;

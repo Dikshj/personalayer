@@ -1,61 +1,124 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Sign and notarize macOS app
-# Requires:
-#   - macOS Developer ID Application certificate in Keychain
-#   - App Store Connect API key (for notarytool)
-#   - TEAM_ID, BUNDLE_ID, APP_NAME environment variables
+# macOS app signing and notarization script
+# Requirements: macOS, Xcode, Apple Developer ID certificate, app-specific password
 
-cd "$(dirname "$0")/.."
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+BUILD_DIR="$PROJECT_ROOT/build"
+APP_NAME="${MACOS_APP_NAME:-PersonalLayer}"
+BUNDLE_ID="${MACOS_BUNDLE_ID:-com.personalayer.macos}"
+DEVELOPER_ID="${DEVELOPER_ID:-}"
+KEYCHAIN_PROFILE="${KEYCHAIN_PROFILE:-notarytool-profile}"
 
-APP_NAME="${APP_NAME:-PersonalLayer}"
-BUNDLE_ID="${BUNDLE_ID:-com.personalayer.macos}"
-TEAM_ID="${TEAM_ID:-}"
-SIGN_ID="${SIGN_ID:-Developer ID Application: ${TEAM_ID}}"
-NOTARY_KEY="${NOTARY_KEY:-}"
-NOTARY_ISSUER="${NOTARY_ISSUER:-}"
-
-BUILD_DIR="native/macos/PersonalLayer/.build/release"
-APP_PATH="${BUILD_DIR}/${APP_NAME}"
-DMG_PATH="build/${APP_NAME}.dmg"
-ZIP_PATH="build/${APP_NAME}.zip"
-
-if [ ! -f "$APP_PATH" ]; then
-    echo "Building release binary..."
-    cd native/macos/PersonalLayer
-    swift build -c release
-    cd -
+if [ -z "$DEVELOPER_ID" ]; then
+    echo "ERROR: DEVELOPER_ID not set"
+    echo "Set your Apple Developer ID: export DEVELOPER_ID='Developer ID Application: Your Name (TEAM_ID)'"
+    exit 1
 fi
 
-# Create app bundle structure
-APP_BUNDLE="build/${APP_NAME}.app"
-rm -rf "$APP_BUNDLE"
-mkdir -p "${APP_BUNDLE}/Contents/MacOS"
-mkdir -p "${APP_BUNDLE}/Contents/Resources"
+echo "=== macOS Signing & Notarization ==="
+echo "App: $APP_NAME"
+echo "Bundle ID: $BUNDLE_ID"
+echo "Developer ID: $DEVELOPER_ID"
 
-cp "$APP_PATH" "${APP_BUNDLE}/Contents/MacOS/"
-cp native/macos/PersonalLayer/Resources/Info.plist "${APP_BUNDLE}/Contents/"
-cp native/macos/PersonalLayer/Resources/PersonalLayer.entitlements "${APP_BUNDLE}/Contents/Resources/"
+mkdir -p "$BUILD_DIR"
 
-# Sign
-codesign --force --options runtime --deep --sign "$SIGN_ID"     --entitlements "${APP_BUNDLE}/Contents/Resources/PersonalLayer.entitlements"     "$APP_BUNDLE"
+# 1. Build Release
+PROJECT_DIR="$PROJECT_ROOT/native/macos/PersonalLayer"
+cd "$PROJECT_DIR"
 
-# Package for notarization
-rm -f "$ZIP_PATH"
-ditto -c -k --keepParent "$APP_BUNDLE" "$ZIP_PATH"
+swift build -c release 2>&1 | tee "$BUILD_DIR/macos-build.log"
 
-# Notarize
-if [ -n "$NOTARY_KEY" ] && [ -n "$NOTARY_ISSUER" ]; then
-    xcrun notarytool submit "$ZIP_PATH"         --key-id "$NOTARY_KEY"         --issuer "$NOTARY_ISSUER"         --wait
-    xcrun stapler staple "$APP_BUNDLE"
-    echo "Notarization complete."
+APP_PATH="$BUILD_DIR/Release/$APP_NAME.app"
+
+if [ ! -d "$APP_PATH" ]; then
+    echo "ERROR: Built app not found at $APP_PATH"
+    echo "Checking for alternative paths..."
+    find "$PROJECT_DIR/.build" -name "*.app" -type d 2>/dev/null || true
+    exit 1
+fi
+
+echo "Built app: $APP_PATH"
+
+# 2. Sign with entitlements
+ENTITLEMENTS_FILE="$PROJECT_DIR/Resources/$APP_NAME.entitlements"
+
+if [ -f "$ENTITLEMENTS_FILE" ]; then
+    codesign --force --options runtime --sign "$DEVELOPER_ID" \
+        --entitlements "$ENTITLEMENTS_FILE" \
+        --timestamp \
+        "$APP_PATH"
 else
-    echo "Skipping notarization (set NOTARY_KEY and NOTARY_ISSUER)."
+    echo "WARNING: No entitlements file found at $ENTITLEMENTS_FILE"
+    echo "Creating minimal entitlements..."
+    cat > "/tmp/$APP_NAME.entitlements" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>com.apple.security.app-sandbox</key>
+    <true/>
+    <key>com.apple.security.network.server</key>
+    <true/>
+    <key>com.apple.security.network.client</key>
+    <true/>
+    <key>com.apple.security.files.user-selected.read-write</key>
+    <true/>
+    <key>com.apple.security.keychain</key>
+    <true/>
+</dict>
+</plist>
+EOF
+    codesign --force --options runtime --sign "$DEVELOPER_ID" \
+        --entitlements "/tmp/$APP_NAME.entitlements" \
+        --timestamp \
+        "$APP_PATH"
 fi
 
-# Create DMG
-hdiutil create -volname "$APP_NAME" -srcfolder "$APP_BUNDLE" -ov "$DMG_PATH"
+echo "Signed app"
 
-echo "Signed app: $APP_BUNDLE"
+# 3. Create DMG
+DMG_PATH="$BUILD_DIR/$APP_NAME.dmg"
+if command -v create-dmg &>/dev/null; then
+    create-dmg \
+        --volname "$APP_NAME" \
+        --window-pos 200 120 \
+        --window-size 600 400 \
+        --icon-size 100 \
+        --app-drop-link 450 185 \
+        "$DMG_PATH" \
+        "$APP_PATH"
+else
+    echo "create-dmg not installed, using hdiutil..."
+    TEMP_DMG="/tmp/$APP_NAME-temp.dmg"
+    hdiutil create -srcfolder "$APP_PATH" -volname "$APP_NAME" -fs HFS+ \
+        -format UD RW -o "$TEMP_DMG"
+    hdiutil convert "$TEMP_DMG" -format UDZO -o "$DMG_PATH"
+    rm -f "$TEMP_DMG"
+fi
+
+echo "Created DMG: $DMG_PATH"
+
+# 4. Notarize
+if command -v xcrun &>/dev/null; then
+    echo "Submitting for notarization..."
+    xcrun notarytool submit "$DMG_PATH" \
+        --keychain-profile "$KEYCHAIN_PROFILE" \
+        --wait
+
+    echo "Stapling ticket..."
+    xcrun stapler staple "$DMG_PATH"
+
+    echo "Verifying..."
+    spctl -a -vv "$DMG_PATH" || true
+else
+    echo "WARNING: xcrun not available. Notarization skipped."
+fi
+
+echo ""
+echo "=== macOS Signing Complete ==="
+echo "App: $APP_PATH"
 echo "DMG: $DMG_PATH"
+echo ""
