@@ -11,7 +11,7 @@
     "./legacy": "./personal-context-layer.js"
   },
   "types": "dist/index.d.ts",
-  "files": ["dist/"],
+  "files": ["dist/", "personal-context-layer.js", "src/"],
   "scripts": {
     "build": "tsc",
     "test": "node --test dist/**/*.test.js",

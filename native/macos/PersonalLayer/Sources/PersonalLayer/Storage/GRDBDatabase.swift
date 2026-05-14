@@ -91,6 +91,13 @@ final class GRDBDatabase {
             }
         }
 
+        migrator.registerMigration("v7_compression") { db in
+            try db.alter(table: "kg_node") { t in
+                t.add(column: "isCompressed", .boolean).notNull().defaults(to: false)
+                t.add(column: "uncompressedSize", .integer)
+            }
+        }
+
         try migrator.migrate(dbPool)
     }
 

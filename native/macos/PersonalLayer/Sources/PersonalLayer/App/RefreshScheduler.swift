@@ -9,6 +9,8 @@ final class RefreshScheduler {
 
     private let database: GRDBDatabase
     private let model: EmbeddingModel
+    private let cursorStore = ConnectorCursorStore()
+    private let hotCache = HotMemoryCache()
 
     init(database: GRDBDatabase = .shared,
          model: EmbeddingModel = .shared) {
@@ -68,39 +70,67 @@ final class RefreshScheduler {
     }
 
     private func syncConnectors() throws {
-        let connectorMap: [(provider: String, syncFn: (String) async throws -> [RawEvent])] = [
-            ("google", { t in try await GmailClient.syncMetadata(token: t) }),
-            ("google", { t in try await CalendarClient.sync7DayWindow(token: t) }),
-            ("google", { t in try await YouTubeClient.metadata(token: t) }),
-            ("spotify", { t in try await SpotifyClient.recentlyPlayed(token: t) }),
-            ("notion", { t in try await NotionClient.search(token: t) })
-        ]
+        // Google connectors share the same token
+        if let stored = OAuthTokenStore.load(provider: "google"),
+           let token = try? refreshIfNeeded(provider: "google", token: stored) {
 
-        for (providerName, syncFn) in connectorMap {
-            guard let stored = OAuthTokenStore.load(provider: providerName) else { continue }
-            let token = try refreshIfNeeded(provider: providerName, token: stored)
+            let gmail = GmailClient()
             do {
-                let events = try runAsyncAndBlock { try await syncFn(token) }
-                try database.dbPool.write { db in
-                    for var event in events {
-                        try event.insert(db)
-                    }
-                }
-            } catch {
-                NSLog("PersonalLayer: connector sync failed for \(providerName): \(error)")
-            }
+                let events = try runAsyncAndBlock { try await gmail.syncMetadata(accessToken: token, cursorStore: self.cursorStore) }
+                try persistConnectorEvents(events, connector: "gmail")
+            } catch { NSLog("Gmail sync failed: \(error)") }
+
+            // Calendar
+            let calendar = CalendarClient()
+            do {
+                let events = try runAsyncAndBlock { try await calendar.sync7DayWindow(accessToken: token, cursorStore: self.cursorStore) }
+                try persistConnectorEvents(events, connector: "calendar")
+            } catch { NSLog("Calendar sync failed: \(error)") }
+
+            // YouTube
+            let youtube = YouTubeClient()
+            do {
+                let videos = try runAsyncAndBlock { try await youtube.syncActivity(accessToken: token, cursorStore: self.cursorStore) }
+                let events = videos.map { RawEvent(id: nil, eventType: "youtube_video", payload: String(data: try! JSONEncoder().encode($0), encoding: .utf8)!, createdAt: Date(), privacyFiltered: false, connectorType: "youtube") }
+                try persistConnectorEvents(events, connector: "youtube")
+            } catch { NSLog("YouTube sync failed: \(error)") }
+
+            // Google Fit
+            let fit = GoogleFitClient()
+            do {
+                let points = try runAsyncAndBlock { try await fit.syncAggregate(accessToken: token, cursorStore: self.cursorStore) }
+                let events = points.map { RawEvent(id: nil, eventType: "fit_aggregate", payload: String(data: try! JSONEncoder().encode($0), encoding: .utf8)!, createdAt: Date(), privacyFiltered: false, connectorType: "google_fit") }
+                try persistConnectorEvents(events, connector: "google_fit")
+            } catch { NSLog("Google Fit sync failed: \(error)") }
         }
 
-        if let stored = OAuthTokenStore.load(provider: "google") {
-            let token = try refreshIfNeeded(provider: "google", token: stored)
+        // Spotify
+        if let stored = OAuthTokenStore.load(provider: "spotify"),
+           let token = try? refreshIfNeeded(provider: "spotify", token: stored) {
+            let spotify = SpotifyClient()
             do {
-                if let event = try runAsyncAndBlock({ try await GoogleFitClient.aggregateSteps(token: token) }) {
-                    if let payload = try? JSONSerialization.jsonObject(with: event.payload.data(using: .utf8) ?? Data()) as? [String: Any] {
-                        try database.insertRawEvent(type: event.eventType, payload: payload)
-                    }
-                }
-            } catch {
-                NSLog("PersonalLayer: Google Fit sync failed: \(error)")
+                let tracks = try runAsyncAndBlock { try await spotify.syncRecentlyPlayed(accessToken: token, cursorStore: self.cursorStore) }
+                let events = tracks.map { RawEvent(id: nil, eventType: "spotify_track", payload: String(data: try! JSONEncoder().encode($0), encoding: .utf8)!, createdAt: Date(), privacyFiltered: false, connectorType: "spotify") }
+                try persistConnectorEvents(events, connector: "spotify")
+            } catch { NSLog("Spotify sync failed: \(error)") }
+        }
+
+        // Notion
+        if let stored = OAuthTokenStore.load(provider: "notion"),
+           let token = try? refreshIfNeeded(provider: "notion", token: stored) {
+            let notion = NotionClient()
+            do {
+                let pages = try runAsyncAndBlock { try await notion.syncSearch(accessToken: token, cursorStore: self.cursorStore) }
+                let events = pages.map { RawEvent(id: nil, eventType: "notion_page", payload: String(data: try! JSONEncoder().encode($0), encoding: .utf8)!, createdAt: Date(), privacyFiltered: false, connectorType: "notion") }
+                try persistConnectorEvents(events, connector: "notion")
+            } catch { NSLog("Notion sync failed: \(error)") }
+        }
+    }
+
+    private func persistConnectorEvents(_ events: [RawEvent], connector: String) throws {
+        try database.dbPool.write { db in
+            for var event in events {
+                try event.insert(db)
             }
         }
     }
@@ -113,7 +143,6 @@ final class RefreshScheduler {
             return token.token
         }
         if Date().timeIntervalSince(date) > Double(expiresIn) - 300 {
-            // Token expiring within 5 minutes — refresh
             if let oauthProvider = oauthProviderForName(provider) {
                 return try runAsyncAndBlock { try await OAuthTokenExchange.shared.refreshToken(provider: oauthProvider) }
             }
@@ -145,17 +174,16 @@ final class RefreshScheduler {
                 "embedding_dim": embedding.count
             ]
             try database.upsertNode(entityId: entityId, type: "raw_event", label: event.eventType, attributes: attributes, embedding: embedding)
+            hotCache.set(entityId, value: ["label": event.eventType, "strength": 1.0, "embedding": embedding])
         }
     }
 
     private func synthesizeProfile() throws {
-        // Aggregate events by connector type and time window
         let events = try database.recentRawEvents(limit: 5000)
         let byConnector = Dictionary(grouping: events) { $0.connectorType ?? "unknown" }
+        let calendar = Calendar.current
         for (connector, connectorEvents) in byConnector {
-            let dailyCounts = Dictionary(grouping: connectorEvents) {
-                Calendar.current.startOfDay(for: $0.createdAt)
-            }.mapValues { $0.count }
+            let dailyCounts = Dictionary(grouping: connectorEvents) { calendar.startOfDay(for: $0.createdAt) }.mapValues { $0.count }
             let attributes: [String: Any] = [
                 "connector": connector,
                 "totalEvents": connectorEvents.count,
@@ -166,7 +194,6 @@ final class RefreshScheduler {
     }
 
     private func runDecayEngine() throws {
-        // Reduce signal strength for nodes not accessed recently
         let now = Date()
         try database.dbPool.write { db in
             try db.execute(
@@ -182,12 +209,9 @@ final class RefreshScheduler {
     }
 
     private func buildInductiveMemory() throws {
-        // Find temporal patterns: sequences of related events within 1-hour windows
         let events = try database.recentRawEvents(limit: 2000)
         let calendar = Calendar.current
-        let hourlyWindows = Dictionary(grouping: events) {
-            calendar.dateInterval(of: .hour, for: $0.createdAt)?.start ?? $0.createdAt
-        }
+        let hourlyWindows = Dictionary(grouping: events) { calendar.dateInterval(of: .hour, for: $0.createdAt)?.start ?? $0.createdAt }
         for (_, windowEvents) in hourlyWindows where windowEvents.count >= 3 {
             let sequence = windowEvents.map { (entityId: "event_\($0.id ?? 0)", timestamp: $0.createdAt) }
             try database.insertTemporalChain(type: "hourly_window", sequence: sequence)
@@ -195,7 +219,6 @@ final class RefreshScheduler {
     }
 
     private func buildReflectiveMemory() throws {
-        // High-level summary: top connectors, peak activity day
         let events = try database.recentRawEvents(limit: 5000)
         let byConnector = Dictionary(grouping: events) { $0.connectorType ?? "unknown" }
         let topConnectors = byConnector.sorted { $0.value.count > $1.value.count }.prefix(3).map { $0.key }
@@ -212,10 +235,6 @@ final class RefreshScheduler {
     }
 
     private func maintainTiers() throws {
-        // HOT: accessed within 1 day, strength > 0.7
-        // WARM: accessed within 7 days, strength > 0.3
-        // COOL: accessed within 30 days
-        // COLD: everything else
         let now = Date()
         try database.dbPool.write { db in
             try db.execute(
@@ -241,9 +260,10 @@ final class RefreshScheduler {
         let hotNodes = try database.nodesByTier(.hot, limit: 50)
         let warmNodes = try database.nodesByTier(.warm, limit: 50)
         let coolNodes = try database.nodesByTier(.cool, limit: 30)
+        let hotCacheEntries = hotCache.all()
 
         let bundle: [String: Any] = [
-            "hot_context": hotNodes.map { ["id": $0.entityId, "label": $0.label, "strength": $0.signalStrength] },
+            "hot_context": hotNodes.map { ["id": $0.entityId, "label": $0.label, "strength": $0.signalStrength] } + hotCacheEntries.map { ["id": $0.key, "label": $0.value["label"] ?? "", "strength": ($0.value["strength"] as? Double) ?? 1.0] },
             "warm_context": warmNodes.map { ["id": $0.entityId, "label": $0.label, "strength": $0.signalStrength] },
             "cool_context": coolNodes.map { ["id": $0.entityId, "label": $0.label, "strength": $0.signalStrength] },
             "generated_at": ISO8601DateFormatter().string(from: Date()),
@@ -264,8 +284,9 @@ final class RefreshScheduler {
     }
 
     private func cleanupOldData() throws {
+        // v4: both raw events and temporal chains deleted after 7 days
         try database.deleteRawEventsOlderThan(days: 7)
-        try database.cleanupTemporalChains(olderThanDays: 30)
+        try database.cleanupTemporalChains(olderThanDays: 7)
     }
 
     private static func next3AM() -> Date {
@@ -292,5 +313,13 @@ final class RefreshScheduler {
         semaphore.wait()
         if let error = thrownError { throw error }
         return result!
+    }
+}
+
+extension Dictionary {
+    func mapKeys<T: Hashable>(_ transform: (Key) -> T) -> [T: Value] {
+        var result: [T: Value] = [:]
+        for (key, value) in self { result[transform(key)] = value }
+        return result
     }
 }

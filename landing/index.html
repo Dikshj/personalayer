@@ -132,6 +132,7 @@
     }
 
     .button:hover { transform: translateY(-1px); }
+    .button:disabled { opacity: 0.58; cursor: wait; transform: none; }
 
     .button.secondary {
       background: rgba(247, 247, 242, 0.05);
@@ -819,6 +820,11 @@
       padding: 14px;
       font-weight: 800;
     }
+    .success-msg.error {
+      border-color: rgba(255, 155, 155, 0.28);
+      background: rgba(255, 155, 155, 0.08);
+      color: var(--red);
+    }
 
     .form-note {
       margin-top: 8px;
@@ -1184,11 +1190,11 @@
             <p>We are starting with developers, founders, researchers, and power users who already work across multiple AI tools and want personalization without surrendering control.</p>
           </div>
           <div>
-            <form class="waitlist-form" onsubmit="submitWaitlist(event, 'waitlist-success')">
-              <input class="field" type="email" id="waitlist-email" placeholder="you@company.com" autocomplete="email" required>
+            <form class="waitlist-form" data-source="landing">
+              <input class="field" type="email" id="waitlist-email" name="email" placeholder="you@company.com" autocomplete="email" required>
               <button class="button" type="submit">Request early access</button>
             </form>
-            <div id="waitlist-success" class="success-msg">You are on the list. We will reach out when your spot is ready.</div>
+            <div id="waitlist-success" class="success-msg" role="status" aria-live="polite"></div>
             <p class="form-note">Local-first, user-owned, and built for scoped AI context. No spam.</p>
           </div>
         </div>
@@ -1211,55 +1217,53 @@
   </footer>
 
   <script>
-    const FORMSPREE_ID = null;
-    const LOCAL_API = "http://127.0.0.1:7823";
+    const API_BASE = window.location.protocol === "file:" ? "http://127.0.0.1:7823" : window.location.origin;
 
-    async function submitWaitlist(event, successId) {
+    async function submitWaitlist(event) {
       event.preventDefault();
 
       const form = event.currentTarget;
-      const email = document.getElementById("waitlist-email").value.trim();
-      const success = document.getElementById(successId);
+      const email = form.querySelector('input[name="email"]').value.trim();
+      const source = form.dataset.source || "landing";
+      const success = document.getElementById("waitlist-success");
       const button = form.querySelector("button");
       const originalText = button.textContent;
 
+      success.classList.remove("error");
+      success.style.display = "none";
       button.disabled = true;
       button.textContent = "Joining...";
 
       try {
-        if (FORMSPREE_ID) {
-          await fetch(`https://formspree.io/f/${FORMSPREE_ID}`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ email, source: "landing" })
-          });
-        } else {
-          const response = await fetch(`${LOCAL_API}/waitlist`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ email, source: "landing" })
-          });
+        const response = await fetch(`${API_BASE}/waitlist`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, source })
+        });
+        const data = await response.json();
 
-          if (!response.ok) throw new Error("Local waitlist API failed");
+        if (!response.ok || data.status === "error") {
+          throw new Error(data.error || "Could not join the waitlist. Please try again.");
         }
 
-        form.style.display = "none";
+        form.reset();
+        success.textContent = data.status === "already_joined"
+          ? "You are already on the list. We will be in touch soon."
+          : "You are on the list. We will reach out when your spot is ready.";
         success.style.display = "block";
       } catch (error) {
-        const stored = JSON.parse(localStorage.getItem("personalayer_waitlist") || "[]");
-        if (!stored.includes(email)) {
-          stored.push(email);
-          localStorage.setItem("personalayer_waitlist", JSON.stringify(stored));
-        }
-
-        form.style.display = "none";
-        success.textContent = "Saved locally for now. Connect the waitlist API before launch.";
+        success.textContent = error.message || "Could not join the waitlist. Please try again.";
+        success.classList.add("error");
         success.style.display = "block";
       } finally {
         button.disabled = false;
         button.textContent = originalText;
       }
     }
+
+    document.querySelectorAll(".waitlist-form").forEach((form) => {
+      form.addEventListener("submit", submitWaitlist);
+    });
 
     const observer = new IntersectionObserver((entries) => {
       entries.forEach((entry) => {

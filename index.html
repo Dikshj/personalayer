@@ -415,7 +415,7 @@
     <input type="email" id="hero-email" name="email" placeholder="your@email.com" autocomplete="email" required>
     <button class="btn-primary" type="submit">Join Waitlist →</button>
   </form>
-  <div id="hero-success" class="success-msg">✓ You're on the list! We'll reach out when you're in.</div>
+  <div id="hero-success" class="success-msg" role="status" aria-live="polite"></div>
   <p class="hero-note">Free forever. Local-first. No credit card.</p>
 
   <div class="waitlist-count">
@@ -792,7 +792,7 @@
       <input type="email" id="cta-email" name="email" placeholder="your@email.com" autocomplete="email" required>
       <button class="btn-primary" type="submit">Get Early Access →</button>
     </form>
-    <div id="cta-success" class="success-msg">✓ You're on the list! We'll reach out when you're in.</div>
+    <div id="cta-success" class="success-msg" role="status" aria-live="polite"></div>
     <p class="final-note">No spam. Unsubscribe anytime. We'll email you when your spot is ready.</p>
   </div>
 </section>
@@ -809,10 +809,6 @@
 </footer>
 
 <script>
-  // ── Waitlist config ──
-  // Option A (local dev):  set FORMSPREE_ID = null  →  hits localhost:7823
-  // Option B (production): set FORMSPREE_ID = 'xyzabc123'  →  hits Formspree
-  const FORMSPREE_ID = null; // ← PASTE your Formspree form ID here when deploying
   const API_BASE = window.location.protocol === 'file:' ? 'http://127.0.0.1:7823' : window.location.origin;
 
   // Load waitlist count on page load (only works with local backend)
@@ -828,57 +824,56 @@
   loadWaitlistCount();
 
   // Waitlist form handler
-  async function submitWaitlist(e, successId) {
+  async function submitWaitlist(e) {
     e.preventDefault();
-    const emailId = successId === 'hero-success' ? 'hero-email' : 'cta-email';
-    const email   = document.getElementById(emailId).value;
-    const source  = successId === 'hero-success' ? 'hero' : 'cta';
-
-    // Optimistic UI
-    const form    = e.target;
-    form.style.display = 'none';
+    const form = e.currentTarget;
+    const input = form.querySelector('input[name="email"]');
+    const button = form.querySelector('button[type="submit"]');
+    const source = form.dataset.source || 'landing';
+    const successId = source === 'hero' ? 'hero-success' : 'cta-success';
     const success = document.getElementById(successId);
-    success.style.display = 'block';
+    const originalText = button.textContent;
+
+    success.classList.remove('error');
+    success.style.display = 'none';
+    button.disabled = true;
+    button.textContent = 'Joining...';
 
     try {
-      if (FORMSPREE_ID) {
-        // ── Production path: Formspree ──
-        await fetch(`https://formspree.io/f/${FORMSPREE_ID}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-          body: JSON.stringify({ email, source })
-        });
-      } else {
-        // ── Dev path: local FastAPI backend ──
-        const resp = await fetch(LOCAL_API + '/waitlist', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email, source })
-        });
-        const data = await resp.json();
-        if (data.status === 'already_joined') {
-          success.textContent = '✓ You\'re already on the list! We\'ll be in touch soon.';
-        } else if (data.status === 'error') {
-          success.textContent = '⚠ ' + data.error;
-          success.style.background = 'rgba(248,113,113,0.08)';
-          success.style.borderColor = 'rgba(248,113,113,0.25)';
-          success.style.color = 'var(--red)';
-        }
-        if (data.count) {
-          const countEl = document.getElementById('waitlist-count');
-          if (countEl) countEl.textContent = data.count;
-        }
+      const resp = await fetch(API_BASE + '/waitlist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: input.value.trim(), source })
+      });
+      const data = await resp.json();
+
+      if (!resp.ok || data.status === 'error') {
+        throw new Error(data.error || 'Could not join the waitlist. Please try again.');
+      }
+
+      form.reset();
+      success.textContent = data.status === 'already_joined'
+        ? 'You are already on the list. We will be in touch soon.'
+        : 'You are on the list. We will reach out when your spot is ready.';
+      success.style.display = 'block';
+
+      if (data.count) {
+        const countEl = document.getElementById('waitlist-count');
+        if (countEl) countEl.textContent = data.count;
       }
     } catch (err) {
-      // Fallback: localStorage
-      const waitlist = JSON.parse(localStorage.getItem('pl_waitlist') || '[]');
-      if (!waitlist.includes(email)) {
-        waitlist.push(email);
-        localStorage.setItem('pl_waitlist', JSON.stringify(waitlist));
-      }
+      success.textContent = err.message || 'Could not join the waitlist. Please try again.';
+      success.classList.add('error');
+      success.style.display = 'block';
+    } finally {
+      button.disabled = false;
+      button.textContent = originalText;
     }
   }
 
+  document.querySelectorAll('.waitlist-form').forEach(form => {
+    form.addEventListener('submit', submitWaitlist);
+  });
   // Scroll animations
   const observer = new IntersectionObserver((entries) => {
     entries.forEach(entry => {
