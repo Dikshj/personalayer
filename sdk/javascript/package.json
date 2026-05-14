@@ -3,6 +3,13 @@
   "version": "0.1.0",
   "description": "Personal Layer JavaScript SDK",
   "main": "dist/index.js",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./legacy": "./personal-context-layer.js"
+  },
   "types": "dist/index.d.ts",
   "files": ["dist/"],
   "scripts": {

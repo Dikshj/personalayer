@@ -1,12 +1,19 @@
 """Test Supabase RLS policies are correctly defined."""
 import pytest
 import os
+import sys
+
+# Prevent local repo 'supabase/' directory from shadowing the pip-installed supabase package
+_repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _repo_root in sys.path:
+    sys.path.remove(_repo_root)
+
 from supabase import create_client
 
 @pytest.fixture
 def supabase():
     url = os.environ.get("SUPABASE_URL", "http://localhost:54321")
-    key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.test")
+    key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "eyJhbG...test")
     return create_client(url, key)
 
 def test_api_keys_rls_exists(supabase):
@@ -35,7 +42,6 @@ def test_verify_api_key_rpc_exists(supabase):
 def test_notification_routes_payload_constraint(supabase):
     """Verify notification_routes has payload_kind enum constraint."""
     with pytest.raises(Exception):
-        # This should fail if payload_kind has proper constraints
         supabase.table("notification_routes").insert({
             "user_id": "00000000-0000-0000-0000-000000000000",
             "device_id": "test",

@@ -199,6 +199,7 @@ final class RefreshScheduler {
         let events = try database.recentRawEvents(limit: 5000)
         let byConnector = Dictionary(grouping: events) { $0.connectorType ?? "unknown" }
         let topConnectors = byConnector.sorted { $0.value.count > $1.value.count }.prefix(3).map { $0.key }
+        let calendar = Calendar.current
         let dailyCounts = Dictionary(grouping: events) { calendar.startOfDay(for: $0.createdAt) }.mapValues { $0.count }
         let peakDay = dailyCounts.max { $0.value < $1.value }?.key
 

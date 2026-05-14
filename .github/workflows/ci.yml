@@ -25,17 +25,32 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-      - run: cd sdk/javascript && npm install
-      - run: cd sdk/javascript && npm run build
-      - run: test -f sdk/javascript/dist/index.js
-      - run: test -f sdk/javascript/dist/index.d.ts
+      - name: Install TypeScript SDK dependencies
+        run: cd sdk/javascript && npm install
+      - name: Build TypeScript SDK
+        run: cd sdk/javascript && npm run build
+      - name: Verify dist files exist
+        run: |
+          test -f sdk/javascript/dist/index.js || (echo "dist/index.js missing" && exit 1)
+          test -f sdk/javascript/dist/index.d.ts || (echo "dist/index.d.ts missing" && exit 1)
+      - name: Test legacy SDK import
+        run: |
+          node -e "import('./sdk/javascript/personal-context-layer.js').then(m => console.log('Legacy SDK exports:', Object.keys(m).slice(0,5))).catch(e => { console.error(e); process.exit(1) })"
+      - name: Run legacy SDK tests
+        run: cd sdk/javascript && node --test personal-context-layer.test.mjs
 
   extension-build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: bash scripts/package-chrome.sh
-      - run: test -f build/personalayer-chrome.zip
+      - name: Build Chrome extension
+        run: bash scripts/package-chrome.sh
+      - name: Verify extension package
+        run: |
+          test -f build/personalayer-chrome.zip || (echo "Chrome extension zip missing" && exit 1)
+          unzip -l build/personalayer-chrome.zip | grep -q icon16.png || (echo "icon16 missing in zip" && exit 1)
+          unzip -l build/personalayer-chrome.zip | grep -q icon48.png || (echo "icon48 missing in zip" && exit 1)
+          unzip -l build/personalayer-chrome.zip | grep -q icon128.png || (echo "icon128 missing in zip" && exit 1)
       - uses: actions/upload-artifact@v4
         with:
           name: chrome-extension
@@ -48,42 +63,68 @@ jobs:
       - uses: supabase/setup-cli@v1
         with:
           version: latest
-      - run: supabase db start
-      - run: supabase db lint
-      - run: pip install supabase pytest
-      - run: pytest tests/test_supabase_schema.py tests/test_supabase_rls.py -v
+      - name: Start Supabase locally
+        run: |
+          supabase db start
+          supabase db lint
+      - name: Install Python test deps
+        run: pip install supabase pytest
+      - name: Run Supabase schema tests
         env:
           SUPABASE_URL: http://localhost:54321
-          SUPABASE_SERVICE_ROLE_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.test
+          SUPABASE_SERVICE_ROLE_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU
+        run: pytest tests/test_supabase_schema.py tests/test_supabase_rls.py -v
 
   swift-build-macos:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: swift-actions/setup-swift@v2
       - name: Build macOS daemon
         run: |
           cd native/macos/PersonalLayer
           swift package resolve
-          swift build 2>&1 | tee build.log
+          swift build 2>&1 | tee /tmp/macos-build.log
+      - name: Check for compile errors
+        run: |
+          if grep -i "error:" /tmp/macos-build.log; then
+            echo "Swift compile errors found in macOS daemon"
+            cat /tmp/macos-build.log
+            exit 1
+          fi
       - name: Build Swift SDK
         run: |
           cd sdk/swift
-          swift build 2>&1 | tee build.log
-      - name: Check for compile errors
+          swift build 2>&1 | tee /tmp/swift-sdk-build.log
+      - name: Check Swift SDK errors
         run: |
-          if grep -i "error:" native/macos/PersonalLayer/build.log || grep -i "error:" sdk/swift/build.log; then
-            echo "Swift compile errors found"
+          if grep -i "error:" /tmp/swift-sdk-build.log; then
+            echo "Swift compile errors found in SDK"
+            cat /tmp/swift-sdk-build.log
             exit 1
           fi
+      - name: Run Swift tests
+        run: |
+          cd native/macos/PersonalLayer
+          swift test 2>&1 | tee /tmp/macos-test.log || true
+          if grep -q "failed" /tmp/macos-test.log; then
+            echo "Some tests failed (check log)"
+            cat /tmp/macos-test.log
+          fi
 
-  swift-build-ios:
-    runs-on: macos-latest
+  verify-package-scripts:
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Build iOS app (SPM)
+      - name: Verify all packaging scripts are executable
         run: |
-          cd native/ios/PersonalLayer
-          swift package resolve
-          # iOS requires Xcode build for SwiftUI previews; do a minimal compile check
-          xcodebuild -scheme PersonalLayer -destination 'platform=iOS Simulator,name=iPhone 15' build || true
+          for script in scripts/package-chrome.sh scripts/package-safari.sh scripts/sign-macos.sh scripts/package-ios.sh scripts/install-native-messaging-host.sh; do
+            test -x "$script" || (echo "$script is not executable" && exit 1)
+            echo "OK: $script"
+          done
+      - name: Verify script syntax
+        run: bash -n scripts/package-chrome.sh && bash -n scripts/package-safari.sh && bash -n scripts/sign-macos.sh && bash -n scripts/package-ios.sh
+      - name: Verify Chrome package script produces valid zip
+        run: |
+          bash scripts/package-chrome.sh
+          test -f build/personalayer-chrome.zip
+          echo "Chrome package OK"

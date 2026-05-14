@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key>
+    <string>com.personalayer.ios</string>
+    <key>CFBundleVersion</key>
+    <string>0.1.0</string>
+    <key>CFBundleShortVersionString</key>
+    <string>0.1.0</string>
+    <key>OAuthProviders</key>
+    <dict>
+        <key>google</key>
+        <string>YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com</string>
+        <key>spotify</key>
+        <string>YOUR_SPOTIFY_CLIENT_ID</string>
+        <key>notion</key>
+        <string>YOUR_NOTION_CLIENT_ID</string>
+    </dict>
+    <key>UIBackgroundModes</key>
+    <array>
+        <string>fetch</string>
+        <string>processing</string>
+    </array>
+    <key>BGTaskSchedulerPermittedIdentifiers</key>
+    <array>
+        <string>com.personalayer.dailyrefresh</string>
+    </array>
+</dict>
+</plist>
