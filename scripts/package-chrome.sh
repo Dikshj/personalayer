@@ -1,23 +1,36 @@
 #!/usr/bin/env bash
 set -euo pipefail
+
 cd "$(dirname "$0")/.."
 
-mkdir -p build/chrome
+BUILD_DIR="build/chrome"
+rm -rf "$BUILD_DIR"
+mkdir -p "$BUILD_DIR"
 
-# Copy extension files
-cp extension/manifest.json build/chrome/
-cp extension/background.js build/chrome/
-cp extension/content.js build/chrome/
-cp extension/popup.html build/chrome/
-cp extension/popup.js build/chrome/
-cp extension/icons/icon128.png build/chrome/icons/
+cp extension/manifest.json "$BUILD_DIR/"
+cp extension/background.js "$BUILD_DIR/"
+cp extension/content.js "$BUILD_DIR/"
+cp extension/popup.html "$BUILD_DIR/"
+cp extension/popup.js "$BUILD_DIR/"
 
-# Create ZIP for Chrome Web Store
-cd build/chrome
-zip -r ../personalayer-chrome.zip .
-cd ../..
+mkdir -p "$BUILD_DIR/icons"
+cp extension/icons/icon16.png "$BUILD_DIR/icons/"
+cp extension/icons/icon48.png "$BUILD_DIR/icons/"
+cp extension/icons/icon128.png "$BUILD_DIR/icons/"
+
+# Validate manifest JSON
+node -e "JSON.parse(require('fs').readFileSync('$BUILD_DIR/manifest.json'))"
+
+# Validate icon sizes
+for size in 16 48 128; do
+    if [ ! -f "$BUILD_DIR/icons/icon${size}.png" ]; then
+        echo "Error: Missing icon${size}.png"
+        exit 1
+    fi
+done
+
+mkdir -p build
+zip -r "build/personalayer-chrome.zip" -j "$BUILD_DIR"/* "$BUILD_DIR/icons"/*
 
 echo "Chrome extension packaged: build/personalayer-chrome.zip"
-echo ""
-echo "Upload to Chrome Web Store Developer Dashboard:"
-echo "  https://chrome.google.com/webstore/devconsole"
+echo "Upload this to Chrome Web Store Developer Dashboard."

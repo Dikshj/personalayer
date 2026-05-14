@@ -8,7 +8,7 @@ export interface PersonalLayerBundle {
 
 export interface TrackEvent {
   event_type: string;
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 export interface SDKConfig {
@@ -29,7 +29,7 @@ export class PersonalLayerSDK {
 
   async isAvailable(): Promise<boolean> {
     try {
-      const res = await fetch(`${this.daemonURL}/v1/context/bundle`, { method: 'HEAD', mode: 'cors' });
+      const res = await fetch(`${this.daemonURL}/health`, { method: 'GET', mode: 'cors' });
       return res.ok;
     } catch {
       return false;
@@ -40,7 +40,7 @@ export class PersonalLayerSDK {
     try {
       const res = await fetch(`${this.daemonURL}/v1/context/bundle`, { mode: 'cors' });
       if (!res.ok) return null;
-      return await res.json() as PersonalLayerBundle;
+      return (await res.json()) as PersonalLayerBundle;
     } catch {
       return null;
     }

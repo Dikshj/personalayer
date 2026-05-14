@@ -1,28 +1,30 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-MACOS_PROJECT="native/macos/PersonalLayer"
-TEAM_ID="${TEAM_ID:-}"
-SIGNING_IDENTITY="${SIGNING_IDENTITY:-}"
+# Package Safari WebExtension
+# Requires Xcode and a valid Developer ID
 
-if [[ -z "$SIGNING_IDENTITY" ]]; then
-  echo "Warning: SIGNING_IDENTITY not set — building unsigned"
+cd "$(dirname "$0")/.."
+
+XCODE_PROJECT="native/macos/PersonalLayerApp/PersonalLayerApp.xcodeproj"
+EXT_TARGET="PersonalLayer Safari Extension"
+
+if [ ! -d "$XCODE_PROJECT" ]; then
+    echo "Error: Xcode project not found at $XCODE_PROJECT"
+    echo "This script requires the full Xcode app wrapper project."
+    echo "Run 'swift package generate-xcodeproj' or create manually."
+    exit 1
 fi
 
-cd "$MACOS_PROJECT"
+# Build the extension
+xcodebuild -project "$XCODE_PROJECT"     -target "$EXT_TARGET"     -configuration Release     -derivedDataPath build/DerivedData     CODE_SIGN_IDENTITY="${CODE_SIGN_IDENTITY:--}"
 
-# Build the app (which embeds the Safari extension)
-swift build -c release
-
-# Sign the Safari extension target if identity available
-if [[ -n "$SIGNING_IDENTITY" ]]; then
-  codesign --force --options runtime --timestamp     --sign "$SIGNING_IDENTITY"     .build/release/PersonalLayerExtension.appex || true
+# Find the .appex
+APPEX=$(find build/DerivedData -name "*.appex" -type d | head -1)
+if [ -z "$APPEX" ]; then
+    echo "Error: .appex not found in build output"
+    exit 1
 fi
 
-echo "Safari extension built:"
-echo "  .build/release/PersonalLayerExtension.appex"
-echo ""
-echo "To distribute:"
-echo "  1. Open the .app in Xcode"
-echo "  2. Product > Archive"
-echo "  3. Distribute App > Developer ID"
+echo "Safari extension built: $APPEX"
+echo "Package this with the main app for App Store submission."

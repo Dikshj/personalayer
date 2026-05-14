@@ -1,5 +1,6 @@
 import BackgroundTasks
 import Foundation
+import Combine
 
 final class RefreshScheduler: ObservableObject {
     static let shared = RefreshScheduler()

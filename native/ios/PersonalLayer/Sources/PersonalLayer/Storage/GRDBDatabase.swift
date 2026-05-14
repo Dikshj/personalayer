@@ -3,7 +3,7 @@ import Foundation
 
 final class GRDBDatabase {
     static let shared = GRDBDatabase()
-    private let dbPool: DatabasePool
+    let dbPool: DatabasePool
 
     private init() {
         let fileManager = FileManager.default

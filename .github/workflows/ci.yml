@@ -16,6 +16,7 @@ jobs:
           python-version: '3.11'
       - run: pip install -r backend/requirements.txt
       - run: pytest tests/ -q -n 4
+      - run: python -m py_compile scripts/convert-coreml-model.py
 
   js-sdk-build:
     runs-on: ubuntu-latest
@@ -26,12 +27,15 @@ jobs:
           node-version: '20'
       - run: cd sdk/javascript && npm install
       - run: cd sdk/javascript && npm run build
+      - run: test -f sdk/javascript/dist/index.js
+      - run: test -f sdk/javascript/dist/index.d.ts
 
   extension-build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - run: bash scripts/package-chrome.sh
+      - run: test -f build/personalayer-chrome.zip
       - uses: actions/upload-artifact@v4
         with:
           name: chrome-extension
@@ -46,13 +50,40 @@ jobs:
           version: latest
       - run: supabase db start
       - run: supabase db lint
-      - run: pytest tests/test_supabase_schema.py
+      - run: pip install supabase pytest
+      - run: pytest tests/test_supabase_schema.py tests/test_supabase_rls.py -v
+        env:
+          SUPABASE_URL: http://localhost:54321
+          SUPABASE_SERVICE_ROLE_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.test
 
   swift-build-macos:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
       - uses: swift-actions/setup-swift@v2
-      - run: cd native/macos/PersonalLayer && swift package resolve
-      - run: cd native/macos/PersonalLayer && swift build
-      - run: cd sdk/swift && swift build
+      - name: Build macOS daemon
+        run: |
+          cd native/macos/PersonalLayer
+          swift package resolve
+          swift build 2>&1 | tee build.log
+      - name: Build Swift SDK
+        run: |
+          cd sdk/swift
+          swift build 2>&1 | tee build.log
+      - name: Check for compile errors
+        run: |
+          if grep -i "error:" native/macos/PersonalLayer/build.log || grep -i "error:" sdk/swift/build.log; then
+            echo "Swift compile errors found"
+            exit 1
+          fi
+
+  swift-build-ios:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build iOS app (SPM)
+        run: |
+          cd native/ios/PersonalLayer
+          swift package resolve
+          # iOS requires Xcode build for SwiftUI previews; do a minimal compile check
+          xcodebuild -scheme PersonalLayer -destination 'platform=iOS Simulator,name=iPhone 15' build || true

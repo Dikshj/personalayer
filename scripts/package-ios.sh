@@ -1,53 +1,44 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Build and archive iOS app for TestFlight
+# Requires:
+#   - macOS with Xcode
+#   - Valid signing certificates and provisioning profiles
+#   - APP_STORE_CONNECT_API_KEY environment variable
+
+cd "$(dirname "$0")/.."
+
+PROJECT="native/ios/PersonalLayer"
 SCHEME="PersonalLayer"
-PROJECT_ROOT="$(dirname "$0")/../native/ios"
-EXPORT_PLIST="$PROJECT_ROOT/exportOptions.plist"
+BUNDLE_ID="${BUNDLE_ID:-com.personalayer.ios}"
+TEAM_ID="${TEAM_ID:-}"
+API_KEY="${APP_STORE_CONNECT_API_KEY:-}"
+API_ISSUER="${APP_STORE_CONNECT_ISSUER_ID:-}"
 
-# Required env vars
-APP_STORE_CONNECT_KEY_ID="${APP_STORE_CONNECT_KEY_ID:-}"
-APP_STORE_CONNECT_ISSUER="${APP_STORE_CONNECT_ISSUER:-}"
-APP_STORE_CONNECT_KEY_PATH="${APP_STORE_CONNECT_KEY_PATH:-}"
-
-if [[ -z "$APP_STORE_CONNECT_KEY_ID" || -z "$APP_STORE_CONNECT_ISSUER" ]]; then
-  echo "Error: Set App Store Connect credentials"
-  echo "  export APP_STORE_CONNECT_KEY_ID=ABC123"
-  echo "  export APP_STORE_CONNECT_ISSUER=xyz-issuer-id"
-  exit 1
+if [ ! -d "$PROJECT" ]; then
+    echo "Error: iOS project not found at $PROJECT"
+    exit 1
 fi
 
-# Generate export options plist if not exists
-if [[ ! -f "$EXPORT_PLIST" ]]; then
-  cat > "$EXPORT_PLIST" <<EOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>method</key>
-    <string>app-store-connect</string>
-    <key>teamID</key>
-    <string>${TEAM_ID:-}</string>
-    <key>provisioningProfiles</key>
-    <dict>
-        <key>com.personalayer.ios</key>
-        <string>Personal Layer App Store</string>
-    </dict>
-    <key>uploadSymbols</key>
-    <true/>
-</dict>
-</plist>
-EOF
+ARCHIVE_PATH="build/PersonalLayer.xcarchive"
+EXPORT_PATH="build/PersonalLayer-export"
+
+# Clean
+rm -rf "$ARCHIVE_PATH" "$EXPORT_PATH"
+mkdir -p build
+
+# Archive
+xcodebuild archive     -project "${PROJECT}/${SCHEME}.xcodeproj"     -scheme "$SCHEME"     -destination "generic/platform=iOS"     -archivePath "$ARCHIVE_PATH"     CODE_SIGN_STYLE=Automatic     DEVELOPMENT_TEAM="$TEAM_ID"
+
+# Export
+xcodebuild -exportArchive     -archivePath "$ARCHIVE_PATH"     -exportPath "$EXPORT_PATH"     -exportOptionsPlist scripts/export-options.plist
+
+# Upload to TestFlight
+if [ -n "$API_KEY" ] && [ -n "$API_ISSUER" ]; then
+    xcrun altool --upload-app         -f "${EXPORT_PATH}/${SCHEME}.ipa"         -t ios         --apiKey "$API_KEY"         --apiIssuer "$API_ISSUER"
+    echo "Uploaded to TestFlight."
+else
+    echo "IPA built at ${EXPORT_PATH}/${SCHEME}.ipa"
+    echo "Set APP_STORE_CONNECT_API_KEY and APP_STORE_CONNECT_ISSUER_ID to upload."
 fi
-
-echo "Archiving..."
-cd "$PROJECT_ROOT"
-xcodebuild archive   -scheme "$SCHEME"   -destination "generic/platform=iOS"   -archivePath "../../build/PersonalLayer.xcarchive"   -allowProvisioningUpdates   -authenticationKeyPath "$APP_STORE_CONNECT_KEY_PATH"   -authenticationKeyID "$APP_STORE_CONNECT_KEY_ID"   -authenticationKeyIssuerID "$APP_STORE_CONNECT_ISSUER"
-
-echo "Exporting IPA..."
-xcodebuild -exportArchive   -archivePath "../../build/PersonalLayer.xcarchive"   -exportOptionsPlist "$EXPORT_PLIST"   -exportPath "../../build/ipa"   -allowProvisioningUpdates   -authenticationKeyPath "$APP_STORE_CONNECT_KEY_PATH"   -authenticationKeyID "$APP_STORE_CONNECT_KEY_ID"   -authenticationKeyIssuerID "$APP_STORE_CONNECT_ISSUER"
-
-echo "Uploading to TestFlight..."
-xcrun altool --upload-app   -f "../../build/ipa/*.ipa"   -t ios   --apiKey "$APP_STORE_CONNECT_KEY_ID"   --apiIssuer "$APP_STORE_CONNECT_ISSUER"
-
-echo "Uploaded to TestFlight successfully"
