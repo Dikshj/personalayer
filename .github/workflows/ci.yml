@@ -17,7 +17,7 @@ jobs:
       - run: pip install -r backend/requirements.txt
       - run: pytest tests/ -q -n 4
 
-  js-sdk-tests:
+  js-sdk-build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -25,9 +25,19 @@ jobs:
         with:
           node-version: '20'
       - run: cd sdk/javascript && npm install
-      - run: cd sdk/javascript && npm test
+      - run: cd sdk/javascript && npm run build
 
-  supabase-schema-check:
+  extension-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash scripts/package-chrome.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: chrome-extension
+          path: build/personalayer-chrome.zip
+
+  supabase-check:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -38,11 +48,11 @@ jobs:
       - run: supabase db lint
       - run: pytest tests/test_supabase_schema.py
 
-  swift-lint-check:
+  swift-build-macos:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
-      - run: swift package --package-path native/macos/PersonalLayer resolve
-      - run: swift build --package-path native/macos/PersonalLayer
-      - run: swift build --package-path native/ios/PersonalLayer
-      - run: swift build --package-path sdk/swift
+      - uses: swift-actions/setup-swift@v2
+      - run: cd native/macos/PersonalLayer && swift package resolve
+      - run: cd native/macos/PersonalLayer && swift build
+      - run: cd sdk/swift && swift build

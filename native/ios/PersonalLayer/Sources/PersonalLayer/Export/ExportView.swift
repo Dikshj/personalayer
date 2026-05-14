@@ -1,44 +1,61 @@
 import SwiftUI
-import UniformTypeIdentifiers
 
 struct ExportView: View {
-    @State private var showingShareSheet = false
-    @State private var exportURL: URL?
+    @Environment(\.dismiss) private var dismiss
+    @State private var exportData: String = ""
+    @State private var isLoading = false
 
     var body: some View {
-        VStack(spacing: 20) {
-            Text("Export your Personal Layer data as a JSON bundle.")
-                .multilineTextAlignment(.center)
-                .padding()
+        NavigationView {
+            VStack(spacing: 16) {
+                Text("Export Your Data")
+                    .font(.title2.bold())
+                Text("This exports your knowledge graph nodes, edges, and context bundles as JSON. Raw events are excluded.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
 
-            Button("Export Data") {
-                do {
-                    let bundle = try GRDBDatabase.shared.loadSharedBundle()
-                    let data = try JSONSerialization.data(withJSONObject: bundle)
-                    let url = FileManager.default.temporaryDirectory
-                        .appendingPathComponent("personal_layer_export.json")
-                    try data.write(to: url)
-                    exportURL = url
-                    showingShareSheet = true
-                } catch {
-                    // handle
+                if isLoading {
+                    ProgressView("Generating export...")
+                } else if !exportData.isEmpty {
+                    TextEditor(text: $exportData)
+                        .font(.system(.caption, design: .monospaced))
+                        .border(Color.secondary.opacity(0.2))
+
+                    ShareLink(item: exportData) {
+                        Label("Share Export", systemImage: "square.and.arrow.up")
+                    }
+                    .buttonStyle(.borderedProminent)
                 }
-            }
-            .buttonStyle(.borderedProminent)
-        }
-        .navigationTitle("Export")
-        .sheet(isPresented: $showingShareSheet) {
-            if let url = exportURL {
-                ShareSheet(items: [url])
-            }
-        }
-    }
-}
 
-struct ShareSheet: UIViewControllerRepresentable {
-    let items: [Any]
-    func makeUIViewController(context: Context) -> UIActivityViewController {
-        UIActivityViewController(activityItems: items, applicationActivities: nil)
+                Button("Generate Export") {
+                    Task { await generateExport() }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(isLoading)
+
+                Spacer()
+            }
+            .padding()
+            .navigationBarItems(trailing: Button("Done") { dismiss() })
+        }
     }
-    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
+
+    private func generateExport() async {
+        isLoading = true
+        defer { isLoading = false }
+        do {
+            let bundle = try GRDBDatabase.shared.loadSharedBundle()
+            let nodes = try GRDBDatabase.shared.nodesByTier(.hot, limit: 100)
+            let export: [String: Any] = [
+                "version": "v4",
+                "exported_at": ISO8601DateFormatter().string(from: Date()),
+                "bundle": bundle,
+                "nodes": nodes.map { ["id": $0.entityId, "label": $0.label, "type": $0.entityType, "tier": $0.tier] }
+            ]
+            exportData = String(data: try JSONSerialization.data(withJSONObject: export, options: .prettyPrinted), encoding: .utf8) ?? "{}"
+        } catch {
+            exportData = "{\"error\": \"\(error.localizedDescription)\"}"
+        }
+    }
 }

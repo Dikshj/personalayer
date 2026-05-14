@@ -11,24 +11,33 @@ Deno.serve(async (req) => {
   }
 
   const { api_key } = await req.json()
-  if (!api_key) {
-    return new Response(JSON.stringify({ valid: false, error: 'missing api_key' }), { status: 400 })
+  if (!api_key || typeof api_key !== 'string') {
+    return new Response(JSON.stringify({ error: 'missing api_key' }), { status: 400 })
   }
 
-  const { data, error } = await supabase.rpc('verify_api_key', { key_text: api_key })
-  if (error || !data || data.length === 0 || !data[0].valid) {
-    return new Response(JSON.stringify({ valid: false }), { status: 401 })
+  // Call the RPC that matches the actual schema
+  const { data, error } = await supabase.rpc('verify_api_key', {
+    api_key: api_key
+  })
+
+  if (error) {
+    return new Response(JSON.stringify({ error: error.message }), { status: 500 })
   }
 
-  const row = data[0]
+  if (!data || data.length === 0) {
+    return new Response(JSON.stringify({ valid: false }), { status: 200 })
+  }
 
-  // Touch last_used_at asynchronously (fire and forget)
-  supabase.rpc('touch_api_key', { key_id: row.key_id }).then(() => {}).catch(() => {})
+  const key = data[0]
+
+  // Touch last_used_at asynchronously (fire-and-forget)
+  supabase.rpc('touch_api_key', { key_id: key.key_id }).catch(() => {})
 
   return new Response(JSON.stringify({
-    valid: true,
-    developer_id: row.developer_id,
-    app_id: row.app_id,
-    env: row.env
+    valid: key.valid === true,
+    key_id: key.key_id,
+    developer_id: key.developer_id,
+    app_id: key.app_id,
+    env: key.env
   }), { status: 200 })
 })

@@ -30,8 +30,8 @@ async function generateAPNsJWT(): Promise<string> {
   const claimsB64 = btoa(JSON.stringify(claims)).replace(/=/g, '')
   const signingInput = `${headerB64}.${claimsB64}`
 
-  // Import private key and sign
-  const pkcs8 = privateKey.replace(/-----BEGIN EC PRIVATE KEY-----/, '')
+  const pkcs8 = privateKey
+    .replace(/-----BEGIN EC PRIVATE KEY-----/, '')
     .replace(/-----END EC PRIVATE KEY-----/, '')
     .replace(/\s/g, '')
   const keyData = Uint8Array.from(atob(pkcs8), c => c.charCodeAt(0))
@@ -54,9 +54,14 @@ async function generateAPNsJWT(): Promise<string> {
   return `${headerB64}.${claimsB64}.${sigB64}`
 }
 
-async function sendAPNs(token: string, payload: APNsPayload, jwt: string, isProduction: boolean): Promise<{ success: boolean; status?: number }> {
+async function sendAPNs(
+  apnsToken: string,
+  payload: APNsPayload,
+  jwt: string,
+  isProduction: boolean
+): Promise<{ success: boolean; status?: number }> {
   const host = isProduction ? 'api.push.apple.com' : 'api.sandbox.push.apple.com'
-  const url = `https://${host}/3/device/${token}`
+  const url = `https://${host}/3/device/${apnsToken}`
 
   const response = await fetch(url, {
     method: 'POST',
@@ -80,9 +85,13 @@ Deno.serve(async (req) => {
 
   const { user_id, route_type, metadata } = await req.json()
   if (!user_id || !route_type) {
-    return new Response(JSON.stringify({ error: 'missing user_id or route_type' }), { status: 400 })
+    return new Response(
+      JSON.stringify({ error: 'missing user_id or route_type' }),
+      { status: 400 }
+    )
   }
 
+  // Use apns_token (matches 001 schema)
   const { data: tokens, error } = await supabase
     .from('push_tokens')
     .select('apns_token, platform, environment')
@@ -113,7 +122,8 @@ Deno.serve(async (req) => {
         sent++
       } else if (result.status === 410) {
         // Token invalid — deactivate
-        await supabase.from('push_tokens')
+        await supabase
+          .from('push_tokens')
           .update({ is_active: false })
           .eq('apns_token', t.apns_token)
         failed++
@@ -121,15 +131,18 @@ Deno.serve(async (req) => {
         failed++
       }
     } catch (e) {
-      console.error(`APNs send failed for token ${t.apns_token.substring(0, 8)}:`, e)
+      console.error(`APNs send failed:`, e)
       failed++
     }
   }
 
-  return new Response(JSON.stringify({
-    queued: tokens.length,
-    sent,
-    failed,
-    payload_summary: { route_type, metadata_keys: Object.keys(metadata || {}) }
-  }), { status: 200 })
+  return new Response(
+    JSON.stringify({
+      queued: tokens.length,
+      sent,
+      failed,
+      payload_summary: { route_type, metadata_keys: Object.keys(metadata || {}) }
+    }),
+    { status: 200 }
+  )
 })

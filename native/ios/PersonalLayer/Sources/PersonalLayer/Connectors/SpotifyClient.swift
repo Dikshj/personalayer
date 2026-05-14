@@ -5,7 +5,7 @@ struct SpotifyClient {
 
     static func recentlyPlayed(token: String) async throws -> [RawEvent] {
         var allEvents: [RawEvent] = []
-        var after: String?
+        var after = ConnectorCursorStore.load(for: "spotify")
 
         for _ in 0..<5 {
             var components = URLComponents(string: baseURL)!
@@ -17,52 +17,32 @@ struct SpotifyClient {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
 
             let (data, response) = try await URLSession.shared.data(for: request)
-
-            guard let httpResponse = response as? HTTPURLResponse else {
-                throw ConnectorError.invalidResponse
-            }
-
-            if httpResponse.statusCode == 429, let retryAfter = httpResponse.value(forHTTPHeaderField: "Retry-After"),
-               let seconds = Int(retryAfter) {
+            guard let httpResponse = response as? HTTPURLResponse else { throw ConnectorError.invalidResponse }
+            if httpResponse.statusCode == 429, let retryAfter = httpResponse.value(forHTTPHeaderField: "Retry-After"), let seconds = Int(retryAfter) {
                 try await Task.sleep(nanoseconds: UInt64(seconds) * 1_000_000_000)
                 continue
             }
-
             guard httpResponse.statusCode == 200 else {
                 throw ConnectorError.apiError(status: httpResponse.statusCode, message: String(data: data, encoding: .utf8) ?? "")
             }
-
             guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let items = json["items"] as? [[String: Any]] else { break }
 
             allEvents.append(contentsOf: items.map { item in
                 let payload = (try? JSONSerialization.data(withJSONObject: item)) ?? Data()
-                return RawEvent(
-                    id: nil,
-                    eventType: "spotify_play",
-                    payload: String(data: payload, encoding: .utf8) ?? "{}",
-                    createdAt: Date(),
-                    privacyFiltered: false
-                )
+                return RawEvent(id: nil, eventType: "spotify_play", payload: String(data: payload, encoding: .utf8) ?? "{}", createdAt: Date(), privacyFiltered: false, connectorType: "spotify")
             })
 
-            if let next = json["next"] as? String, let nextAfter = extractAfter(from: next) {
+            if let cursors = json["cursors"] as? [String: String],
+               let nextAfter = cursors["after"] {
                 after = nextAfter
+                ConnectorCursorStore.save(cursor: nextAfter, for: "spotify")
             } else {
                 break
             }
         }
 
+        ConnectorCursorStore.saveTimestamp(for: "spotify")
         return allEvents
-    }
-
-    private static func extractAfter(from urlString: String) -> String? {
-        guard let url = URL(string: urlString),
-              let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-              let items = components.queryItems,
-              let after = items.first(where: { $0.name == "after" })?.value else {
-            return nil
-        }
-        return after
     }
 }

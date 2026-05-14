@@ -1,38 +1,68 @@
 import SwiftUI
 
 struct DeleteAccountView: View {
-    @State private var confirmText = ""
-    @State private var showAlert = false
+    @Environment(\.dismiss) private var dismiss
+    @State private var confirmationText = ""
+    @State private var isDeleting = false
+    @State private var showConfirmation = false
 
     var body: some View {
-        VStack(spacing: 20) {
-            Text("Deleting your account will permanently remove all local data, including your profile, memory tiers, and raw events.")
-                .foregroundStyle(.red)
-                .multilineTextAlignment(.center)
-                .padding()
+        NavigationView {
+            VStack(spacing: 20) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 60))
+                    .foregroundColor(.red)
 
-            TextField("Type DELETE to confirm", text: $confirmText)
-                .textFieldStyle(.roundedBorder)
-                .autocorrectionDisabled()
-                .padding(.horizontal)
+                Text("Delete All Data")
+                    .font(.title2.bold())
 
-            Button("Delete All Data") {
-                if confirmText == "DELETE" {
-                    do {
-                        try GRDBDatabase.shared.wipeAllData()
-                        showAlert = true
-                    } catch {}
+                Text("This will permanently delete all locally stored data including your knowledge graph, context bundles, and raw events. This action cannot be undone.")
+                    .font(.body)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Type DELETE to confirm:")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    TextField("DELETE", text: $confirmationText)
+                        .textFieldStyle(.roundedBorder)
+                        .autocapitalization(.allCharacters)
                 }
+
+                Button("Permanently Delete") {
+                    isDeleting = true
+                    Task {
+                        await deleteAllData()
+                        isDeleting = false
+                        showConfirmation = true
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.red)
+                .disabled(confirmationText != "DELETE" || isDeleting)
+
+                Spacer()
             }
-            .buttonStyle(.borderedProminent)
-            .tint(.red)
-            .disabled(confirmText != "DELETE")
+            .padding()
+            .navigationBarItems(trailing: Button("Cancel") { dismiss() })
+            .alert("Data Deleted", isPresented: $showConfirmation) {
+                Button("OK", role: .cancel) { dismiss() }
+            } message: {
+                Text("All local data has been deleted.")
+            }
         }
-        .navigationTitle("Delete Account")
-        .alert("Data Deleted", isPresented: $showAlert) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text("All local data has been removed.")
+    }
+
+    private func deleteAllData() async {
+        let fm = FileManager.default
+        let appSupport = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let dir = appSupport.appendingPathComponent("PersonalLayer")
+        try? fm.removeItem(at: dir)
+
+        // Also clear UserDefaults cursors
+        for key in ["gmail", "spotify", "calendar", "notion", "youtube"] {
+            ConnectorCursorStore.clear(for: key)
         }
     }
 }

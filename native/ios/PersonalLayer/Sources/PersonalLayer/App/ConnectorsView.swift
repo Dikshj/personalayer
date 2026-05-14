@@ -1,25 +1,31 @@
 import SwiftUI
 
 struct ConnectorsView: View {
-    @StateObject private var connectors = ConnectorManager()
+    @StateObject private var manager = ConnectorManager()
 
     var body: some View {
-        List(ConnectorType.allCases, id: \.self) { type in
-            HStack {
-                Text(type.displayName)
-                Spacer()
-                if connectors.isConnected(type) {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(.green)
-                } else {
-                    Button("Connect") {
-                        connectors.connect(type)
+        NavigationView {
+            List(ConnectorType.allCases) { type in
+                HStack {
+                    VStack(alignment: .leading) {
+                        Text(type.displayName)
+                            .font(.headline)
+                        Text(manager.isConnected(type) ? "Connected" : "Not connected")
+                            .font(.caption)
+                            .foregroundColor(manager.isConnected(type) ? .green : .secondary)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
+                    Spacer()
+                    Button(manager.isConnected(type) ? "Reconnect" : "Connect") {
+                        manager.connect(type)
+                    }
+                    .buttonStyle(.bordered)
                 }
             }
+            .navigationTitle("Connectors")
         }
-        .navigationTitle("Connectors")
     }
+}
+
+extension ConnectorType: Identifiable {
+    var id: String { rawValue }
 }

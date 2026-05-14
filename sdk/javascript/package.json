@@ -7,15 +7,14 @@
   "files": ["dist/"],
   "scripts": {
     "build": "tsc",
-    "test": "jest",
+    "test": "node --test dist/**/*.test.js",
     "prepublishOnly": "npm run build"
   },
   "type": "module",
-  "keywords": ["personal-layer", "context-layer", "privacy"],
+  "keywords": ["personal-layer", "privacy", "context"],
   "author": "Personal Layer Team",
   "license": "MIT",
   "devDependencies": {
-    "typescript": "^5.3.0",
-    "jest": "^29.7.0"
+    "typescript": "^5.3.0"
   }
 }

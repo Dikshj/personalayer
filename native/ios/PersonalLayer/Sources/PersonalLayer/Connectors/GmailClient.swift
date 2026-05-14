@@ -7,57 +7,44 @@ struct GmailClient {
     static func syncMetadata(token: String) async throws -> [RawEvent] {
         var allEvents: [RawEvent] = []
         var pageToken: String?
+        let lastSync = ConnectorCursorStore.lastSyncTimestamp(for: "gmail")
+        let query = lastSync > 0 ? "after:\(Int(lastSync))" : nil
 
-        for page in 0..<10 { // max 1000 messages
+        for page in 0..<10 {
             var components = URLComponents(string: "\(baseURL)/messages")!
             var queryItems = [
                 URLQueryItem(name: "maxResults", value: "\(maxResults)"),
                 URLQueryItem(name: "labelIds", value: "INBOX")
             ]
             if let pt = pageToken { queryItems.append(URLQueryItem(name: "pageToken", value: pt)) }
+            if let q = query { queryItems.append(URLQueryItem(name: "q", value: q)) }
             components.queryItems = queryItems
 
             var request = URLRequest(url: components.url!)
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
 
             let (data, response) = try await URLSession.shared.data(for: request)
-
-            guard let httpResponse = response as? HTTPURLResponse else {
-                throw ConnectorError.invalidResponse
-            }
-
+            guard let httpResponse = response as? HTTPURLResponse else { throw ConnectorError.invalidResponse }
             if httpResponse.statusCode == 429 {
-                // Rate limited — exponential backoff
                 try await Task.sleep(nanoseconds: UInt64(pow(2.0, Double(page))) * 1_000_000_000)
                 continue
             }
-
             guard httpResponse.statusCode == 200 else {
-                let body = String(data: data, encoding: .utf8) ?? ""
-                throw ConnectorError.apiError(status: httpResponse.statusCode, message: body)
+                throw ConnectorError.apiError(status: httpResponse.statusCode, message: String(data: data, encoding: .utf8) ?? "")
             }
-
             guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let messages = json["messages"] as? [[String: Any]] else {
-                break
-            }
+                  let messages = json["messages"] as? [[String: Any]] else { break }
 
-            let events = messages.map { msg -> RawEvent in
+            allEvents.append(contentsOf: messages.map { msg -> RawEvent in
                 let payload = (try? JSONSerialization.data(withJSONObject: msg)) ?? Data()
-                return RawEvent(
-                    id: nil,
-                    eventType: "gmail_metadata",
-                    payload: String(data: payload, encoding: .utf8) ?? "{}",
-                    createdAt: Date(),
-                    privacyFiltered: false
-                )
-            }
-            allEvents.append(contentsOf: events)
+                return RawEvent(id: nil, eventType: "gmail_metadata", payload: String(data: payload, encoding: .utf8) ?? "{}", createdAt: Date(), privacyFiltered: false, connectorType: "gmail")
+            })
 
             pageToken = json["nextPageToken"] as? String
             if pageToken == nil { break }
         }
 
+        ConnectorCursorStore.saveTimestamp(for: "gmail")
         return allEvents
     }
 }

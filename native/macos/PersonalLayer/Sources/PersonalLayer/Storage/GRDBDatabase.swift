@@ -10,121 +10,255 @@ final class GRDBDatabase {
         let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         let dir = appSupport.appendingPathComponent("PersonalLayer", isDirectory: true)
         try? fileManager.createDirectory(at: dir, withIntermediateDirectories: true)
-        let dbURL = dir.appendingPathComponent("personal_layer.sqlite")
-        dbPool = try! DatabasePool(path: dbURL.path)
-        try? migrate()
+        let dbURL = dir.appendingPathComponent("personalayer.sqlite")
+
+        var config = Configuration()
+        config.prepareDatabase { db in
+            db.add(function: .unicodeLower)
+        }
+        dbPool = try! DatabasePool(path: dbURL.path, configuration: config)
+        try! migrate()
     }
 
     private func migrate() throws {
         var migrator = DatabaseMigrator()
-        migrator.registerMigration("v1") { db in
-            try db.create(table: "raw_events") { t in
+
+        migrator.registerMigration("v1_raw_events") { db in
+            try db.create(table: "raw_event") { t in
                 t.autoIncrementedPrimaryKey("id")
-                t.column("event_type", .text).notNull()
+                t.column("eventType", .text).notNull()
                 t.column("payload", .text).notNull()
-                t.column("created_at", .datetime).notNull()
-                t.column("privacy_filtered", .boolean).notNull().defaults(to: false)
-            }
-            try db.create(table: "domain_approvals") { t in
-                t.column("domain", .text).primaryKey()
-                t.column("approved_at", .datetime).notNull()
-            }
-            try db.create(table: "shared_bundles") { t in
-                t.autoIncrementedPrimaryKey("id")
-                t.column("user_id", .text).notNull().unique()
-                t.column("bundle_json", .text).notNull()
-                t.column("updated_at", .datetime).notNull()
-            }
-            try db.create(table: "temporal_chains") { t in
-                t.autoIncrementedPrimaryKey("id")
-                t.column("chain_type", .text).notNull()
-                t.column("nodes_json", .text).notNull()
-                t.column("created_at", .datetime).notNull()
+                t.column("createdAt", .datetime).notNull().defaults(to: Date())
+                t.column("privacyFiltered", .boolean).notNull().defaults(to: false)
+                t.column("connectorType", .text)
             }
         }
+
+        migrator.registerMigration("v2_kg_nodes") { db in
+            try db.create(table: "kg_node") { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("entityId", .text).notNull().unique()
+                t.column("entityType", .text).notNull()
+                t.column("label", .text).notNull()
+                t.column("attributes", .text).notNull().defaults(to: "{}")
+                t.column("embedding", .blob)
+                t.column("tier", .text).notNull().defaults(to: "HOT")
+                t.column("signalStrength", .double).notNull().defaults(to: 1.0)
+                t.column("lastAccessedAt", .datetime).notNull().defaults(to: Date())
+                t.column("createdAt", .datetime).notNull().defaults(to: Date())
+                t.column("updatedAt", .datetime).notNull().defaults(to: Date())
+            }
+        }
+
+        migrator.registerMigration("v3_kg_edges") { db in
+            try db.create(table: "kg_edge") { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("sourceEntityId", .text).notNull()
+                t.column("targetEntityId", .text).notNull()
+                t.column("relationType", .text).notNull()
+                t.column("weight", .double).notNull().defaults(to: 1.0)
+                t.column("evidence", .text).notNull().defaults(to: "[]")
+                t.column("createdAt", .datetime).notNull().defaults(to: Date())
+            }
+        }
+
+        migrator.registerMigration("v4_temporal_chains") { db in
+            try db.create(table: "temporal_chain") { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("chainType", .text).notNull()
+                t.column("sequence", .text).notNull()
+                t.column("startDate", .datetime).notNull()
+                t.column("endDate", .datetime).notNull()
+                t.column("createdAt", .datetime).notNull().defaults(to: Date())
+            }
+        }
+
+        migrator.registerMigration("v5_domain_approvals") { db in
+            try db.create(table: "domain_approval") { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("domain", .text).notNull().unique()
+                t.column("isApproved", .boolean).notNull().defaults(to: false)
+                t.column("approvedAt", .datetime).notNull().defaults(to: Date())
+            }
+        }
+
+        migrator.registerMigration("v6_shared_bundles") { db in
+            try db.create(table: "shared_bundle") { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("userId", .text).notNull().unique()
+                t.column("bundleJson", .text).notNull().defaults(to: "{}")
+                t.column("updatedAt", .datetime).notNull().defaults(to: Date())
+            }
+        }
+
         try migrator.migrate(dbPool)
     }
 
-    func insertRawEvent(type: String, payload: [String: Any]) throws {
-        let jsonData = try JSONSerialization.data(withJSONObject: payload)
-        let jsonString = String(data: jsonData, encoding: .utf8)!
+    // MARK: - Raw Events
+
+    func insertRawEvent(type: String, payload: [String: Any], connector: String? = nil) throws {
+        let payloadStr = String(data: try JSONSerialization.data(withJSONObject: payload), encoding: .utf8)!
         var event = RawEvent(
             id: nil,
             eventType: type,
-            payload: jsonString,
+            payload: payloadStr,
             createdAt: Date(),
-            privacyFiltered: false
+            privacyFiltered: false,
+            connectorType: connector
         )
         try dbPool.write { db in
             try event.insert(db)
         }
     }
 
-    func loadSharedBundle() throws -> [String: Any] {
-        let bundle = try dbPool.read { db in
-            try SharedBundle.fetchOne(db)
-        }
-        guard let json = bundle?.bundleJson.data(using: .utf8),
-              let dict = try JSONSerialization.jsonObject(with: json) as? [String: Any] else {
-            return ["profile": [:], "tiers": [:], "daily_insight": nil]
-        }
-        return dict
-    }
-
-    func saveSharedBundle(userId: String, bundle: [String: Any]) throws {
-        let jsonData = try JSONSerialization.data(withJSONObject: bundle)
-        let jsonString = String(data: jsonData, encoding: .utf8)!
-        try dbPool.write { db in
-            var record = SharedBundle(
-                id: nil,
-                userId: userId,
-                bundleJson: jsonString,
-                updatedAt: Date()
-            )
-            try record.upsert(db)
+    func recentRawEvents(limit: Int = 100) throws -> [RawEvent] {
+        try dbPool.read { db in
+            try RawEvent.limit(limit).order(Column("createdAt").desc).fetchAll(db)
         }
     }
-
-    // MARK: - Refresh pipeline helpers
 
     func markPrivacyFiltered() throws {
-        let sevenDaysAgo = Calendar.current.date(byAdding: .day, value: -7, to: Date())!
         try dbPool.write { db in
             try db.execute(
                 sql: """
-                UPDATE raw_events
-                SET privacy_filtered = 1
-                WHERE privacy_filtered = 0
-                  AND created_at < ?
-                  AND (
-                    payload LIKE '%ssn%' OR
+                UPDATE raw_event SET privacyFiltered = true
+                WHERE privacyFiltered = false
+                AND (
                     payload LIKE '%password%' OR
+                    payload LIKE '%ssn%' OR
                     payload LIKE '%credit_card%' OR
-                    payload LIKE '%secret%'
-                  )
-                """,
-                arguments: [sevenDaysAgo]
+                    payload LIKE '%secret%' OR
+                    payload LIKE '%token%'
+                )
+                """
             )
-        }
-    }
-
-    func recentRawEvents(limit: Int) throws -> [RawEvent] {
-        try dbPool.read { db in
-            try RawEvent
-                .filter(Column("privacy_filtered") == false)
-                .order(Column("created_at").desc)
-                .limit(limit)
-                .fetchAll(db)
         }
     }
 
     func deleteRawEventsOlderThan(days: Int) throws {
         let cutoff = Calendar.current.date(byAdding: .day, value: -days, to: Date())!
         try dbPool.write { db in
+            try RawEvent.filter(Column("createdAt") < cutoff).deleteAll(db)
+        }
+    }
+
+    // MARK: - Knowledge Graph
+
+    func upsertNode(entityId: String, type: String, label: String, attributes: [String: Any], embedding: [Float]? = nil) throws {
+        let attrStr = String(data: try JSONSerialization.data(withJSONObject: attributes), encoding: .utf8)!
+        let embeddingData = embedding.flatMap {
+            var data = Data()
+            for f in $0 {
+                withUnsafeBytes(of: f) { data.append(contentsOf: $0) }
+            }
+            return data
+        }
+
+        try dbPool.write { db in
+            if var existing = try KGNode.filter(Column("entityId") == entityId).fetchOne(db) {
+                existing.label = label
+                existing.attributes = attrStr
+                existing.embedding = embeddingData
+                existing.signalStrength = min(existing.signalStrength + 0.1, 1.0)
+                existing.lastAccessedAt = Date()
+                existing.updatedAt = Date()
+                try existing.update(db)
+            } else {
+                var node = KGNode(
+                    id: nil,
+                    entityId: entityId,
+                    entityType: type,
+                    label: label,
+                    attributes: attrStr,
+                    embedding: embeddingData,
+                    tier: "HOT",
+                    signalStrength: 1.0,
+                    lastAccessedAt: Date(),
+                    createdAt: Date(),
+                    updatedAt: Date()
+                )
+                try node.insert(db)
+            }
+        }
+    }
+
+    func nodesByTier(_ tier: MemoryTier, limit: Int = 100) throws -> [KGNode] {
+        try dbPool.read { db in
+            try KGNode.filter(Column("tier") == tier.rawValue).limit(limit).fetchAll(db)
+        }
+    }
+
+    func updateNodeTier(entityId: String, tier: MemoryTier) throws {
+        try dbPool.write { db in
             try db.execute(
-                sql: "DELETE FROM raw_events WHERE created_at < ?",
-                arguments: [cutoff]
+                sql: "UPDATE kg_node SET tier = ?, updatedAt = ? WHERE entityId = ?",
+                arguments: [tier.rawValue, Date(), entityId]
             )
+        }
+    }
+
+    func insertEdge(source: String, target: String, relation: String, weight: Double = 1.0, evidence: [String] = []) throws {
+        var edge = KGEdge(
+            id: nil,
+            sourceEntityId: source,
+            targetEntityId: target,
+            relationType: relation,
+            weight: weight,
+            evidence: String(data: try JSONSerialization.data(withJSONObject: evidence), encoding: .utf8)!,
+            createdAt: Date()
+        )
+        try dbPool.write { db in
+            try edge.insert(db)
+        }
+    }
+
+    // MARK: - Temporal Chains
+
+    func insertTemporalChain(type: String, sequence: [(entityId: String, timestamp: Date)]) throws {
+        let seqArray = sequence.map { ["entityId": $0.entityId, "timestamp": ISO8601DateFormatter().string(from: $0.timestamp)] }
+        let seqStr = String(data: try JSONSerialization.data(withJSONObject: seqArray), encoding: .utf8)!
+        var chain = TemporalChain(
+            id: nil,
+            chainType: type,
+            sequence: seqStr,
+            startDate: sequence.first?.timestamp ?? Date(),
+            endDate: sequence.last?.timestamp ?? Date(),
+            createdAt: Date()
+        )
+        try dbPool.write { db in
+            try chain.insert(db)
+        }
+    }
+
+    func cleanupTemporalChains(olderThanDays: Int) throws {
+        let cutoff = Calendar.current.date(byAdding: .day, value: -olderThanDays, to: Date())!
+        try dbPool.write { db in
+            try TemporalChain.filter(Column("createdAt") < cutoff).deleteAll(db)
+        }
+    }
+
+    // MARK: - Shared Bundle
+
+    func loadSharedBundle() throws -> [String: Any] {
+        try dbPool.read { db in
+            if let bundle = try SharedBundle.fetchOne(db) {
+                return (try? JSONSerialization.jsonObject(with: bundle.bundleJson.data(using: .utf8)!) as? [String: Any]) ?? [:]
+            }
+            return [:]
+        }
+    }
+
+    func saveSharedBundle(_ bundle: [String: Any], userId: String = "default") throws {
+        let json = String(data: try JSONSerialization.data(withJSONObject: bundle), encoding: .utf8)!
+        try dbPool.write { db in
+            if var existing = try SharedBundle.filter(Column("userId") == userId).fetchOne(db) {
+                existing.bundleJson = json
+                existing.updatedAt = Date()
+                try existing.update(db)
+            } else {
+                var b = SharedBundle(id: nil, userId: userId, bundleJson: json, updatedAt: Date())
+                try b.insert(db)
+            }
         }
     }
 }

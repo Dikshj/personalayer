@@ -3,59 +3,74 @@ import SwiftUI
 struct MenuBarView: View {
     @EnvironmentObject var server: LocalServer
     @EnvironmentObject var domainStore: DomainApprovalStore
-    @State private var showDomainAlert = false
+    @State private var showingApprovalAlert = false
     @State private var pendingDomain = ""
-    @State private var launchAgentEnabled = LaunchAgentHelper.shared.isEnabled
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
+            // Status
             HStack {
-                Image(systemName: "brain")
-                    .font(.title2)
-                Text("Personal Layer")
+                Image(systemName: server.isRunning ? "brain.head.profile.fill" : "brain.head.profile")
+                    .foregroundColor(server.isRunning ? .green : .red)
+                Text(server.isRunning ? "Personal Layer Active" : "Personal Layer Stopped")
                     .font(.headline)
             }
-            .padding(.bottom, 4)
-
-            HStack {
-                Circle()
-                    .fill(server.isRunning ? Color.green : Color.red)
-                    .frame(width: 8, height: 8)
-                Text(server.isRunning ? "Running on 127.0.0.1:7432" : "Stopped")
-                    .font(.caption)
-            }
-
-            Toggle("Run on Login", isOn: Binding(
-                get: { launchAgentEnabled },
-                set: { newValue in
-                    toggleLaunchAgent(enabled: newValue)
-                }
-            ))
-            .font(.caption)
 
             Divider()
 
-            Text("Approved Domains")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            if domainStore.approvedDomains.isEmpty {
-                Text("None")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            } else {
-                ForEach(Array(domainStore.approvedDomains), id: \.self) { domain in
+            // Approved Domains
+            if !domainStore.approvedDomains.isEmpty {
+                Text("Approved Domains")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                ForEach(Array(domainStore.approvedDomains).sorted(), id: \.self) { domain in
                     HStack {
                         Text(domain)
-                            .font(.caption)
+                            .font(.body)
                         Spacer()
                         Button("Revoke") {
                             domainStore.revoke(domain: domain)
                         }
-                        .font(.caption2)
-                        .buttonStyle(.borderless)
+                        .buttonStyle(.plain)
+                        .foregroundColor(.red)
                     }
                 }
+            } else {
+                Text("No domains approved")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
             }
+
+            Divider()
+
+            // Pending approval alert
+            if let request = domainStore.approvalRequest {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("\(Image(systemName: "exclamationmark.triangle")) Domain Approval Request")
+                        .font(.subheadline.bold())
+                    Text("\(request) wants to access your Personal Layer")
+                        .font(.caption)
+                    HStack {
+                        Button("Deny") {
+                            domainStore.approvalRequest = nil
+                        }
+                        .buttonStyle(.bordered)
+                        Button("Approve") {
+                            domainStore.approve(domain: request)
+                            domainStore.approvalRequest = nil
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
+                }
+                .padding(8)
+                .background(Color.yellow.opacity(0.1))
+                .cornerRadius(8)
+            }
+
+            Divider()
+
+            // LaunchAgent
+            LaunchAgentToggle()
 
             Divider()
 
@@ -65,38 +80,24 @@ struct MenuBarView: View {
             .keyboardShortcut("q")
         }
         .padding()
-        .frame(width: 280)
-        .alert("Approve Domain", isPresented: $showDomainAlert) {
-            Button("Allow", role: .none) {
-                domainStore.approve(domain: pendingDomain)
-                pendingDomain = ""
-            }
-            Button("Deny", role: .cancel) {
-                pendingDomain = ""
-            }
-        } message: {
-            Text("Allow \(pendingDomain) to access your context bundle?")
-        }
-        .onReceive(domainStore.$approvalRequest) { request in
-            if let domain = request {
-                pendingDomain = domain
-                showDomainAlert = true
-            }
-        }
+        .frame(width: 320)
     }
+}
 
-    private func toggleLaunchAgent(enabled: Bool) {
-        do {
-            if enabled {
-                let executable = Bundle.main.executablePath!
-                try LaunchAgentHelper.shared.install(executablePath: executable)
-            } else {
-                try LaunchAgentHelper.shared.uninstall()
+struct LaunchAgentToggle: View {
+    @State private var isEnabled = false
+
+    var body: some View {
+        Toggle("Run on Login", isOn: $isEnabled)
+            .onChange(of: isEnabled) { newValue in
+                if newValue {
+                    LaunchAgentHelper.install()
+                } else {
+                    LaunchAgentHelper.uninstall()
+                }
             }
-            launchAgentEnabled = enabled
-        } catch {
-            launchAgentEnabled = LaunchAgentHelper.shared.isEnabled
-            NSLog("PersonalLayer: LaunchAgent toggle failed: \(error)")
-        }
+            .onAppear {
+                isEnabled = LaunchAgentHelper.isInstalled()
+            }
     }
 }
