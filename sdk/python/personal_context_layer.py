@@ -1,23 +1,65 @@
 from __future__ import annotations
 
+import json
 import time
 from typing import Any
 
 import httpx
 
 
+class PCLAuthError(Exception):
+    """Raised on authentication or authorization failures."""
+    pass
+
+
+class PCLConsentError(Exception):
+    """Raised when app consent is missing, revoked, or insufficient."""
+    pass
+
+
+class PCLPrivacyError(Exception):
+    """Raised when a privacy boundary blocks a request."""
+    pass
+
+
+class PCLTimeoutError(Exception):
+    """Raised when a request exceeds the configured timeout."""
+    pass
+
+
+class PCLServerError(Exception):
+    """Raised on 5xx or unexpected server errors."""
+    pass
+
+
 class PersonalContextLayer:
+    """Production-ready Python SDK for PersonaLayer.
+
+    All outbound requests carry the app's api_key and (optionally) a user_token.
+    The backend enforces egress privacy filtering on every response path.
+    """
+
     def __init__(
         self,
         app_id: str,
         base_url: str = "http://127.0.0.1:7823",
         api_key: str = "",
         user_token: str = "",
+        timeout: float = 10.0,
+        max_retries: int = 3,
+        retry_backoff: float = 0.5,
     ):
+        if not app_id:
+            raise ValueError("app_id is required")
         self.app_id = app_id
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self.user_token = user_token
+        self.timeout = timeout
+        self.max_retries = max_retries
+        self.retry_backoff = retry_backoff
+
+    # ── App registration ──────────────────────────────────────────────────────────────────────
 
     def register_app(self, name: str, allowed_layers: list[str]) -> dict[str, Any]:
         return self._post("/pcl/apps", {
@@ -25,6 +67,8 @@ class PersonalContextLayer:
             "name": name,
             "allowed_layers": allowed_layers,
         })
+
+    # ── Ingest ─────────────────────────────────────────────────────────────────────────────
 
     def track_feature(
         self,
@@ -67,6 +111,8 @@ class PersonalContextLayer:
             "metadata": metadata or {},
         })
 
+    # ── Cold start / onboarding ─────────────────────────────────────0─────────────────────────────
+
     def generate_cold_start(
         self,
         user_id: str = "local_user",
@@ -85,6 +131,8 @@ class PersonalContextLayer:
             "domain": domain,
             "skill_level": skill_level,
         })
+
+    # ── Query / bundle ─────────────────────────────────────────────────────────────────────────────
 
     def personalize(
         self,
@@ -113,6 +161,29 @@ class PersonalContextLayer:
             "intent": intent,
             "requested_scopes": requested_scopes or [],
         })
+
+    # ── Consent helpers ──────────────────────────────────────────────────────────────────────────────
+
+    def ensure_consent(self, user_id: str, scopes: list[str]) -> dict[str, Any]:
+        """Request consent for scopes if not already granted.
+
+        Raises PCLConsentError if the user denies or revokes consent.
+        """
+        resp = self._post("/pcl/permissions", {
+            "app_id": self.app_id,
+            "user_id": user_id,
+            "scopes": scopes,
+        })
+        if resp.get("status") != "granted":
+            raise PCLConsentError(
+                f"Consent not granted for {self.app_id}: {resp.get('reason', 'unknown')}"
+            )
+        return resp
+
+    def revoke_app(self) -> dict[str, Any]:
+        return self._post(f"/pcl/apps/{self.app_id}/revoke", {})
+
+    # ── Heartbeat / feedback ──────────────────────────────────────────────────────────────────────────
 
     def heartbeat(
         self,
@@ -152,8 +223,7 @@ class PersonalContextLayer:
             ],
         })
 
-    def revoke_app(self) -> dict[str, Any]:
-        return self._post(f"/pcl/apps/{self.app_id}/revoke", {})
+    # ── Deletion / export ───────────────────────────────────────────────────────────────────────────────
 
     def delete_app_data(self) -> dict[str, Any]:
         return self._delete(f"/pcl/apps/{self.app_id}/data")
@@ -173,35 +243,43 @@ class PersonalContextLayer:
     def delete_all_context(self, user_id: str = "local_user") -> dict[str, Any]:
         return self._delete("/v1/context/all", params={"user_id": user_id})
 
+    # ── Low-level transport with retry ─────────────────────────────────────────────────────────────────────────
+
+    def _request(self, method: str, path: str, **kwargs) -> httpx.Response:
+        headers = self._headers()
+        if "headers" in kwargs:
+            headers.update(kwargs.pop("headers"))
+        url = f"{self.base_url}{path}"
+        last_exc: Exception | None = None
+        for attempt in range(self.max_retries):
+            try:
+                method_upper = method.upper()
+                if method_upper == "GET":
+                    return httpx.get(url, headers=headers, timeout=self.timeout, **kwargs)
+                if method_upper == "POST":
+                    return httpx.post(url, headers=headers, timeout=self.timeout, **kwargs)
+                if method_upper == "DELETE":
+                    return httpx.delete(url, headers=headers, timeout=self.timeout, **kwargs)
+                return httpx.request(method_upper, url, headers=headers, timeout=self.timeout, **kwargs)
+            except httpx.TimeoutException as exc:
+                last_exc = exc
+                time.sleep(self.retry_backoff * (2 ** attempt))
+            except httpx.ConnectError as exc:
+                last_exc = exc
+                time.sleep(self.retry_backoff * (2 ** attempt))
+        raise PCLTimeoutError(f"Request to {url} failed after {self.max_retries} retries") from last_exc
+
     def _get(self, path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
-        response = httpx.get(
-            f"{self.base_url}{path}",
-            params=params,
-            headers=self._headers(),
-            timeout=10,
-        )
-        response.raise_for_status()
-        return response.json()
+        resp = self._request("GET", path, params=params)
+        return _handle_response(resp)
 
     def _post(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
-        response = httpx.post(
-            f"{self.base_url}{path}",
-            json=payload,
-            headers=self._headers(),
-            timeout=10,
-        )
-        response.raise_for_status()
-        return response.json()
+        resp = self._request("POST", path, json=payload)
+        return _handle_response(resp)
 
     def _delete(self, path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
-        response = httpx.delete(
-            f"{self.base_url}{path}",
-            params=params,
-            headers=self._headers(),
-            timeout=10,
-        )
-        response.raise_for_status()
-        return response.json()
+        resp = self._request("DELETE", path, params=params)
+        return _handle_response(resp)
 
     def _headers(self) -> dict[str, str]:
         headers: dict[str, str] = {}
@@ -223,3 +301,21 @@ def _normalize_feature_id(feature_id: str) -> str:
             normalized.append("-")
             previous_dash = True
     return "".join(normalized).strip("-")
+
+
+def _handle_response(resp: httpx.Response) -> dict[str, Any]:
+    try:
+        body = resp.json()
+    except json.JSONDecodeError:
+        body = {"raw": resp.text}
+    status_code = getattr(resp, "status_code", 200)
+    if status_code == 401:
+        raise PCLAuthError(body.get("detail", "Unauthorized"))
+    if status_code == 403:
+        raise PCLPrivacyError(body.get("detail", "Forbidden"))
+    if status_code == 409 and "consent" in body.get("detail", "").lower():
+        raise PCLConsentError(body.get("detail", "Consent required"))
+    if status_code >= 500:
+        raise PCLServerError(body.get("detail", f"Server error {status_code}"))
+    resp.raise_for_status()
+    return body

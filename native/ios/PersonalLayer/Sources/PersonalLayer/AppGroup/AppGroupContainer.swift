@@ -92,6 +92,12 @@ final class AppGroupContainer {
     func bundleFileURL(userId: String = "default") -> URL {
         bundleURL(userId: userId)
     }
+
+    /// Shared SQLite database path for App Group container.
+    /// Used by GRDBDatabase when running inside an App Group.
+    func sharedDatabaseURL() -> URL {
+        return containerURL.appendingPathComponent("personalayer.sqlite")
+    }
 }
 
 enum AppGroupError: Error {

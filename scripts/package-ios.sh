@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # iOS archive, export, and TestFlight upload script
-# Requirements: macOS, Xcode, Apple Developer account, App Store Connect API key
+# Requirements: Xcode, Apple Developer account, App Store Connect API key
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

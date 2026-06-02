@@ -20,12 +20,11 @@ python scripts/convert-coreml-model.py
 ```
 
 This produces:
-- `native/macos/PersonalLayer/Resources/all-MiniLM-L6-v2.mlpackage`
 - `native/ios/PersonalLayer/Resources/all-MiniLM-L6-v2.mlpackage`
-- `native/macos/PersonalLayer/Resources/vocab.json`
+- `native/ios/PersonalLayer/Resources/vocab.json`
 
 ### Xcode Integration
-1. Open `native/macos/PersonalLayer` in Xcode (or iOS equivalent)
+1. Open `native/ios/PersonalLayer` in Xcode
 2. Drag the `.mlpackage` into the project navigator
 3. Ensure "Copy items if needed" is checked
 4. Select the file → File Inspector → Target Membership → check the app target
@@ -38,4 +37,6 @@ let prediction = try model.prediction(from: inputProvider)
 ```
 
 ## Fallback
-If the Core ML model is unavailable (e.g., first launch before model download), the app falls back to `NLTagger` embedding (word frequency vectors) for graceful degradation.
+If the Core ML model is unavailable (e.g., first launch before model download), the app falls back to deterministic hash-based embeddings (384-dim LCG + normalization). This produces stable vectors for entity resolution and tier management, but with lower semantic quality than the neural model. The fallback is local-only and never leaves the device.
+
+> **Production builds must include the .mlpackage**: Run `python scripts/convert-coreml-model.py` before building. The deterministic fallback is for development and emergency recovery only.

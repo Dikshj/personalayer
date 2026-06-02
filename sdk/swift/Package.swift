@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "PersonalLayerSDK",
-    platforms: [.iOS(.v16), .macOS(.v13)],
+    platforms: [.iOS(.v16)],
     products: [
         .library(name: "PersonalLayerSDK", targets: ["PersonalLayerSDK"])
     ],

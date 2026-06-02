@@ -10,7 +10,12 @@ final class GRDBDatabase {
         let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         let dir = appSupport.appendingPathComponent("PersonalLayer", isDirectory: true)
         try? fileManager.createDirectory(at: dir, withIntermediateDirectories: true)
-        let dbURL = dir.appendingPathComponent("personalayer.sqlite")
+
+        // Prefer App Group shared path if available (iOS extensions need this)
+        let appGroupURL = AppGroupContainer.shared.sharedDatabaseURL()
+        let dbURL = fileManager.fileExists(atPath: appGroupURL.deletingLastPathComponent().path)
+            ? appGroupURL
+            : dir.appendingPathComponent("personalayer.sqlite")
 
         var config = Configuration()
         config.prepareDatabase { db in
@@ -95,6 +100,128 @@ final class GRDBDatabase {
             try db.alter(table: "kg_node") { t in
                 t.add(column: "isCompressed", .boolean).notNull().defaults(to: false)
                 t.add(column: "uncompressedSize", .integer)
+            }
+        }
+
+        migrator.registerMigration("v8_encrypted_raw_events") { db in
+            try db.alter(table: "raw_event") { t in
+                t.add(column: "encryptedPayload", .blob)
+                t.add(column: "nonce", .blob)
+            }
+        }
+
+        migrator.registerMigration("v9_pcl_apps") { db in
+            try db.create(table: "pcl_app") { t in
+                t.column("app_id", .text).primaryKey()
+                t.column("name", .text).notNull()
+                t.column("allowed_layers", .text).notNull().defaults(to: "[]")
+                t.column("created_at", .datetime).notNull().defaults(to: Date())
+                t.column("updated_at", .datetime).notNull().defaults(to: Date())
+            }
+        }
+
+        migrator.registerMigration("v10_pcl_permissions") { db in
+            try db.create(table: "pcl_permission") { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("user_id", .text).notNull()
+                t.column("app_id", .text).notNull()
+                t.column("scopes", .text).notNull().defaults(to: "[]")
+                t.column("is_active", .boolean).notNull().defaults(to: true)
+                t.column("created_at", .datetime).notNull().defaults(to: Date())
+                t.column("updated_at", .datetime).notNull().defaults(to: Date())
+                t.uniqueKey(["user_id", "app_id"])
+            }
+        }
+
+        migrator.registerMigration("v11_pcl_integrations") { db in
+            try db.create(table: "pcl_integration") { t in
+                t.column("source", .text).primaryKey()
+                t.column("name", .text).notNull()
+                t.column("scopes", .text).notNull().defaults(to: "[]")
+                t.column("status", .text).notNull().defaults(to: "pending")
+                t.column("metadata", .text).notNull().defaults(to: "{}")
+                t.column("sync_cursor", .text).notNull().defaults(to: "{}")
+                t.column("last_sync_at", .datetime)
+                t.column("next_sync_after", .integer)
+                t.column("items_synced", .integer).notNull().defaults(to: 0)
+                t.column("auth_status", .text).notNull().defaults(to: "pending")
+                t.column("auth_expires_at", .datetime)
+                t.column("account_hint", .text)
+                t.column("created_at", .datetime).notNull().defaults(to: Date())
+                t.column("updated_at", .datetime).notNull().defaults(to: Date())
+            }
+        }
+
+        migrator.registerMigration("v12_push_tokens") { db in
+            try db.create(table: "push_token") { t in
+                t.column("id", .text).primaryKey()
+                t.column("user_id", .text).notNull()
+                t.column("device_id", .text).notNull()
+                t.column("apns_token", .text).notNull()
+                t.column("platform", .text).notNull()
+                t.column("environment", .text).notNull().defaults(to: "sandbox")
+                t.column("is_active", .boolean).notNull().defaults(to: true)
+                t.column("revoked_at", .datetime)
+                t.column("created_at", .datetime).notNull().defaults(to: Date())
+                t.uniqueKey(["user_id", "device_id"])
+            }
+        }
+
+        migrator.registerMigration("v13_notification_routes") { db in
+            try db.create(table: "notification_route") { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("user_id", .text).notNull()
+                t.column("device_id", .text).notNull()
+                t.column("push_token_id", .text).notNull()
+                t.column("notification_type", .text).notNull()
+                t.column("scheduled_at", .datetime).notNull().defaults(to: Date())
+                t.column("sent_at", .datetime)
+                t.column("created_at", .datetime).notNull().defaults(to: Date())
+            }
+        }
+
+        migrator.registerMigration("v14_query_log") { db in
+            try db.create(table: "query_log") { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("app_id", .text).notNull()
+                t.column("user_id", .text).notNull()
+                t.column("purpose", .text).notNull()
+                t.column("requested_layers", .text).notNull().defaults(to: "[]")
+                t.column("returned_layers", .text).notNull().defaults(to: "[]")
+                t.column("feature_ids", .text).notNull().defaults(to: "[]")
+                t.column("status", .text).notNull()
+                t.column("reason", .text)
+                t.column("created_at", .datetime).notNull().defaults(to: Date())
+            }
+        }
+
+        migrator.registerMigration("v15_feature_signals") { db in
+            try db.create(table: "feature_signal") { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("user_id", .text).notNull()
+                t.column("app_id", .text).notNull()
+                t.column("feature_id", .text).notNull()
+                t.column("feature_name", .text).notNull()
+                t.column("use_count", .integer).notNull().defaults(to: 0)
+                t.column("last_used_at", .datetime)
+                t.column("recency_score", .double).notNull().defaults(to: 0.0)
+                t.column("tier", .text).notNull().defaults(to: "HOT")
+                t.column("is_synthetic", .boolean).notNull().defaults(to: false)
+                t.column("created_at", .datetime).notNull().defaults(to: Date())
+                t.column("updated_at", .datetime).notNull().defaults(to: Date())
+            }
+        }
+
+        migrator.registerMigration("v16_privacy_boundaries") { db in
+            try db.create(table: "privacy_boundary") { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("user_id", .text).notNull()
+                t.column("boundary_type", .text).notNull()
+                t.column("target", .text).notNull()
+                t.column("reason", .text)
+                t.column("is_active", .boolean).notNull().defaults(to: true)
+                t.column("revoked_at", .datetime)
+                t.column("created_at", .datetime).notNull().defaults(to: Date())
             }
         }
 

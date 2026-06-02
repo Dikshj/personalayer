@@ -1,6 +1,6 @@
 # Personal Layer v4 GRDB Schema
 
-Both macOS and iOS share the identical schema via GRDB migrations.
+The iOS native target uses this schema via GRDB migrations.
 
 ## Tables
 
@@ -79,7 +79,7 @@ Both macOS and iOS share the identical schema via GRDB migrations.
 
 ## Verification Commands
 
-Run in Xcode console or REPL:
+Run in an iOS Xcode console or REPL:
 ```swift
 import GRDB
 let db = GRDBDatabase.shared.dbPool

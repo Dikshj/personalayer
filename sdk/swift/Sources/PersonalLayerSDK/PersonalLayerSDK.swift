@@ -36,7 +36,7 @@ public actor PersonalLayerSDK: PersonalLayerClient {
     private let daemonURL: URL
     private let session: URLSession
 
-    public init(daemonURL: URL = URL(string: "http://127.0.0.1:7432")!, session: URLSession = .shared) {
+    public init(daemonURL: URL = URL(string: "http://127.0.0.1:7823")!, session: URLSession = .shared) {
         self.daemonURL = daemonURL
         self.session = session
     }
