@@ -40,16 +40,20 @@ Connected apps and first-party integrations
   emit behavioral signals through SDK/API
         |
         v
-Privacy filter
-  strips PII and raw content before storage
+Local ingest safety gate
+  blocks credentials, secrets, and payment tokens only
         |
         v
-Signal store and profile builder
-  account-backed, local-first with cloud sync later
+Local raw data vault and profile builder
+  stores sensitive source payloads on device for full-persona synthesis
         |
         v
 Policy and permission layer
   per-app scopes, revocation, audit log
+        |
+        v
+Egress privacy filter
+  redacts, scopes, and denies data before anything leaves the system
         |
         v
 Response composer
@@ -67,7 +71,9 @@ MCP server / query API
 - Every app query is logged and visible.
 - Disconnecting an app revokes access immediately.
 - Delete is real and complete.
-- Privacy filtering happens before storage, not after.
+- Sensitive behavioral data may be stored locally for persona synthesis, but only on the user's device.
+- The hard privacy boundary is egress: every MCP, SDK, API, extension, agent, cloud, and notification response is scoped and redacted before leaving the local system.
+- Ingest still blocks credentials, secrets, auth tokens, cookies, passwords, private keys, and payment card-like values because those are not persona material.
 
 Current delete controls:
 
@@ -91,7 +97,7 @@ Current implementation:
 ## Current Repo Mapping
 
 - `backend/pcl/models.py`: typed five-layer context and decision bundle schemas.
-- `backend/pcl/privacy.py`: pre-store PII and raw-content filtering primitives.
+- `backend/pcl/privacy.py`: local secret-blocking plus egress filtering primitives.
 - `backend/pcl/composer.py`: response composer that ranks features and returns a decision-ready bundle.
 - `backend/pcl/permissions.py`: app permission resolution for allowed context layers.
 - `backend/pcl/onboarding.py`: five-question cold-start seed flow.
@@ -108,7 +114,7 @@ Current implementation:
 - `GET /pcl/integrations/oauth/tokens` and `DELETE /pcl/integrations/{source}/oauth/token`: inspect or revoke masked local OAuth token metadata. These routes never return raw access or refresh tokens.
 - `POST /pcl/integrations/{source}/disconnect`: revoke integration connection.
 - `DELETE /pcl/integrations/{source}/data`: delete integration state and imported records from that source.
-- `POST /pcl/integrations/{source}/sync`: run import/sync jobs. GitHub uses the existing public activity collector when a username is configured. Gmail, Calendar, Notion, Spotify, YouTube, and Apple Health import metadata payloads from the connected integration record and emit sanitized feed items/persona signals without storing raw message, event, page, transcript, track, or health-note content. Connector jobs also normalize metadata into strict v1 `ContextEvent`s with `source: "connector"` so the same privacy filter, raw event window, feature signals, refresh pipeline, and bundle composer see connector-derived behavior.
+- `POST /pcl/integrations/{source}/sync`: run import/sync jobs. GitHub uses the existing public activity collector when a username is configured. Gmail, Calendar, Notion, Spotify, YouTube, and Apple Health can contribute sensitive local payloads for full-persona synthesis, while credentials/secrets remain blocked at ingest and outbound bundles are filtered at egress. Connector jobs also normalize metadata into v1 `ContextEvent`s with `source: "connector"` so the raw event window, feature signals, refresh pipeline, and bundle composer see connector-derived behavior.
 - `POST /pcl/apps`: register an app and its allowed context layers.
 - `DELETE /pcl/apps/{app_id}/data`: delete an app registration, feature events, and query logs.
 - `POST /pcl/events/feature`: ingest app-emitted feature usage as capability signals.
@@ -119,7 +125,7 @@ Current implementation:
 - `POST /v1/context/cold-start`: generate low-confidence synthetic episodic signals for a new app/user before real behavioral history exists.
 - Accepted v1 ContextLayer events now also write a local knowledge graph reference model: `kg_nodes` for app/feature entities, `kg_edges` for app-feature relations, and `temporal_chains` for ordered accesses with a context hash. This mirrors the v4 Swift/GRDB target schema in the Python prototype without sending graph data to cloud services.
 - Graph nodes store 384-dimensional embedding BLOBs in the Python reference runtime. The current embedding is deterministic local hash embedding for tests and entity-resolution plumbing; the production Swift target should replace it with on-device all-MiniLM-L6-v2 through Core ML.
-- `GET /v1/context/shared-bundle`: local prototype read path for the Step 9 encrypted shared context file. This is the FastAPI reference contract for the future macOS `127.0.0.1:7432` NWListener endpoint.
+- `GET /v1/context/shared-bundle`: local prototype read path for the Step 9 encrypted shared context file. This is served by the Python local runtime on `127.0.0.1:7823`.
 - `/v1/web/permissions`: local web-domain grant, check, list, and revoke endpoints. The extension bridge uses these to block web bundle/track calls until a domain has explicit local permission.
 - Localhost CORS is dynamic: extension origins and localhost dashboard origins are allowed, while ordinary website origins receive CORS headers only when their domain has an active local web permission grant.
 - `/v1/devices/push-token`: local reference for device APNs token registration, listing, and revoke.
@@ -137,7 +143,7 @@ Current implementation:
 - `POST /v1/assistant/chat`: user-facing personal context assistant. It builds a full bundle for the user, constructs a system prompt from identity, abstract profile, top features, behavior, active context, and preferences, and answers through the configured upstream LLM. Without an upstream key, it returns a dry-run synthesized summary plus the exact payload.
 - `sdk/python/personal_context_layer.py`: developer SDK for app registration, feature tracking, personalization queries, revoke, and delete flows.
 - `sdk/javascript/personal-context-layer.js`: JavaScript SDK for web or Node apps with runtime query, cleanup, web-domain permission, masked OAuth-token inspection, local push-token, and notification-route helpers.
-- Web bridge exports in `sdk/javascript/personal-context-layer.js`: `isAvailable()`, `getBundle()`, and `track()` use the extension marker plus `window.postMessage`; missing extension returns `null` by default. Trusted macOS/local shells can explicitly pass `allowLocalhostFallback: true` to use the local daemon endpoint without introducing any cloud fallback.
+- Web bridge exports in `sdk/javascript/personal-context-layer.js`: `isAvailable()`, `getBundle()`, and `track()` use the extension marker plus `window.postMessage`; missing extension returns `null` by default. Trusted local development shells can explicitly pass `allowLocalhostFallback: true` to use the Python local runtime without introducing any cloud fallback.
 - `PersonalContextLayer.getSharedBundle()`: local prototype helper for `/v1/context/shared-bundle`; production web pages should use the extension bridge instead.
 - `sdk/javascript/examples/feature-ranking-demo.html`: browser demo that ranks and dims UI features from a PCL decision bundle.
 - `dashboard/index.html`: user-facing inspection surface for profile, apps, integrations, masked OAuth token records, feature usage, onboarding, query logs, consent, local web-domain bridge permissions, registered push devices, and queued notification routes.
@@ -186,7 +192,14 @@ Emit feature usage:
 }
 ```
 
-Feature events are behavioral signals only. Metadata and raw content are dropped before storage.
+Feature events are behavioral signals. Their metadata is stored locally in the encrypted raw vault for persona synthesis. Raw payloads are never exposed in agent-facing bundles.
+
+## Ingest and Egress Boundaries
+
+- **Ingest gate**: blocks credentials, secrets, auth tokens, cookies, passwords, private keys, and payment card-like values.
+- **Local raw vault**: AES-256-GCM encrypted at rest, key stored in OS keychain / Secure Enclave.
+- **Egress filter**: runs on every outbound path (MCP, API, SDK, extension, assistant, proxy, cloud, notifications). Scrubs PII, credentials, and raw content before serialization.
+- **Thin cloud**: stores only developer registry, consent metadata, and push routing. No behavioral data.
 
 MCP tool mirror:
 
@@ -283,7 +296,7 @@ The MCP v1 tools use the same authorization path. Because MCP tool calls do not 
 
 ## Research Implementation Map
 
-- FileGram: strict `ContextEvent` ingestion and no content fields in `/v1/ingest/*`. The only accepted metadata fields are `hour_of_day`, `day_of_week`, and `subject_category`. Unknown top-level fields are preserved by the HTTP request model long enough to be rejected and logged by the privacy filter. Accepted events write local graph nodes, edges, and temporal chains only after this gate.
+- FileGram: `ContextEvent` ingestion keeps a normalized behavioral spine while preserving the original payload in the local raw vault for persona synthesis. Unknown top-level fields and sensitive content are allowed locally unless they look like credentials, secrets, auth tokens, passwords, cookies, private keys, or payment card values. Agent-facing bundles never include raw payloads.
 - SensorPersona: daily refresh plus stale bundle flag after 26 hours.
 - MemMachine: `feature_signals.tier` with core promotion gated by usage, recency, and 5 distinct sessions.
 - Bi-Mem: separate inductive and reflective refresh steps.
