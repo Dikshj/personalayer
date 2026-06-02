@@ -12,10 +12,12 @@ from database import (
     get_active_context,
     get_app_permission,
     get_developer_app,
+    get_persona_feedback,
     ingest_knowledge_graph_event,
     insert_context_feedback,
     insert_pcl_query_log,
     insert_raw_context_event,
+    list_persona_memory_diffs,
     list_contextlayer_activity,
     list_feature_signals,
     list_raw_context_events,
@@ -27,7 +29,9 @@ from database import (
     update_feature_signal_scores,
     verify_developer_api_key,
 )
+from pcl.persona_diffs import propose_memory_diff
 from pcl.profile import build_local_user_context_profile
+from pcl.privacy import contains_blocked_secret, egress_filter
 
 
 ALLOWED_EVENT_FIELDS = {
@@ -81,6 +85,7 @@ def ingest_context_event(event: dict, source: str) -> dict:
     candidate["source"] = source
     candidate.setdefault("user_id", "local_user")
     candidate.setdefault("timestamp", int(time.time() * 1000))
+    candidate["raw_payload"] = dict(event)
 
     ok, reason = validate_context_event(candidate, original_keys=set(event.keys()))
     if not ok:
@@ -117,14 +122,12 @@ def normalize_context_metadata(metadata: Any, timestamp: int | None = None) -> d
 
 def validate_context_event(event: dict, original_keys: set[str] | None = None) -> tuple[bool, str]:
     original_keys = original_keys or set(event.keys())
-    extra_fields = original_keys - ALLOWED_EVENT_FIELDS
-    if extra_fields:
-        return False, f"unknown_fields:{','.join(sorted(extra_fields))}"
-
     for field in ("app_id", "feature_id", "action", "user_id"):
         if not str(event.get(field, "")).strip():
             return False, f"missing_{field}"
 
+    if contains_blocked_secret(event.get("raw_payload", event)):
+        return False, "blocked_secret_detected"
     if event["action"] not in ALLOWED_ACTIONS:
         return False, "invalid_action"
     if event.get("source") not in ALLOWED_SOURCES:
@@ -133,28 +136,15 @@ def validate_context_event(event: dict, original_keys: set[str] | None = None) -
         return False, "invalid_feature_id"
     if not isinstance(event.get("metadata", {}), dict):
         return False, "invalid_metadata"
-    extra_metadata = set(event.get("metadata", {}).keys()) - ALLOWED_METADATA_FIELDS
-    if extra_metadata:
-        return False, f"unknown_metadata_fields:{','.join(sorted(extra_metadata))}"
+    unknown_metadata = set(event.get("metadata", {}).keys()) - ALLOWED_METADATA_FIELDS
+    if unknown_metadata:
+        return False, f"unknown_metadata_fields:{','.join(sorted(unknown_metadata))}"
     hour = event.get("metadata", {}).get("hour_of_day")
     day = event.get("metadata", {}).get("day_of_week")
     if hour is not None and not (0 <= int(hour) <= 23):
         return False, "invalid_metadata_hour"
     if day is not None and not (0 <= int(day) <= 6):
         return False, "invalid_metadata_day"
-
-    for key, value in event.items():
-        if key == "metadata":
-            values = value.values()
-        else:
-            values = [value]
-        for item in values:
-            if not isinstance(item, str):
-                continue
-            if len(item) > 100:
-                return False, f"field_too_long:{key}"
-            if EMAIL_RE.search(item) or PHONE_RE.search(item) or CREDIT_CARD_RE.search(item) or PERSONAL_UUID_RE.search(item):
-                return False, f"pii_detected:{key}"
     return True, ""
 
 
@@ -215,7 +205,7 @@ def build_context_bundle(
     stale = should_mark_bundle_stale(user_id)
     urgent_job = queue_urgent_synthesis(user_id) if stale else None
 
-    return {
+    response = {
         "bundle_id": bundle_id,
         "stale": stale,
         "urgent_synthesis_job_id": urgent_job["id"] if urgent_job else None,
@@ -233,6 +223,13 @@ def build_context_bundle(
             "scopes": permission["scopes"] if permission else [],
         },
     }
+    response["privacy"] = {
+        "filter_applied": "egress",
+        "raw_events_included": False,
+        "raw_payload_included": False,
+        "apps_may_store_copy": False,
+    }
+    return egress_filter(response)
 
 
 def authorize_developer_context_request(
@@ -351,7 +348,62 @@ def run_inductive_memory_job() -> dict:
 
 
 def run_reflective_memory_job() -> dict:
-    return {"demoted": demote_stale_core_feature_signals()}
+    return {
+        "demoted": demote_stale_core_feature_signals(),
+        "proposed_diffs": _propose_reflective_memory_diffs("local_user"),
+    }
+
+
+def _propose_reflective_memory_diffs(user_id: str) -> int:
+    proposed = 0
+    existing = {
+        (item["scope"], item["proposed_content"])
+        for item in list_persona_memory_diffs(user_id=user_id, limit=500)
+    }
+    for item in get_persona_feedback()[:50]:
+        content = _feedback_to_memory_line(item)
+        if not content:
+            continue
+        scope = _feedback_to_memory_scope(item)
+        if (scope, content) in existing:
+            continue
+        propose_memory_diff(
+            user_id=user_id,
+            scope=scope,
+            proposed_content=content,
+            reason=f"Reflective memory from feedback #{item['id']}: {item.get('reason') or item['action']}",
+            source="reflective_memory_job",
+        )
+        existing.add((scope, content))
+        proposed += 1
+    return proposed
+
+
+def _feedback_to_memory_scope(item: dict[str, Any]) -> str:
+    scope = (item.get("scope") or "").lower()
+    target = (item.get("target") or "").lower()
+    signal_type = (item.get("signal_type") or "").lower()
+    if scope in {"voice", "preferences", "boundaries", "work-style", "projects"}:
+        return scope
+    if "style" in signal_type or "voice" in target:
+        return "voice"
+    if item.get("privacy") == "sensitive" or item.get("action") == "reject":
+        return "boundaries"
+    return "preferences"
+
+
+def _feedback_to_memory_line(item: dict[str, Any]) -> str:
+    action = item.get("action")
+    if action not in {"confirm", "correct", "reject"}:
+        return ""
+    name = (item.get("correction") or item.get("name") or "").strip()
+    if not name:
+        return ""
+    if action == "reject":
+        return f"Do not infer this as true without fresh confirmation: {name}."
+    if action == "correct":
+        return f"Corrected preference: {name}."
+    return f"Confirmed preference: {name}."
 
 
 def run_profile_synthesizer() -> dict:

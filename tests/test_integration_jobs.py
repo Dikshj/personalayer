@@ -15,7 +15,17 @@ def test_github_integration_sync_uses_existing_collector(monkeypatch, tmp_path):
         source="github",
         name="GitHub",
         scopes=["public_activity"],
-        metadata={"username": "octocat"},
+        metadata={
+            "username": "octocat",
+            "repos": [
+                {
+                    "name": "personalayer",
+                    "language": "Python",
+                    "topics": ["FastAPI", "AI agents"],
+                    "active": True,
+                }
+            ],
+        },
     )
     monkeypatch.setattr(collectors.github, "collect_github", lambda username: 7)
 
@@ -26,6 +36,9 @@ def test_github_integration_sync_uses_existing_collector(monkeypatch, tmp_path):
     assert result["items_synced"] == 7
     assert database.get_pcl_integration("github")["last_sync_status"] == "ok"
     assert database.get_pcl_integration("github")["items_synced"] == 7
+    from pcl.memory import read_memory_file
+    assert "GitHub repo tracked: personalayer (active)." in read_memory_file("local_user", "projects")["content"]
+    assert "Uses Python in GitHub projects." in read_memory_file("local_user", "work-style")["content"]
 
 
 def test_github_integration_requires_username(monkeypatch, tmp_path):
@@ -49,6 +62,58 @@ def test_github_integration_requires_username(monkeypatch, tmp_path):
     assert database.get_pcl_integration("github")["last_sync_status"] == "error"
 
 
+def test_integration_missing_payload_schedules_retry(monkeypatch, tmp_path):
+    import database
+
+    monkeypatch.setattr(database, 'DATA_DIR', tmp_path)
+    monkeypatch.setattr(database, 'DB_PATH', tmp_path / 'integration_jobs_retry.db')
+    database.create_tables()
+    database.connect_pcl_integration(
+        source="gmail",
+        name="Gmail",
+        scopes=["email_metadata"],
+        metadata={},
+    )
+
+    from pcl.integration_jobs import sync_integration
+    first = sync_integration("gmail")
+    second = sync_integration("gmail")
+    integration = database.get_pcl_integration("gmail")
+
+    assert first["status"] == "error"
+    assert second["status"] == "skipped"
+    assert second["reason"] == "next_sync_after_not_reached"
+    assert integration["next_sync_after"]
+    assert integration["sync_cursor"]["retry_count"] == 1
+    assert "metadata.messages" in integration["sync_cursor"]["last_error"]
+
+
+def test_sync_due_integrations_skips_until_next_sync_after(monkeypatch, tmp_path):
+    import database
+    from pcl.integration_jobs import _timestamp_ms, sync_due_integrations
+
+    monkeypatch.setattr(database, 'DATA_DIR', tmp_path)
+    monkeypatch.setattr(database, 'DB_PATH', tmp_path / 'integration_jobs_due_skip.db')
+    database.create_tables()
+    database.connect_pcl_integration(
+        source="gmail",
+        name="Gmail",
+        scopes=["email_metadata"],
+        metadata={"user_id": "user_1"},
+    )
+    database.update_pcl_integration_sync(
+        source="gmail",
+        status="error",
+        next_sync_after=_timestamp_ms() + 60_000,
+        sync_cursor={"retry_count": 1},
+    )
+
+    result = sync_due_integrations("user_1")
+
+    assert result["skipped"] == 1
+    assert result["results"][0]["status"] == "skipped"
+
+
 def test_gmail_integration_sync_imports_metadata(monkeypatch, tmp_path):
     import database
 
@@ -63,6 +128,10 @@ def test_gmail_integration_sync_imports_metadata(monkeypatch, tmp_path):
             "messages": [
                 {
                     "from": "person@example.com",
+                    "sender": "Alex",
+                    "subject": "PersonaLayer launch plan",
+                    "project": "PersonaLayer",
+                    "people": ["Maya"],
                     "labels": ["Work", "Important"],
                     "thread_size": 2,
                     "has_attachments": True,
@@ -90,6 +159,10 @@ def test_gmail_integration_sync_imports_metadata(monkeypatch, tmp_path):
         "attachment-heavy-email",
     }
     assert database.get_feature_signal("local_user", "gmail", "label-work")["usage_count"] == 1
+    from pcl.memory import read_memory_file
+    assert "Alex appears in Gmail conversations." in read_memory_file("local_user", "people")["content"]
+    assert "Gmail mentions active project: PersonaLayer." in read_memory_file("local_user", "projects")["content"]
+    assert "Gmail frequently uses label: work." in read_memory_file("local_user", "preferences")["content"]
 
 
 def test_gmail_integration_sync_uses_incremental_cursor(monkeypatch, tmp_path):
@@ -137,6 +210,9 @@ def test_calendar_and_notion_sync_import_metadata(monkeypatch, tmp_path):
         metadata={
             "events": [
                 {
+                    "title": "YC interview prep",
+                    "project": "PersonaLayer",
+                    "attendees": ["Alex", "Maya"],
                     "start": "2026-05-11T10:00:00Z",
                     "duration_minutes": 60,
                     "attendee_count": 5,
@@ -151,6 +227,7 @@ def test_calendar_and_notion_sync_import_metadata(monkeypatch, tmp_path):
         metadata={
             "pages": [
                 {
+                    "title": "Roadmap notes",
                     "workspace": "Product",
                     "object_type": "project",
                     "tags": ["Roadmap"],
@@ -174,6 +251,11 @@ def test_calendar_and_notion_sync_import_metadata(monkeypatch, tmp_path):
     assert database.get_feature_signal("local_user", "calendar", "long-meeting")["usage_count"] == 1
     assert database.get_feature_signal("local_user", "calendar", "group-meeting")["usage_count"] == 1
     assert database.get_feature_signal("local_user", "notion", "tag-roadmap")["usage_count"] == 1
+    from pcl.memory import read_memory_file
+    assert "Calendar event observed: YC interview prep." in read_memory_file("local_user", "daily-log")["content"]
+    assert "Alex appears in calendar meetings." in read_memory_file("local_user", "people")["content"]
+    assert "notion file/note touched: Roadmap notes." in read_memory_file("local_user", "projects")["content"]
+    assert "notion knowledge tag/topic: roadmap." in read_memory_file("local_user", "scratchpad")["content"]
 
 
 def test_import_job_requires_metadata_payload(monkeypatch, tmp_path):
@@ -288,3 +370,92 @@ def test_spotify_youtube_and_apple_health_sync_metadata_to_v1_events(monkeypatch
     assert database.get_feature_signal("local_user", "spotify", "long-focus-session")["usage_count"] == 1
     assert database.get_feature_signal("local_user", "youtube", "category-ai-tutorial")["usage_count"] == 1
     assert database.get_feature_signal("local_user", "apple-health", "active-day")["usage_count"] == 1
+
+
+def test_new_provider_syncs_import_metadata_to_v1_events(monkeypatch, tmp_path):
+    import database
+
+    monkeypatch.setattr(database, 'DATA_DIR', tmp_path)
+    monkeypatch.setattr(database, 'DB_PATH', tmp_path / 'integration_jobs_new_providers.db')
+    database.create_tables()
+    database.connect_pcl_integration(
+        source="google_drive",
+        name="Google Drive",
+        scopes=["file_metadata"],
+        metadata={
+            "files": [{
+                "name": "PersonaLayer Notes",
+                "mime_type": "application/vnd.google-apps.document",
+                "folder": "Product",
+                "last_edited_time": "2026-05-11T12:30:00Z",
+            }]
+        },
+    )
+    database.connect_pcl_integration(
+        source="instagram",
+        name="Instagram",
+        scopes=["feed_activity"],
+        metadata={
+            "items": [{
+                "content_type": "reel",
+                "topic": "Productivity",
+                "engagement": "watched",
+                "timestamp": 1700000000000,
+            }]
+        },
+    )
+    database.connect_pcl_integration(
+        source="chatgpt",
+        name="ChatGPT",
+        scopes=["session_signals"],
+        metadata={
+            "sessions": [{
+                "task_type": "Writing",
+                "model": "gpt-4",
+                "timestamp": 1700000000000,
+            }]
+        },
+    )
+    database.connect_pcl_integration(
+        source="vscode",
+        name="VS Code",
+        scopes=["project_activity"],
+        metadata={
+            "sessions": [{
+                "project": "Personalayer",
+                "language": "Python",
+                "task_type": "Refactor",
+                "active_minutes": 40,
+                "timestamp": 1700000000000,
+            }]
+        },
+    )
+    database.connect_pcl_integration(
+        source="terminal",
+        name="Terminal",
+        scopes=["command_metadata"],
+        metadata={
+            "commands": [{
+                "project": "Personalayer",
+                "command_category": "Test",
+                "shell": "powershell",
+                "timestamp": 1700000000000,
+            }]
+        },
+    )
+
+    from pcl.integration_jobs import sync_integration
+    results = {
+        source: sync_integration(source)
+        for source in ["google_drive", "instagram", "chatgpt", "vscode", "terminal"]
+    }
+
+    assert {result["status"] for result in results.values()} == {"ok"}
+    assert database.get_feature_signal("local_user", "google-drive", "document-activity")["usage_count"] == 1
+    assert database.get_feature_signal("local_user", "instagram", "topic-productivity")["usage_count"] == 1
+    assert database.get_feature_signal("local_user", "chatgpt", "task-writing")["usage_count"] == 1
+    assert database.get_feature_signal("local_user", "vscode", "language-python")["usage_count"] == 1
+    assert database.get_feature_signal("local_user", "terminal", "command-test")["usage_count"] == 1
+    from pcl.memory import read_memory_file
+    assert "google_drive file/note touched: PersonaLayer Notes." in read_memory_file("local_user", "projects")["content"]
+    assert "google_drive document type used: document." in read_memory_file("local_user", "preferences")["content"]

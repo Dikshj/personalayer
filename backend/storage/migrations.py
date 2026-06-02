@@ -167,6 +167,10 @@ def _migration_010_integration_oauth_tokens(conn: sqlite3.Connection) -> None:
     """)
 
 
+def _migration_011_raw_event_vault_payload(conn: sqlite3.Connection) -> None:
+    ensure_column(conn, "raw_events", "raw_payload", "TEXT DEFAULT '{}'")
+
+
 MIGRATIONS: tuple[tuple[str, Migration], ...] = (
     ("001_context_contract_status", _migration_001_context_contract_status),
     ("002_persona_feedback_calibration", _migration_002_persona_feedback_calibration),
@@ -178,6 +182,7 @@ MIGRATIONS: tuple[tuple[str, Migration], ...] = (
     ("008_web_domain_permissions", _migration_008_web_domain_permissions),
     ("009_device_push_routing", _migration_009_device_push_routing),
     ("010_integration_oauth_tokens", _migration_010_integration_oauth_tokens),
+    ("011_raw_event_vault_payload", _migration_011_raw_event_vault_payload),
 )
 
 

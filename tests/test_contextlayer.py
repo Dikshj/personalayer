@@ -16,11 +16,11 @@ def use_test_db(monkeypatch, tmp_path):
     database.create_tables()
 
 
-def test_strict_context_event_drops_content_and_pii():
+def test_context_event_stores_sensitive_payload_locally_for_persona():
     import database
     from pcl.contextlayer import ingest_context_event
 
-    dropped = ingest_context_event(
+    result = ingest_context_event(
         {
             "user_id": "user_1",
             "app_id": "notion",
@@ -32,10 +32,31 @@ def test_strict_context_event_drops_content_and_pii():
         source="sdk",
     )
 
+    events = database.list_raw_context_events("user_1")
+    assert result["status"] == "ok"
+    assert events[0]["raw_payload"]["content"] == "email me at user@example.com"
+    assert database.list_privacy_filter_drops() == []
+
+
+def test_context_event_blocks_credentials_from_local_vault():
+    import database
+    from pcl.contextlayer import ingest_context_event
+
+    dropped = ingest_context_event(
+        {
+            "user_id": "user_1",
+            "app_id": "notion",
+            "feature_id": "database-view",
+            "action": "used",
+            "timestamp": int(time.time() * 1000),
+            "access_token": "ghp_secretsecretsecret123",
+        },
+        source="sdk",
+    )
+
     assert dropped["status"] == "dropped"
-    assert dropped["reason"] == "unknown_fields:content"
+    assert dropped["reason"] == "blocked_secret_detected"
     assert database.list_raw_context_events("user_1") == []
-    assert database.list_privacy_filter_drops()[0]["reason"] == "unknown_fields:content"
 
 
 def test_ingest_context_event_updates_feature_signal():
@@ -179,6 +200,8 @@ def test_context_bundle_uses_intent_boundary():
     assert "dev-mode" not in adapt["features"]
     assert set(full["features"]) == {"auto-layout", "dev-mode"}
     assert full["active_context"] is not None
+    assert full["privacy"]["filter_applied"] == "egress"
+    assert full["privacy"]["raw_payload_included"] is False
 
 
 def test_stale_context_bundle_queues_urgent_synthesis():
@@ -301,6 +324,27 @@ def test_single_session_burst_does_not_promote_to_core():
     assert database.get_feature_signal("user_1", "linear", "views")["tier"] == "episodic"
 
 
+def test_reflective_memory_job_proposes_persona_diffs():
+    import database
+    from pcl.contextlayer import run_reflective_memory_job
+
+    database.insert_persona_feedback(
+        signal_type="communication_style",
+        name="concise technical answers",
+        action="confirm",
+        reason="User explicitly approved this style",
+        scope="voice",
+        target="assistant_style",
+    )
+
+    result = run_reflective_memory_job()
+    diffs = database.list_persona_memory_diffs("local_user", status="applied")
+
+    assert result["proposed_diffs"] == 1
+    assert diffs[0]["scope"] == "voice"
+    assert "Confirmed preference: concise technical answers." in diffs[0]["proposed_content"]
+
+
 def test_active_context_activity_and_hard_delete():
     import database
     from pcl.contextlayer import (
@@ -345,7 +389,8 @@ def test_active_context_activity_and_hard_delete():
 
     assert heartbeat["active_context"]["project"] == "ContextLayer"
     assert bundle["active_context"]["project"] == "ContextLayer"
-    assert activity["raw_events"][0]["feature_id"] == "auto-layout"
+    assert {event["feature_id"] for event in activity["raw_events"]} >= {"auto-layout", "private-note"}
+    assert any(event["raw_payload"].get("content") == "private" for event in activity["raw_events"])
     assert activity["knowledge_graph"]["nodes"]
     assert activity["knowledge_graph"]["temporal_chains"]
     assert activity["query_log"][0]["app_id"] == "figma"
@@ -416,7 +461,7 @@ async def test_privacy_drops_and_raw_cleanup_endpoints(client):
         })
 
     assert drops.status_code == 200
-    assert drops.json()["drops"][0]["reason"] == "unknown_fields:content"
+    assert drops.json()["drops"] == []
     assert cleanup.json()["deleted"] == 1
 
 

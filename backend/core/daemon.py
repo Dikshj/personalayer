@@ -10,10 +10,13 @@ from living_persona import record_browsing_signals, record_feed_signals
 SKIP_PATTERNS = ("localhost", "127.0.0.1", "chrome://", "chrome-extension://", "about:")
 
 ALLOWED_FEED_SOURCES = {
-    "x", "linkedin", "youtube", "google", "github",
+    "browser_extension",
+    "google", "gmail", "calendar", "google_drive",
+    "x", "linkedin", "instagram", "youtube", "github", "notion",
+    "spotify", "apple_health",
     "chatgpt", "claude", "perplexity", "opencode",
     "cursor", "gemini", "grok", "github_copilot", "llm",
-    "claude_code", "ollama", "aider", "sgpt",
+    "claude_code", "aider",
     "shell", "terminal", "vscode", "ide",
 }
 

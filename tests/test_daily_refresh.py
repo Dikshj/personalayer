@@ -19,7 +19,8 @@ def use_test_db(monkeypatch, tmp_path):
 
 def test_daily_refresh_runs_all_steps_and_writes_profile_fields():
     import database
-    from pcl.contextlayer import build_context_bundle, ingest_context_event
+    from pcl.contextlayer import build_context_bundle, ingest_context_event, update_active_context
+    from pcl.memory import read_memory_file
     from pcl.daily_refresh import run_daily_refresh
 
     now_ms = int(time.time() * 1000)
@@ -35,12 +36,21 @@ def test_daily_refresh_runs_all_steps_and_writes_profile_fields():
             },
             source="extension",
         )
+    update_active_context(
+        user_id="user_1",
+        project="Design system",
+        active_apps=["figma"],
+        inferred_intent="adapt_ui",
+        session_depth="deep-work",
+    )
 
     before = build_context_bundle("user_1", "figma", intent="full_profile")
     result = run_daily_refresh("user_1", timezone="Asia/Calcutta", today=datetime(2026, 5, 13))
     profile = database.get_user_profile_record("user_1")
     signal = database.get_feature_signal("user_1", "figma", "auto-layout")
     after = build_context_bundle("user_1", "figma", intent="full_profile")
+    daily_log = read_memory_file("user_1", "daily-log")["content"]
+    projects = read_memory_file("user_1", "projects")["content"]
 
     assert before["stale"] is True
     assert result["status"] == "complete"
@@ -51,6 +61,9 @@ def test_daily_refresh_runs_all_steps_and_writes_profile_fields():
     assert profile["daily_insight"]
     assert signal["tier"] == "core"
     assert after["stale"] is False
+    assert "Daily insight:" in daily_log
+    assert "figma:auto-layout" in daily_log
+    assert "Active project: Design system." in projects
 
 
 def test_daily_refresh_writes_encrypted_shared_context_file():
@@ -81,6 +94,38 @@ def test_daily_refresh_writes_encrypted_shared_context_file():
     assert bundle["user_id"] == "user_1"
     assert bundle["privacy"]["raw_events_included"] is False
     assert bundle["features"][0]["feature_id"] == "auto-layout"
+
+
+def test_daily_refresh_respects_disabled_memory_source():
+    import database
+    from pcl.contextlayer import ingest_context_event
+    from pcl.daily_refresh import run_daily_refresh
+    from pcl.memory import read_memory_file
+
+    database.set_memory_source_enabled(
+        user_id="user_1",
+        source="daily_refresh",
+        enabled=False,
+        reason="disable nightly learning",
+    )
+    ingest_context_event(
+        {
+            "user_id": "user_1",
+            "app_id": "figma",
+            "feature_id": "auto-layout",
+            "action": "used",
+            "timestamp": int(time.time() * 1000),
+        },
+        source="extension",
+    )
+
+    result = run_daily_refresh("user_1", today=datetime(2026, 5, 13))
+    daily_log = read_memory_file("user_1", "daily-log")["content"]
+    insight_step = next(log for log in result["logs"] if log["step_number"] == 10)
+
+    assert insight_step["step_name"] == "daily_insight_generation"
+    assert "auto-layout" not in daily_log
+    assert database.list_persona_memory_diffs("user_1") == []
 
 
 def test_daily_refresh_queues_silent_daily_insight_route():
