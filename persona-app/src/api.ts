@@ -1,4 +1,30 @@
-const API_BASE = (import.meta.env.VITE_PERSONALAYER_API_BASE || "http://127.0.0.1:7823").replace(/\/$/, "");
+const SESSION_STORAGE_KEY = "personalayer_session_token";
+const rawApiBase = import.meta.env.VITE_PERSONALAYER_API_BASE || (import.meta.env.DEV ? "http://127.0.0.1:7823" : "");
+export const API_BASE = rawApiBase.replace(/\/$/, "");
+export const API_CONFIG = {
+  apiBase: API_BASE,
+  hasApiBase: Boolean(API_BASE),
+  isProduction: import.meta.env.PROD,
+  requiresSession: import.meta.env.PROD || Boolean(import.meta.env.VITE_PERSONALAYER_REQUIRE_SESSION),
+};
+
+export function getStoredSessionToken(): string {
+  return (
+    import.meta.env.VITE_PERSONALAYER_SESSION_TOKEN ||
+    localStorage.getItem(SESSION_STORAGE_KEY) ||
+    ""
+  ).trim();
+}
+
+export function storeSessionToken(token: string) {
+  const value = token.trim();
+  if (value) localStorage.setItem(SESSION_STORAGE_KEY, value);
+  else localStorage.removeItem(SESSION_STORAGE_KEY);
+}
+
+export function clearSessionToken() {
+  localStorage.removeItem(SESSION_STORAGE_KEY);
+}
 
 export type BackendStatus = "loading" | "online" | "offline";
 
@@ -160,15 +186,28 @@ async function deleteJson<T>(path: string): Promise<T> {
 }
 
 async function requestJson<T>(path: string, init: RequestInit): Promise<T> {
+  if (!API_BASE) {
+    throw new Error("Production API is not configured. Set VITE_PERSONALAYER_API_BASE for the deployed frontend.");
+  }
+  const token = getStoredSessionToken();
   const response = await fetch(`${API_BASE}${path}`, {
     ...init,
+    credentials: "include",
     headers: {
       "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(init.headers || {}),
     },
   });
   if (!response.ok) {
-    throw new Error(`${response.status} ${response.statusText}`);
+    let detail = `${response.status} ${response.statusText}`;
+    try {
+      const payload = await response.json();
+      detail = payload.detail || payload.error || detail;
+    } catch {
+      // Keep status text when the server does not return JSON.
+    }
+    throw new Error(detail);
   }
   return response.json() as Promise<T>;
 }

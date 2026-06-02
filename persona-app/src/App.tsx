@@ -14,7 +14,16 @@ import {
   Smartphone,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { BackendStatus, PairingSession, getHealth, getPairingSession, startPairingSession } from "./api";
+import {
+  API_CONFIG,
+  BackendStatus,
+  PairingSession,
+  getHealth,
+  getPairingSession,
+  getStoredSessionToken,
+  startPairingSession,
+  storeSessionToken,
+} from "./api";
 import PrivacyManager from "./PrivacyManager";
 
 type Screen = "laptop" | "scan" | "manual" | "success" | "privacy-home" | "privacy-apps" | "privacy-controls";
@@ -28,6 +37,7 @@ function App() {
   const [backendStatus, setBackendStatus] = useState<BackendStatus>("loading");
   const [pairingSession, setPairingSession] = useState<PairingSession | null>(null);
   const [pairingError, setPairingError] = useState("");
+  const [sessionToken, setSessionToken] = useState(() => getStoredSessionToken());
 
   const addCodeChar = (value: string) => {
     setPairingCode((current) => `${current}${value}`.slice(0, 6));
@@ -91,6 +101,17 @@ function App() {
       <TopBar screen={screen} setScreen={setScreen} />
 
       <main className={`${privacyScreen ? "" : "mx-auto flex min-h-[calc(100dvh-64px)] w-full max-w-6xl flex-col px-5 py-6 md:px-8 md:py-10"}`}>
+        {!API_CONFIG.hasApiBase && <DeploymentConfigScreen />}
+        {API_CONFIG.hasApiBase && API_CONFIG.requiresSession && !sessionToken && (
+          <SessionSetupScreen
+            onSave={(token) => {
+              storeSessionToken(token);
+              setSessionToken(token.trim());
+            }}
+          />
+        )}
+        {API_CONFIG.hasApiBase && (!API_CONFIG.requiresSession || sessionToken) && (
+          <>
         {screen === "laptop" && (
           <LaptopPairingScreen
             setScreen={setScreen}
@@ -111,8 +132,57 @@ function App() {
         )}
         {screen === "success" && <SuccessScreen setScreen={setScreen} />}
         {privacyScreen && <PrivacyManager screen={screen} setScreen={setScreen} />}
+          </>
+        )}
       </main>
     </div>
+  );
+}
+
+function DeploymentConfigScreen() {
+  return (
+    <section className="mx-auto flex min-h-[calc(100dvh-64px)] w-full max-w-2xl items-center px-5">
+      <div className="w-full rounded-lg border border-outline-variant bg-white p-8 shadow-ambient">
+        <p className="mb-2 text-sm font-semibold uppercase tracking-[0.18em] text-outline">Deployment setup</p>
+        <h1 className="text-3xl font-bold tracking-normal">Production API is not configured.</h1>
+        <p className="mt-4 leading-7 text-on-surface-variant">
+          Set <code className="rounded bg-surface-container-low px-1.5 py-1">VITE_PERSONALAYER_API_BASE</code> on the hosting provider to the production PersonaLayer API origin, then rebuild this app.
+        </p>
+      </div>
+    </section>
+  );
+}
+
+function SessionSetupScreen({ onSave }: { onSave: (token: string) => void }) {
+  const [token, setToken] = useState("");
+
+  return (
+    <section className="mx-auto flex min-h-[calc(100dvh-64px)] w-full max-w-2xl items-center px-5">
+      <div className="w-full rounded-lg border border-outline-variant bg-white p-8 shadow-ambient">
+        <p className="mb-2 text-sm font-semibold uppercase tracking-[0.18em] text-outline">Session required</p>
+        <h1 className="text-3xl font-bold tracking-normal">Connect your local session.</h1>
+        <p className="mt-4 leading-7 text-on-surface-variant">
+          Paste a PersonaLayer session token for the deployed frontend. The token is stored in this browser and sent as a bearer token to the configured API.
+        </p>
+        <label className="mt-6 block text-sm font-semibold text-on-surface-variant" htmlFor="session-token">
+          Session token
+        </label>
+        <input
+          id="session-token"
+          className="mt-2 h-12 w-full rounded-lg border border-outline-variant px-4 font-mono text-sm outline-none focus:border-primary"
+          value={token}
+          onChange={(event) => setToken(event.target.value)}
+          placeholder="pl_session token"
+        />
+        <button
+          className="primary-button mt-5 justify-center disabled:cursor-not-allowed disabled:opacity-50"
+          disabled={!token.trim()}
+          onClick={() => onSave(token)}
+        >
+          Save session
+        </button>
+      </div>
+    </section>
   );
 }
 

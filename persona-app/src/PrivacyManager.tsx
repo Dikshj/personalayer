@@ -96,9 +96,13 @@ function PrivacyManager({ screen, setScreen }: PrivacyManagerProps) {
   const [boundaries, setBoundaries] = useState<PrivacyBoundary[]>([]);
   const [summary, setSummary] = useState<Record<string, unknown>>({});
   const [refreshKey, setRefreshKey] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [errors, setErrors] = useState<string[]>([]);
 
   useEffect(() => {
     let activeRequest = true;
+    setLoading(true);
+    setErrors([]);
     Promise.allSettled([searchSignals(), getIntegrations(), getApps(), getPrivacyProfile(), getControlCenterSummary()])
       .then(([signalResult, integrationResult, appResult, profileResult, summaryResult]) => {
         if (!activeRequest) return;
@@ -117,8 +121,19 @@ function PrivacyManager({ screen, setScreen }: PrivacyManagerProps) {
         if (summaryResult.status === "fulfilled") setSummary(summaryResult.value || {});
         const anyFulfilled = [signalResult, integrationResult, appResult, profileResult, summaryResult].some((item) => item.status === "fulfilled");
         setBackendStatus(anyFulfilled ? "online" : "offline");
+        setErrors(
+          [signalResult, integrationResult, appResult, profileResult, summaryResult]
+            .filter((item): item is PromiseRejectedResult => item.status === "rejected")
+            .map((item) => item.reason instanceof Error ? item.reason.message : "A backend request failed.")
+            .filter((message, index, all) => all.indexOf(message) === index),
+        );
+        setLoading(false);
       })
-      .catch(() => setBackendStatus("offline"));
+      .catch((error: Error) => {
+        setBackendStatus("offline");
+        setErrors([error.message || "The PersonaLayer backend is unavailable."]);
+        setLoading(false);
+      });
     return () => {
       activeRequest = false;
     };
@@ -130,15 +145,52 @@ function PrivacyManager({ screen, setScreen }: PrivacyManagerProps) {
     <div className="privacy-shell min-h-[calc(100dvh-64px)] bg-[#f9f9f9] px-5 pb-28 pt-6 text-[#1a1c1c] md:px-8 md:pb-10">
       <div className="mx-auto max-w-[1100px]">
         <PrivacyTabs active={active} setScreen={setScreen} backendStatus={backendStatus} />
+        <DataStateBar loading={loading} backendStatus={backendStatus} errors={errors} refresh={refresh} />
 
-        {screen === "privacy-home" && <PrivacyHome signals={signals} summary={summary} refresh={refresh} />}
-        {screen === "privacy-apps" && <PrivacyApps integrations={integrations} refresh={refresh} />}
-        {screen === "privacy-controls" && <PrivacyControls integrations={integrations} boundaries={boundaries} refresh={refresh} />}
+        {screen === "privacy-home" && <PrivacyHome signals={signals} summary={summary} refresh={refresh} backendStatus={backendStatus} loading={loading} />}
+        {screen === "privacy-apps" && <PrivacyApps integrations={integrations} refresh={refresh} backendStatus={backendStatus} loading={loading} />}
+        {screen === "privacy-controls" && <PrivacyControls integrations={integrations} boundaries={boundaries} refresh={refresh} backendStatus={backendStatus} loading={loading} />}
       </div>
 
       <PrivacyBottomNav active={active} setScreen={setScreen} />
     </div>
   );
+}
+
+function DataStateBar({
+  loading,
+  backendStatus,
+  errors,
+  refresh,
+}: {
+  loading: boolean;
+  backendStatus: BackendStatus;
+  errors: string[];
+  refresh: () => void;
+}) {
+  if (loading) {
+    return (
+      <div className="mb-6 rounded-lg border border-outline-variant bg-white p-4 text-sm font-semibold text-on-surface-variant shadow-soft">
+        Loading your PersonaLayer data...
+      </div>
+    );
+  }
+  if (backendStatus === "offline") {
+    return (
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[#ffb4ab] bg-[#fff5f3] p-4 text-sm text-[#93000a] shadow-soft">
+        <span>{errors[0] || "The PersonaLayer API is unavailable. Showing local preview data."}</span>
+        <button className="rounded-full bg-white px-4 py-2 font-bold text-[#93000a]" onClick={refresh}>Retry</button>
+      </div>
+    );
+  }
+  if (errors.length) {
+    return (
+      <div className="mb-6 rounded-lg border border-[#facc15] bg-[#fffbeb] p-4 text-sm text-[#713f12] shadow-soft">
+        Some sections could not refresh: {errors.join(" ")}
+      </div>
+    );
+  }
+  return null;
 }
 
 function PrivacyTabs({
@@ -180,10 +232,14 @@ function PrivacyHome({
   signals,
   summary,
   refresh,
+  backendStatus,
+  loading,
 }: {
   signals: PersonaSignal[];
   summary: Record<string, unknown>;
   refresh: () => void;
+  backendStatus: BackendStatus;
+  loading: boolean;
 }) {
   const visibleFacts = signals.length ? signals.slice(0, 8) : facts;
 
@@ -202,6 +258,12 @@ function PrivacyHome({
 
       <section>
         <h2 className="mb-4 text-sm font-bold uppercase tracking-[0.14em] text-[#3d4a3d]">What we've noticed</h2>
+        {!loading && !signals.length && backendStatus === "online" && (
+          <EmptyState title="No signals yet" detail="Connect an app or run a refresh to populate your live persona facts." />
+        )}
+        {!loading && !signals.length && backendStatus === "offline" && (
+          <PreviewState detail="Using preview facts while the backend is offline." />
+        )}
         <div className="space-y-4">
           {visibleFacts.map((fact, index) => (
             <FactCard key={"id" in fact && fact.id ? fact.id : "title" in fact ? fact.title : index} fact={fact} refresh={refresh} />
@@ -218,7 +280,17 @@ function PrivacyHome({
   );
 }
 
-function PrivacyApps({ integrations, refresh }: { integrations: PclIntegration[]; refresh: () => void }) {
+function PrivacyApps({
+  integrations,
+  refresh,
+  backendStatus,
+  loading,
+}: {
+  integrations: PclIntegration[];
+  refresh: () => void;
+  backendStatus: BackendStatus;
+  loading: boolean;
+}) {
   const visibleApps = integrations.length ? integrations : apps;
 
   return (
@@ -232,6 +304,12 @@ function PrivacyApps({ integrations, refresh }: { integrations: PclIntegration[]
 
       <section>
         <h2 className="mb-4 text-sm font-bold uppercase tracking-[0.14em] text-[#3d4a3d]">Connected</h2>
+        {!loading && !integrations.length && backendStatus === "online" && (
+          <EmptyState title="No connected apps yet" detail="Connect an integration to manage live app permissions." />
+        )}
+        {!loading && !integrations.length && backendStatus === "offline" && (
+          <PreviewState detail="Using preview app cards while the backend is offline." />
+        )}
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
           {visibleApps.map((app) => (
             <AppCard key={"source" in app ? app.source || app.name : app.name} app={app} refresh={refresh} />
@@ -255,10 +333,14 @@ function PrivacyControls({
   integrations,
   boundaries,
   refresh,
+  backendStatus,
+  loading,
 }: {
   integrations: PclIntegration[];
   boundaries: PrivacyBoundary[];
   refresh: () => void;
+  backendStatus: BackendStatus;
+  loading: boolean;
 }) {
   const visibleApps = integrations.filter((item) => item.connected || item.status === "connected").slice(0, 2);
   const privacyTargets = [
@@ -299,6 +381,9 @@ function PrivacyControls({
 
       <section className="rounded-[32px] bg-[#f3f3f3] p-6 md:p-10">
         <h2 className="mb-6 text-2xl font-semibold">Always keep private</h2>
+        {!loading && !boundaries.length && backendStatus === "online" && (
+          <EmptyState title="No privacy rules yet" detail="Turn on a rule below to block that field from app sharing." />
+        )}
         <div className="space-y-6">
           {privacyTargets.map((item, index) => (
             <div key={item.target}>
@@ -313,6 +398,23 @@ function PrivacyControls({
           ))}
         </div>
       </section>
+    </div>
+  );
+}
+
+function EmptyState({ title, detail }: { title: string; detail: string }) {
+  return (
+    <div className="mb-4 rounded-lg border border-dashed border-outline-variant bg-white p-4 text-sm text-on-surface-variant">
+      <strong className="block text-on-surface">{title}</strong>
+      {detail}
+    </div>
+  );
+}
+
+function PreviewState({ detail }: { detail: string }) {
+  return (
+    <div className="mb-4 rounded-lg border border-[#c7d7c2] bg-[#f4fbf2] p-4 text-sm font-semibold text-[#006e2f]">
+      {detail}
     </div>
   );
 }
