@@ -841,6 +841,17 @@ def _resolve_context_user_id(payload_user_id: str, user_token: str) -> str:
     return payload_user_id
 
 
+def _upstream_authorization(raw_key: str) -> str:
+    key = (raw_key or "").strip()
+    if not key:
+        return ""
+    if key.lower().startswith("bearer "):
+        key = key[7:].strip()
+    if key.startswith("cl_"):
+        return ""
+    return f"Bearer {key}"
+
+
 @app.get("/pcl/onboarding/questions")
 async def get_pcl_onboarding_questions():
     return {"questions": ONBOARDING_QUESTIONS}
