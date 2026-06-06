@@ -44,7 +44,7 @@ def test_context_contract_shares_only_allowed_context(monkeypatch, tmp_path):
     })
 
     from living_persona import record_feed_signals
-    from policy import build_scoped_persona, negotiate_context_contract
+    from context_packaging import build_context_package, create_context_contract
 
     record_feed_signals(
         source="youtube",
@@ -53,14 +53,14 @@ def test_context_contract_shares_only_allowed_context(monkeypatch, tmp_path):
         timestamp=int(time.time() * 1000),
     )
 
-    contract = negotiate_context_contract(
+    contract = create_context_contract(
         platform_type="email_service",
         facilities=["inbox_prioritization", "reply_drafting"],
         requested_context=["communication_style", "priority_topics", "raw_email_content"],
         purpose="personalize inbox and replies",
     )
 
-    scoped = build_scoped_persona(contract["contract_id"])
+    scoped = build_context_package(contract["contract_id"])
 
     assert "communication_style" in scoped["context"]
     assert "priority_topics" in scoped["context"]
@@ -105,19 +105,19 @@ def test_revoked_context_contract_denies_future_access(monkeypatch, tmp_path):
     database.create_tables()
     database.save_persona({"voice": {"style": "direct"}})
 
-    from policy import build_scoped_persona, negotiate_context_contract
+    from context_packaging import build_context_package, create_context_contract
 
-    contract = negotiate_context_contract(
+    contract = create_context_contract(
         platform_type="email_service",
         facilities=["reply_drafting"],
         requested_context=["communication_style"],
     )
 
-    first = build_scoped_persona(contract["contract_id"])
+    first = build_context_package(contract["contract_id"])
     assert "communication_style" in first["context"]
 
     assert database.revoke_context_contract(contract["contract_id"]) is True
-    second = build_scoped_persona(contract["contract_id"])
+    second = build_context_package(contract["contract_id"])
     assert second["error"] == "contract_revoked"
 
     logs = database.get_context_access_logs(contract["contract_id"])

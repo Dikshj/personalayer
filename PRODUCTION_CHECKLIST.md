@@ -2,6 +2,15 @@
 
 ## Immediate Coding Work
 
+### 0. Legal, Privacy, And Security Docs
+- [x] Privacy Policy: `docs/PRIVACY_POLICY.md`
+- [x] Terms of Service: `docs/TERMS_OF_SERVICE.md`
+- [x] Data retention schedule: `docs/DATA_RETENTION.md`
+- [x] Security policy and vulnerability contact: `docs/SECURITY.md`
+- [x] In-app Legal surface exposes privacy, terms, retention, and security contact.
+- [ ] Counsel review before broad commercial launch or regulated use.
+- [ ] Replace placeholder contact domains if production email routing uses a different domain.
+
 ### 1. Core ML Model Asset
 - [ ] Run `python scripts/convert-coreml-model.py` with:
   ```bash

@@ -3,9 +3,11 @@ import {
   ArrowRight,
   CircleHelp,
   Delete,
+  FileText,
   History,
   KeyRound,
   LockKeyhole,
+  Mail,
   QrCode,
   RefreshCw,
   ScanLine,
@@ -26,7 +28,7 @@ import {
 } from "./api";
 import PrivacyManager from "./PrivacyManager";
 
-type Screen = "laptop" | "scan" | "manual" | "success" | "privacy-home" | "privacy-apps" | "privacy-controls";
+type Screen = "laptop" | "scan" | "manual" | "success" | "privacy-home" | "privacy-apps" | "privacy-controls" | "legal";
 
 const manualCode = ["A", "7", "-", "B", "2", "-", "X", "9"];
 const keys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "A", "0"];
@@ -49,6 +51,7 @@ function App() {
 
   const completeManualEntry = pairingCode.length === 6;
   const privacyScreen = screen === "privacy-home" || screen === "privacy-apps" || screen === "privacy-controls";
+  const legalScreen = screen === "legal";
 
   useEffect(() => {
     let active = true;
@@ -100,9 +103,10 @@ function App() {
     <div className="min-h-dvh bg-surface text-on-surface">
       <TopBar screen={screen} setScreen={setScreen} />
 
-      <main className={`${privacyScreen ? "" : "mx-auto flex min-h-[calc(100dvh-64px)] w-full max-w-6xl flex-col px-5 py-6 md:px-8 md:py-10"}`}>
-        {!API_CONFIG.hasApiBase && <DeploymentConfigScreen />}
-        {API_CONFIG.hasApiBase && API_CONFIG.requiresSession && !sessionToken && (
+      <main className={`${privacyScreen || legalScreen ? "" : "mx-auto flex min-h-[calc(100dvh-64px)] w-full max-w-6xl flex-col px-5 py-6 md:px-8 md:py-10"}`}>
+        {legalScreen && <LegalDocuments />}
+        {!legalScreen && !API_CONFIG.hasApiBase && <DeploymentConfigScreen />}
+        {!legalScreen && API_CONFIG.hasApiBase && API_CONFIG.requiresSession && !sessionToken && (
           <SessionSetupScreen
             onSave={(token) => {
               storeSessionToken(token);
@@ -110,7 +114,7 @@ function App() {
             }}
           />
         )}
-        {API_CONFIG.hasApiBase && (!API_CONFIG.requiresSession || sessionToken) && (
+        {!legalScreen && API_CONFIG.hasApiBase && (!API_CONFIG.requiresSession || sessionToken) && (
           <>
         {screen === "laptop" && (
           <LaptopPairingScreen
@@ -186,6 +190,95 @@ function SessionSetupScreen({ onSave }: { onSave: (token: string) => void }) {
   );
 }
 
+function LegalDocuments() {
+  const docs = [
+    {
+      title: "Privacy Policy",
+      effective: "Effective June 6, 2026",
+      body: [
+        "PersonaLayer is local-first. Raw app, browser, connector, email, note, and local file content stays on the user's device unless the user explicitly exports it, syncs it to a trusted paired device, or authorizes sharing with an app.",
+        "The cloud service stores only thin metadata for account routing, developer registry, API key hashes, app permissions, device pairing, push routing, redacted telemetry, and optional encrypted sync blobs.",
+        "PersonaLayer does not sell personal context, train foundation models on user context, or expose raw local events through standard app APIs.",
+      ],
+    },
+    {
+      title: "Terms of Service",
+      effective: "Effective June 6, 2026",
+      body: [
+        "Users own their personal data and context. Developers must request only minimum scopes, disclose context access, respect revocation immediately, and treat context bundles as confidential user data.",
+        "Apps may not use PersonaLayer for spyware, unauthorized monitoring, credential harvesting, consent bypass, or high-stakes decisions without appropriate disclosure, human review, and legal compliance.",
+        "The service is provided as available and should receive counsel review before broad commercial launch or regulated use.",
+      ],
+    },
+    {
+      title: "Data Retention",
+      effective: "Production default schedule",
+      body: [
+        "Raw local events are retained for 90 days by default. Local query logs are retained for 30 days by default. Derived persona signals remain until deletion, replacement, or profile reset.",
+        "Context bundles are session-only unless a user grants a longer-lived, purpose-specific permission. Receiving apps must not keep session-only bundles beyond the active session.",
+        "Operational telemetry is retained for up to 30 days. Cloud permission, account, push, and device metadata is deleted when no longer needed for the account, security, or legal obligations.",
+      ],
+    },
+    {
+      title: "Security Contact",
+      effective: "Vulnerability disclosure",
+      body: [
+        "Report suspected vulnerabilities to security@personallayer.dev with affected component, reproduction steps, impact, and any proof-of-concept using synthetic data.",
+        "Production deployments must use HTTPS, explicit CORS origins, row-level security, OS secure storage for keys and tokens, redacted telemetry, and silent push payloads without behavioral text.",
+        "Privacy requests go to privacy@personallayer.dev. Legal notices go to legal@personallayer.dev.",
+      ],
+    },
+  ];
+
+  return (
+    <section className="min-h-[calc(100dvh-64px)] bg-[#f7f9fb] px-5 py-8 md:px-8 md:py-12">
+      <div className="mx-auto max-w-5xl">
+        <div className="mb-8 flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
+          <div>
+            <p className="mb-2 text-sm font-semibold uppercase tracking-[0.18em] text-outline">Production legal</p>
+            <h1 className="text-3xl font-bold tracking-normal md:text-4xl">Legal and security readiness</h1>
+            <p className="mt-3 max-w-2xl leading-7 text-on-surface-variant">
+              Public-facing operating language for PersonaLayer before real users or real data enter production.
+            </p>
+          </div>
+          <a className="primary-button w-fit" href="mailto:security@personallayer.dev">
+            <Mail size={18} />
+            Security contact
+          </a>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2">
+          {docs.map((doc) => (
+            <article key={doc.title} className="rounded-lg border border-outline-variant bg-white p-6 shadow-ambient">
+              <div className="mb-4 flex items-start justify-between gap-4">
+                <div>
+                  <h2 className="text-xl font-bold tracking-normal">{doc.title}</h2>
+                  <p className="mt-1 text-sm font-semibold text-primary">{doc.effective}</p>
+                </div>
+                <div className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-surface-container-low text-primary">
+                  <FileText size={20} />
+                </div>
+              </div>
+              <div className="space-y-3 text-sm leading-6 text-on-surface-variant">
+                {doc.body.map((paragraph) => (
+                  <p key={paragraph}>{paragraph}</p>
+                ))}
+              </div>
+            </article>
+          ))}
+        </div>
+
+        <div className="mt-6 rounded-lg border border-outline-variant bg-white p-5 text-sm leading-6 text-on-surface-variant shadow-ambient">
+          Source documents live in <code className="rounded bg-surface-container-low px-1.5 py-1">docs/PRIVACY_POLICY.md</code>,{" "}
+          <code className="rounded bg-surface-container-low px-1.5 py-1">docs/TERMS_OF_SERVICE.md</code>,{" "}
+          <code className="rounded bg-surface-container-low px-1.5 py-1">docs/DATA_RETENTION.md</code>, and{" "}
+          <code className="rounded bg-surface-container-low px-1.5 py-1">docs/SECURITY.md</code>.
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function TopBar({
   screen,
   setScreen,
@@ -194,7 +287,8 @@ function TopBar({
   setScreen: (screen: Screen) => void;
 }) {
   const privacyScreen = screen === "privacy-home" || screen === "privacy-apps" || screen === "privacy-controls";
-  const compact = screen !== "laptop" && !privacyScreen;
+  const legalScreen = screen === "legal";
+  const compact = screen !== "laptop" && !privacyScreen && !legalScreen;
 
   return (
     <header
@@ -218,7 +312,7 @@ function TopBar({
         <div className="flex items-center gap-2">
           <ShieldCheck className={screen === "scan" ? "text-white" : "text-primary-container"} size={24} />
           <span className={`text-lg font-bold ${screen === "scan" ? "text-white" : "text-primary"}`}>
-            {privacyScreen ? "PersonaLayer" : "Fortress Logic"}
+            {privacyScreen || legalScreen ? "PersonaLayer" : "Fortress Logic"}
           </span>
         </div>
       </div>
@@ -226,7 +320,7 @@ function TopBar({
       <div className="flex items-center gap-2">
         <div className="hidden items-center rounded-full bg-surface-container-low p-1 sm:flex">
           <button
-            className={`rounded-full px-4 py-2 text-sm font-semibold transition ${!privacyScreen ? "bg-white text-primary shadow-sm" : "text-on-surface-variant"}`}
+            className={`rounded-full px-4 py-2 text-sm font-semibold transition ${!privacyScreen && !legalScreen ? "bg-white text-primary shadow-sm" : "text-on-surface-variant"}`}
             onClick={() => setScreen("laptop")}
           >
             Pairing
@@ -237,9 +331,15 @@ function TopBar({
           >
             Privacy
           </button>
+          <button
+            className={`rounded-full px-4 py-2 text-sm font-semibold transition ${legalScreen ? "bg-white text-primary shadow-sm" : "text-on-surface-variant"}`}
+            onClick={() => setScreen("legal")}
+          >
+            Legal
+          </button>
         </div>
-        <button className="icon-button" aria-label="Help" title="Help">
-          <CircleHelp size={20} />
+        <button className="icon-button sm:hidden" aria-label="Legal" title="Legal" onClick={() => setScreen("legal")}>
+          <FileText size={20} />
         </button>
         <button className="icon-button" aria-label="Settings" title="Settings">
           <Settings size={20} />

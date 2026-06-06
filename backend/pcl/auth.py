@@ -10,13 +10,23 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import logging
 import os
+import re
 import secrets
 import time
 from typing import Any
 
 SESSION_EXPIRY_SECONDS = 3600 * 24 * 7  # 7 days
 LOCAL_AUTH_ENABLED = os.getenv("PERSONALAYER_LOCAL_AUTH", "1") == "1"
+
+_SECRET_VALUE_RE = re.compile(
+    r"(?i)\b(?:bearer\s+)?(?:sk|pk|cl|ghp|gho|xoxb|xoxp|ya29)[-_a-z0-9]{8,}\b"
+)
+_SECRET_ASSIGNMENT_RE = re.compile(
+    r"(?i)\b(access_token|refresh_token|id_token|authorization|api_key|client_secret|password|secret|token|cookie)"
+    r"\s*[:=]\s*[^,\s}\]]+"
+)
 
 
 class AuthError(Exception):
@@ -68,6 +78,16 @@ def create_local_session(user_id: str) -> str:
     return _session_manager.create_session(user_id)
 
 
+def create_bootstrap_session(user_id: str, bootstrap_token: str) -> str:
+    """Create a local session with a one-time deployment/bootstrap secret."""
+    if local_auth_enabled() and local_auth_bootstrap_token():
+        if not hmac.compare_digest(bootstrap_token or "", local_auth_bootstrap_token()):
+            raise AuthError("invalid_bootstrap_token")
+    elif local_auth_enabled():
+        raise AuthError("bootstrap_token_not_configured")
+    return create_local_session(user_id)
+
+
 def validate_local_session(token: str) -> dict[str, Any] | None:
     return _session_manager.validate_session(token)
 
@@ -77,7 +97,7 @@ def revoke_local_session(token: str) -> bool:
 
 
 def require_local_auth(token: str) -> dict[str, Any]:
-    if not LOCAL_AUTH_ENABLED:
+    if not local_auth_enabled():
         return {"user_id": "local_user", "auth": "disabled"}
     session = validate_local_session(token)
     if not session:
@@ -92,7 +112,7 @@ def verify_dashboard_request(request_headers: dict[str, str]) -> dict[str, Any]:
     Also validates Origin/Referer to prevent arbitrary websites from
     accessing localhost APIs.
     """
-    if not LOCAL_AUTH_ENABLED:
+    if not local_auth_enabled():
         return {"user_id": "local_user", "auth": "disabled"}
 
     # Check origin/referer
@@ -141,6 +161,14 @@ def _extract_cookie_value(cookie_header: str, name: str) -> str:
     return ""
 
 
+def local_auth_enabled() -> bool:
+    return os.getenv("PERSONALAYER_LOCAL_AUTH", "1") == "1"
+
+
+def local_auth_bootstrap_token() -> str:
+    return os.getenv("PERSONALAYER_LOCAL_AUTH_BOOTSTRAP_TOKEN", "")
+
+
 def generate_csrf_token() -> str:
     return secrets.token_urlsafe(32)
 
@@ -162,3 +190,38 @@ def verify_local_password(password: str, hashed: str) -> bool:
         return hmac.compare_digest(hash_local_password(password, salt), hashed)
     except Exception:
         return False
+
+
+def redact_secret_value(value: Any) -> Any:
+    if isinstance(value, str):
+        redacted = _SECRET_ASSIGNMENT_RE.sub(lambda m: f"{m.group(1)}=[redacted]", value)
+        return _SECRET_VALUE_RE.sub("[redacted]", redacted)
+    if isinstance(value, list):
+        return [redact_secret_value(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(redact_secret_value(item) for item in value)
+    if isinstance(value, dict):
+        clean: dict[str, Any] = {}
+        for key, item in value.items():
+            normalized = str(key).lower()
+            if any(part in normalized for part in ("token", "secret", "password", "authorization", "api_key", "cookie")):
+                clean[key] = "[redacted]"
+            else:
+                clean[key] = redact_secret_value(item)
+        return clean
+    return value
+
+
+class SecretRedactionFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        record.msg = redact_secret_value(record.msg)
+        if record.args:
+            record.args = redact_secret_value(record.args)
+        return True
+
+
+def install_secret_log_redaction() -> None:
+    root = logging.getLogger()
+    if any(isinstance(item, SecretRedactionFilter) for item in root.filters):
+        return
+    root.addFilter(SecretRedactionFilter())

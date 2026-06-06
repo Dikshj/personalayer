@@ -1,6 +1,5 @@
 import logging
 import os
-import threading
 from dataclasses import dataclass
 from typing import Callable
 
@@ -74,40 +73,6 @@ class GitHubCollector:
             logger.error("GitHub sync failed: %s", exc)
 
 
-class OllamaProxyCollector:
-    def __init__(self, spec: CollectorSpec):
-        self.spec = spec
-
-    def start(self) -> None:
-        thread = threading.Thread(
-            target=self._proxy_thread,
-            daemon=True,
-            name="ollama-proxy",
-        )
-        thread.start()
-
-    def _proxy_thread(self) -> None:
-        import urllib.request
-
-        try:
-            urllib.request.urlopen("http://localhost:11434/api/tags", timeout=2)
-        except Exception:
-            logger.info("Ollama not running; proxy skipped")
-            return
-
-        try:
-            from collectors.ollama_proxy import PROXY_PORT, ProxyHandler
-            from http.server import HTTPServer
-
-            server = HTTPServer(("127.0.0.1", PROXY_PORT), ProxyHandler)
-            logger.info("Ollama proxy :11435 -> :11434")
-            server.serve_forever()
-        except OSError:
-            logger.info("Ollama proxy port busy; skipping")
-        except Exception as exc:
-            logger.error("Ollama proxy error: %s", exc)
-
-
 class ShellWrapperCollector:
     def __init__(self, spec: CollectorSpec):
         self.spec = spec
@@ -120,6 +85,26 @@ class ShellWrapperCollector:
             logger.warning("Shell wrapper install skipped: %s", exc)
 
 
+class PCLIntegrationCollector:
+    def __init__(self, spec: CollectorSpec):
+        self.spec = spec
+
+    def start(self) -> None:
+        return None
+
+    def sync(self) -> None:
+        try:
+            from pcl.integration_jobs import sync_integration
+            result = sync_integration(self.spec.source)
+            status = result.get("status", "unknown") if isinstance(result, dict) else "unknown"
+            if status == "error":
+                logger.warning("PCL integration sync %s failed: %s", self.spec.source, result)
+            else:
+                logger.info("PCL integration sync %s complete: %s", self.spec.source, result)
+        except Exception as exc:
+            logger.error("PCL integration sync %s failed: %s", self.spec.source, exc)
+
+
 def run_claude_code_scan() -> None:
     collector = ClaudeCodeCollector(_spec_by_source()["claude_code"])
     collector.scan()
@@ -128,11 +113,6 @@ def run_claude_code_scan() -> None:
 def run_github_sync() -> None:
     collector = GitHubCollector(_spec_by_source()["github"])
     collector.sync()
-
-
-def start_ollama_proxy() -> None:
-    collector = OllamaProxyCollector(_spec_by_source()["ollama"])
-    collector.start()
 
 
 def ensure_shell_wrappers() -> None:
@@ -148,11 +128,34 @@ def builtin_collector_runtimes() -> list[CollectorRuntime]:
     specs = _spec_by_source()
     browser = BrowserExtensionCollector(specs["browser_extension"])
     claude_code = ClaudeCodeCollector(specs["claude_code"])
-    ollama = OllamaProxyCollector(specs["ollama"])
     shell = ShellWrapperCollector(specs["shell"])
     github = GitHubCollector(specs["github"])
+    pcl_integration_sources = (
+        "gmail",
+        "calendar",
+        "notion",
+        "google_drive",
+        "youtube",
+        "spotify",
+        "apple_health",
+        "linkedin",
+        "x",
+        "instagram",
+        "chatgpt",
+        "claude",
+        "perplexity",
+        "opencode",
+        "cursor",
+        "gemini",
+        "grok",
+        "github_copilot",
+        "aider",
+        "terminal",
+        "vscode",
+        "ide",
+    )
 
-    return [
+    runtimes = [
         CollectorRuntime(
             collector=browser,
             spec=browser.spec,
@@ -171,12 +174,6 @@ def builtin_collector_runtimes() -> list[CollectorRuntime]:
                     run=claude_code.scan,
                 ),
             ),
-        ),
-        CollectorRuntime(
-            collector=ollama,
-            spec=ollama.spec,
-            start=ollama.start,
-            enabled_by_default=ollama.spec.enabled_by_default,
         ),
         CollectorRuntime(
             collector=shell,
@@ -199,6 +196,27 @@ def builtin_collector_runtimes() -> list[CollectorRuntime]:
             ),
         ),
     ]
+
+    for index, source in enumerate(pcl_integration_sources):
+        collector = PCLIntegrationCollector(specs[source])
+        runtimes.append(
+            CollectorRuntime(
+                collector=collector,
+                spec=collector.spec,
+                enabled_by_default=collector.spec.enabled_by_default,
+                scheduled_jobs=(
+                    ScheduledCollectorJob(
+                        id=f"daily_{source}",
+                        collector_source=source,
+                        hour=index % 24,
+                        minute=(index * 7) % 60,
+                        run=collector.sync,
+                    ),
+                ),
+            )
+        )
+
+    return runtimes
 
 
 def scheduled_collector_jobs() -> list[ScheduledCollectorJob]:

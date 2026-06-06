@@ -9,12 +9,21 @@ import pytest
 from fastapi.testclient import TestClient
 
 from backend import app as _app
+from backend.interfaces import http_api
+from backend.settings import validate_production_config
+from pcl.auth import create_local_session
 
 
 @pytest.fixture
 def client():
     with TestClient(_app) as c:
         yield c
+
+
+@pytest.fixture
+def auth_headers():
+    token = create_local_session("local_user")
+    return {"Authorization": f"Bearer {token}"}
 
 
 class TestHTTPSecurity:
@@ -29,8 +38,13 @@ class TestHTTPSecurity:
         assert "X-Powered-By" not in response.headers
 
     def test_cors_preflight_options(self, client):
-        response = client.options("/health")
-        assert response.status_code in [200, 204, 400, 405]
+        response = client.options("/health", headers={"Origin": "http://127.0.0.1:7823"})
+        assert response.status_code == 204
+        assert response.headers["Access-Control-Allow-Origin"] == "http://127.0.0.1:7823"
+
+    def test_cors_rejects_unconfigured_origin(self, client):
+        response = client.options("/v1/context/all", headers={"Origin": "https://evil.example"})
+        assert response.status_code == 403
 
 
 class TestAuthentication:
@@ -41,8 +55,7 @@ class TestAuthentication:
             "intent": "full_profile",
             "requested_scopes": ["context_steering"]
         })
-        # May succeed with default user or require auth depending on config
-        assert response.status_code in [200, 401, 403]
+        assert response.status_code == 401
 
     def test_invalid_token_format(self, client):
         response = client.post("/v1/context/bundle", json={
@@ -50,29 +63,50 @@ class TestAuthentication:
             "intent": "full_profile",
             "requested_scopes": ["context_steering"]
         }, headers={"Authorization": "InvalidToken"})
-        assert response.status_code in [200, 401, 403]
+        assert response.status_code == 401
+
+    def test_sensitive_endpoint_accepts_valid_session(self, client, auth_headers):
+        response = client.get("/pcl/apps", headers=auth_headers)
+        assert response.status_code == 200
+
+    def test_bootstrap_session_refuses_without_configured_secret(self, client):
+        response = client.post("/v1/auth/local/session", json={
+            "user_id": "local_user",
+            "bootstrap_token": "anything",
+        })
+        assert response.status_code == 401
 
 
 class TestInputValidation:
     def test_invalid_json_rejected(self, client):
-        response = client.post("/v1/ingest/extension", data="not json")
+        response = client.post(
+            "/v1/ingest/extension",
+            data="not json",
+            headers={"Origin": "chrome-extension://local-test"},
+        )
         assert response.status_code in [400, 422]
 
     def test_oversized_payload_rejected(self, client):
         large_payload = {"data": "x" * (2 * 1024 * 1024)}
-        response = client.post("/v1/ingest/extension", json=large_payload)
-        # FastAPI may accept or reject depending on config
-        assert response.status_code in [200, 413, 400, 422]
+        response = client.post("/waitlist", json=large_payload)
+        assert response.status_code == 413
+
+    def test_sensitive_post_rejects_untrusted_browser_origin(self, client, auth_headers):
+        response = client.get(
+            "/pcl/apps",
+            headers={**auth_headers, "Origin": "https://evil.example"},
+        )
+        assert response.status_code == 403
 
 
 class TestPrivacyControls:
-    def test_delete_all_context(self, client):
-        response = client.delete("/v1/context/all")
-        assert response.status_code in [200, 401, 403]
+    def test_delete_all_context(self, client, auth_headers):
+        response = client.delete("/v1/context/all", headers=auth_headers)
+        assert response.status_code in [200, 403]
 
-    def test_query_log_accessible(self, client):
-        response = client.get("/pcl/query-log")
-        assert response.status_code in [200, 401, 403]
+    def test_query_log_accessible(self, client, auth_headers):
+        response = client.get("/pcl/query-log", headers=auth_headers)
+        assert response.status_code == 200
 
     def test_sensitive_data_not_in_bundle(self, client):
         response = client.post("/v1/context/bundle", json={
@@ -136,39 +170,39 @@ class TestBundleEndpoint:
 
 
 class TestAssistantProxy:
-    def test_assistant_chat_without_upstream_key(self, client):
+    def test_assistant_chat_without_upstream_key(self, client, auth_headers):
         os.environ.pop("PERSONALAYER_DEV_MODE", None)
         os.environ.pop("OPENAI_API_KEY", None)
-        response = client.post("/v1/assistant/chat", json={"message": "test"})
+        response = client.post("/v1/assistant/chat", json={"message": "test"}, headers=auth_headers)
         assert response.status_code in [200, 503, 401]
         data = response.json()
         # Should be dry_run or error, not a real upstream call
         assert data.get("status") in ["dry_run", "error", "upstream_not_configured"]
 
-    def test_chat_completions_without_upstream_key(self, client):
+    def test_chat_completions_without_upstream_key(self, client, auth_headers):
         os.environ.pop("PERSONALAYER_DEV_MODE", None)
         os.environ.pop("OPENAI_API_KEY", None)
         response = client.post("/v1/chat/completions", json={
             "model": "gpt-4",
             "messages": [{"role": "user", "content": "hello"}]
-        })
+        }, headers=auth_headers)
         assert response.status_code in [200, 503, 401]
         data = response.json()
         assert data.get("status") in ["dry_run", "error", "upstream_not_configured"]
 
 
 class TestAppsAndPermissions:
-    def test_list_apps(self, client):
-        response = client.get("/pcl/apps")
-        assert response.status_code in [200, 401]
+    def test_list_apps(self, client, auth_headers):
+        response = client.get("/pcl/apps", headers=auth_headers)
+        assert response.status_code == 200
 
-    def test_register_app(self, client):
+    def test_register_app(self, client, auth_headers):
         response = client.post("/pcl/apps", json={
             "app_id": "test_app_" + str(hash(os.urandom(4))),
             "name": "Test App",
             "allowed_layers": ["basic", "features"]
-        })
-        assert response.status_code in [200, 401, 422]
+        }, headers=auth_headers)
+        assert response.status_code in [200, 422]
 
 
 class TestIntegrations:
@@ -178,9 +212,9 @@ class TestIntegrations:
         data = response.json()
         assert "integrations" in data
 
-    def test_list_integrations(self, client):
-        response = client.get("/pcl/integrations")
-        assert response.status_code in [200, 401]
+    def test_list_integrations(self, client, auth_headers):
+        response = client.get("/pcl/integrations", headers=auth_headers)
+        assert response.status_code == 200
 
 
 class TestDevModeGating:
@@ -196,5 +230,29 @@ class TestDevModeGating:
 
     def test_dry_run_allowed_with_dev_mode(self, client):
         os.environ["PERSONALAYER_DEV_MODE"] = "1"
-        response = client.post("/v1/assistant/chat", json={"message": "test"})
+        response = client.post(
+            "/v1/assistant/chat",
+            json={"message": "test"},
+            headers={"Authorization": f"Bearer {create_local_session('local_user')}"},
+        )
         assert response.status_code in [200, 401]
+
+
+class TestProductionConfig:
+    def test_production_requires_bootstrap_secret(self, monkeypatch):
+        monkeypatch.setenv("PERSONALAYER_ENV", "production")
+        monkeypatch.setenv("PERSONALAYER_LOCAL_AUTH", "1")
+        monkeypatch.setenv("PERSONALAYER_ALLOWED_ORIGINS", "https://app.example")
+        monkeypatch.delenv("PERSONALAYER_LOCAL_AUTH_BOOTSTRAP_TOKEN", raising=False)
+        with pytest.raises(RuntimeError, match="BOOTSTRAP_TOKEN"):
+            validate_production_config()
+
+    def test_production_rejects_default_extension_origins(self, monkeypatch):
+        monkeypatch.setenv("PERSONALAYER_ENV", "production")
+        monkeypatch.delenv("PERSONALAYER_EXTENSION_ORIGINS", raising=False)
+        assert http_api._is_extension_origin_allowed("chrome-extension://abc") is False
+
+    def test_security_headers_present(self, client):
+        response = client.get("/health")
+        assert response.headers["X-Content-Type-Options"] == "nosniff"
+        assert response.headers["X-Frame-Options"] == "DENY"

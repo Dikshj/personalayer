@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0, viewport-fit=cover" name="viewport"/>
+<title>SecureSync - Enter Pairing Code</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@600&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        input:focus {
+            outline: none;
+            box-shadow: none;
+        }
+        /* Custom Keypad Press Animation */
+        .key-press:active {
+            transform: scale(0.95);
+            background-color: #eceef0; /* surface-container */
+        }
+        /* Hide scrollbars */
+        body::-webkit-scrollbar { display: none; }
+        body { -ms-overflow-style: none; scrollbar-width: none; }
+    </style>
+<script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              "colors": {
+                      "surface-bright": "#f7f9fb",
+                      "surface-dim": "#d8dadc",
+                      "tertiary-container": "#5e6e85",
+                      "on-tertiary-fixed": "#0b1c30",
+                      "surface-container-high": "#e6e8ea",
+                      "secondary-fixed": "#6ffbbe",
+                      "on-error": "#ffffff",
+                      "primary-fixed-dim": "#b4c5ff",
+                      "surface-variant": "#e0e3e5",
+                      "on-primary-fixed": "#00174b",
+                      "secondary-container": "#6cf8bb",
+                      "surface-variant": "#e0e3e5",
+                      "on-background": "#191c1e",
+                      "on-surface": "#191c1e",
+                      "error-container": "#ffdad6",
+                      "inverse-on-surface": "#eff1f3",
+                      "on-primary-container": "#eeefff",
+                      "on-secondary": "#ffffff",
+                      "surface-container": "#eceef0",
+                      "surface-tint": "#0053db",
+                      "surface-container-lowest": "#ffffff",
+                      "on-secondary-fixed-variant": "#005236",
+                      "on-tertiary-container": "#e9f0ff",
+                      "surface-container-highest": "#e0e3e5",
+                      "inverse-surface": "#2d3133",
+                      "tertiary-fixed-dim": "#b7c8e1",
+                      "error": "#ba1a1a",
+                      "primary-fixed": "#dbe1ff",
+                      "tertiary": "#46566c",
+                      "on-primary-fixed-variant": "#003ea8",
+                      "primary-container": "#2563eb",
+                      "on-surface-variant": "#434655",
+                      "on-secondary-container": "#00714d",
+                      "on-error-container": "#93000a",
+                      "outline-variant": "#c3c6d7",
+                      "primary": "#004ac6",
+                      "outline": "#737686",
+                      "on-tertiary-fixed-variant": "#38485d",
+                      "inverse-primary": "#b4c5ff",
+                      "on-tertiary": "#ffffff",
+                      "on-secondary-fixed": "#002113",
+                      "surface": "#f7f9fb",
+                      "on-primary": "#ffffff",
+                      "secondary-fixed-dim": "#4edea3",
+                      "background": "#f7f9fb"
+              },
+              "borderRadius": {
+                      "DEFAULT": "0.125rem",
+                      "lg": "0.25rem",
+                      "xl": "0.5rem",
+                      "full": "0.75rem"
+              },
+              "spacing": {
+                      "unit": "4px",
+                      "stack-sm": "8px",
+                      "margin-desktop": "32px",
+                      "gutter": "16px",
+                      "margin-mobile": "20px",
+                      "stack-md": "16px",
+                      "stack-lg": "32px"
+              },
+              "fontFamily": {
+                      "headline-lg": ["Inter"],
+                      "headline-md": ["Inter"],
+                      "body-md": ["Inter"],
+                      "body-lg": ["Inter"],
+                      "headline-lg-mobile": ["Inter"],
+                      "label-sm": ["Inter"],
+                      "code-display": ["JetBrains Mono"]
+              },
+              "fontSize": {
+                      "headline-lg": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                      "headline-md": ["20px", {"lineHeight": "28px", "fontWeight": "600"}],
+                      "body-md": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+                      "body-lg": ["18px", {"lineHeight": "28px", "fontWeight": "400"}],
+                      "headline-lg-mobile": ["24px", {"lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "700"}],
+                      "label-sm": ["14px", {"lineHeight": "20px", "fontWeight": "500"}],
+                      "code-display": ["36px", {"lineHeight": "44px", "letterSpacing": "0.1em", "fontWeight": "600"}]
+              }
+            },
+          },
+        }
+    </script>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-background text-on-surface font-body-md min-h-screen flex flex-col items-center">
+<!-- Top Navigation Bar (Mobile) -->
+<header class="flex justify-between items-center w-full px-margin-mobile h-16 bg-surface border-b border-outline-variant">
+<div class="flex items-center gap-stack-sm cursor-pointer active:opacity-80">
+<span class="material-symbols-outlined text-on-surface-variant">arrow_back</span>
+</div>
+<h1 class="font-headline-md text-headline-md font-bold text-primary">SecureSync</h1>
+<div class="flex items-center gap-4">
+<span class="material-symbols-outlined text-on-surface-variant cursor-pointer hover:bg-surface-container-low transition-colors rounded-full p-2">help</span>
+</div>
+</header>
+<!-- Main Content Canvas -->
+<main class="flex-1 w-full max-w-[640px] px-margin-mobile pt-stack-lg flex flex-col items-center">
+<!-- Instructional Header -->
+<div class="text-center w-full mb-stack-lg">
+<h2 class="font-headline-lg-mobile text-headline-lg-mobile text-on-surface mb-stack-sm">Enter Pairing Code</h2>
+<p class="text-on-surface-variant font-body-md">Enter the 6-character code displayed on your other device to synchronize accounts.</p>
+</div>
+<!-- Code Input Group -->
+<div class="flex gap-2 mb-stack-lg justify-center w-full" id="otp-container">
+<!-- Individual code boxes -->
+<div class="w-12 h-16 border border-outline rounded-lg bg-surface-container-lowest flex items-center justify-center transition-all duration-200 focus-within:ring-2 focus-within:ring-primary focus-within:border-primary">
+<span class="font-code-display text-code-display text-primary uppercase" id="char-0"></span>
+<div class="cursor w-px h-8 bg-primary animate-pulse hidden"></div>
+</div>
+<div class="w-12 h-16 border border-outline rounded-lg bg-surface-container-lowest flex items-center justify-center transition-all duration-200">
+<span class="font-code-display text-code-display text-primary uppercase" id="char-1"></span>
+</div>
+<div class="w-12 h-16 border border-outline rounded-lg bg-surface-container-lowest flex items-center justify-center transition-all duration-200">
+<span class="font-code-display text-code-display text-primary uppercase" id="char-2"></span>
+</div>
+<div class="w-12 h-16 border border-outline rounded-lg bg-surface-container-lowest flex items-center justify-center transition-all duration-200">
+<span class="font-code-display text-code-display text-primary uppercase" id="char-3"></span>
+</div>
+<div class="w-12 h-16 border border-outline rounded-lg bg-surface-container-lowest flex items-center justify-center transition-all duration-200">
+<span class="font-code-display text-code-display text-primary uppercase" id="char-4"></span>
+</div>
+<div class="w-12 h-16 border border-outline rounded-lg bg-surface-container-lowest flex items-center justify-center transition-all duration-200">
+<span class="font-code-display text-code-display text-primary uppercase" id="char-5"></span>
+</div>
+</div>
+<!-- Help Link -->
+<button class="flex items-center gap-2 text-primary font-label-sm mb-stack-lg hover:underline transition-all">
+<span class="material-symbols-outlined text-[18px]">info</span>
+<span>Where is the code?</span>
+</button>
+<!-- Hidden input for managing focus and paste -->
+<input autocomplete="one-time-code" autofocus="" class="sr-only" id="real-input" maxlength="6" type="text"/>
+<!-- CTA Button -->
+<div class="w-full mb-stack-lg">
+<button class="w-full h-14 bg-outline text-on-error font-body-md font-bold rounded-xl transition-all duration-300 opacity-50 cursor-not-allowed" disabled="" id="submit-btn">
+                Link Device
+            </button>
+</div>
+</main>
+<!-- Custom Alphanumeric Keypad -->
+<div class="w-full bg-surface-container border-t border-outline-variant p-2 grid grid-cols-3 gap-2 pb-safe-area">
+<!-- Row 1 -->
+<button class="key-press h-14 bg-surface-container-lowest rounded-lg flex items-center justify-center font-headline-md shadow-sm" onclick="addChar('1')">1</button>
+<button class="key-press h-14 bg-surface-container-lowest rounded-lg flex items-center justify-center font-headline-md shadow-sm" onclick="addChar('2')">2</button>
+<button class="key-press h-14 bg-surface-container-lowest rounded-lg flex items-center justify-center font-headline-md shadow-sm" onclick="addChar('3')">3</button>
+<!-- Row 2 -->
+<button class="key-press h-14 bg-surface-container-lowest rounded-lg flex items-center justify-center font-headline-md shadow-sm" onclick="addChar('4')">4</button>
+<button class="key-press h-14 bg-surface-container-lowest rounded-lg flex items-center justify-center font-headline-md shadow-sm" onclick="addChar('5')">5</button>
+<button class="key-press h-14 bg-surface-container-lowest rounded-lg flex items-center justify-center font-headline-md shadow-sm" onclick="addChar('6')">6</button>
+<!-- Row 3 -->
+<button class="key-press h-14 bg-surface-container-lowest rounded-lg flex items-center justify-center font-headline-md shadow-sm" onclick="addChar('7')">7</button>
+<button class="key-press h-14 bg-surface-container-lowest rounded-lg flex items-center justify-center font-headline-md shadow-sm" onclick="addChar('8')">8</button>
+<button class="key-press h-14 bg-surface-container-lowest rounded-lg flex items-center justify-center font-headline-md shadow-sm" onclick="addChar('9')">9</button>
+<!-- Row 4 -->
+<button class="key-press h-14 bg-surface-container-low rounded-lg flex items-center justify-center font-headline-md shadow-sm text-primary" onclick="addChar('A')">A</button>
+<button class="key-press h-14 bg-surface-container-lowest rounded-lg flex items-center justify-center font-headline-md shadow-sm" onclick="addChar('0')">0</button>
+<button class="key-press h-14 bg-surface-container-low rounded-lg flex items-center justify-center font-headline-md shadow-sm" onclick="removeChar()">
+<span class="material-symbols-outlined">backspace</span>
+</button>
+</div>
+<!-- Script for interaction logic -->
+<script>
+        const realInput = document.getElementById('real-input');
+        const submitBtn = document.getElementById('submit-btn');
+        const chars = Array.from({length: 6}, (_, i) => document.getElementById(`char-${i}`));
+        const boxes = document.querySelectorAll('#otp-container > div');
+
+        function updateUI() {
+            const val = realInput.value.toUpperCase();
+            chars.forEach((span, i) => {
+                span.textContent = val[i] || '';
+                
+                // Styling active/inactive boxes
+                if (i === val.length) {
+                    boxes[i].classList.add('border-primary', 'ring-2', 'ring-primary');
+                    boxes[i].classList.remove('border-outline');
+                } else if (val[i]) {
+                    boxes[i].classList.add('border-primary-container');
+                    boxes[i].classList.remove('border-outline', 'border-primary', 'ring-2', 'ring-primary');
+                } else {
+                    boxes[i].classList.add('border-outline');
+                    boxes[i].classList.remove('border-primary', 'ring-2', 'ring-primary', 'border-primary-container');
+                }
+            });
+
+            // Handle Button State
+            if (val.length === 6) {
+                submitBtn.disabled = false;
+                submitBtn.classList.remove('bg-outline', 'opacity-50', 'cursor-not-allowed');
+                submitBtn.classList.add('bg-primary-container', 'hover:bg-primary', 'active:scale-95');
+                submitBtn.style.backgroundColor = '#2563eb'; // Primary color from config
+            } else {
+                submitBtn.disabled = true;
+                submitBtn.classList.add('bg-outline', 'opacity-50', 'cursor-not-allowed');
+                submitBtn.classList.remove('bg-primary-container', 'hover:bg-primary', 'active:scale-95');
+                submitBtn.style.backgroundColor = '';
+            }
+        }
+
+        function addChar(c) {
+            if (realInput.value.length < 6) {
+                realInput.value += c;
+                updateUI();
+            }
+        }
+
+        function removeChar() {
+            realInput.value = realInput.value.slice(0, -1);
+            updateUI();
+        }
+
+        // Listen for real keyboard/paste events
+        realInput.addEventListener('input', updateUI);
+        
+        // Initial state
+        updateUI();
+
+        // Keep hidden input focused for paste functionality
+        document.body.addEventListener('click', () => {
+            realInput.focus();
+        });
+        realInput.focus();
+    </script>
+<!-- Bottom Navigation Component (Suppressed for focused task-flow per rules) -->
+</body></html>

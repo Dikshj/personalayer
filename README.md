@@ -58,6 +58,8 @@ scripts/build-ios.sh
 
 - [Privacy Policy](docs/PRIVACY_POLICY.md)
 - [Terms of Service](docs/TERMS_OF_SERVICE.md)
+- [Data Retention Policy](docs/DATA_RETENTION.md)
+- [Security Policy](docs/SECURITY.md)
 - [Threat Model](docs/THREAT_MODEL.md)
 
 ---
@@ -85,6 +87,7 @@ scripts/build-ios.sh
 - CORS restricted to localhost + extension origins
 - Row-level security on all cloud tables
 - Silent APNs pushes only (no behavioral text in payload)
+- Security reports: security@personallayer.dev
 
 ---
 

@@ -12,7 +12,8 @@ def test_builtin_collector_specs_include_privacy_metadata():
     assert specs["browser_extension"].raw_content_stored is False
     assert specs["github"].raw_content_stored is True
     assert specs["claude_code"].event_types == ("session_signals",)
-    assert specs["ollama"].mode == "proxy"
+    assert "ollama" not in specs
+    assert "sgpt" not in specs
 
 
 def test_registry_exposes_scheduled_collector_jobs(monkeypatch):
@@ -36,7 +37,7 @@ def test_resident_collectors_are_declared():
         if runtime.start is not None
     }
 
-    assert resident_sources == {"ollama", "shell"}
+    assert resident_sources == {"shell"}
 
 
 def test_collector_runtimes_wrap_protocol_collectors():

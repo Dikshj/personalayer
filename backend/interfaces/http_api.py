@@ -1,5 +1,6 @@
 # backend/interfaces/http_api.py
 import json
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
@@ -92,7 +93,7 @@ from database import (
     list_control_center_audit,
 )
 from living_persona import build_living_persona
-from policy import build_scoped_persona, negotiate_context_contract
+from context_packaging import build_context_package, create_context_contract
 from pcl.composer import compose_decision_bundle
 from pcl.models import (
     ActiveContext,
@@ -164,6 +165,7 @@ from pcl.proxy import proxy_chat_completion
 from pcl.shared_context import read_shared_context_bundle, shared_context_bundle_path
 from predictions import predict_next_context
 from scheduler import create_scheduler, start_background_collectors
+from settings import csv_env, is_production_env, max_request_bytes, validate_production_config
 from pcl.control_center import (
     get_control_center_summary,
     search_signals,
@@ -192,15 +194,17 @@ from pcl.privacy_boundaries import (
 from pcl.egress import enforce_egress_policy
 from pcl.auth import (
     require_local_auth,
-    verify_dashboard_request,
-    create_local_session,
-    LOCAL_AUTH_ENABLED,
+    create_bootstrap_session,
+    install_secret_log_redaction,
+    local_auth_enabled,
     AuthError,
 )
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    install_secret_log_redaction()
+    validate_production_config()
     create_tables()
     scheduler = create_scheduler()
     scheduler.start()
@@ -213,6 +217,60 @@ app = FastAPI(title="PersonaLayer", lifespan=lifespan)
 
 _CORS_METHODS = "POST, GET, PATCH, DELETE, OPTIONS"
 _CORS_HEADERS = "Content-Type, Authorization, x-user-token, x-contextlayer-api-key, x-csrf-token"
+_DEFAULT_ALLOWED_ORIGINS = {
+    "http://localhost:7823",
+    "http://127.0.0.1:7823",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+}
+_PUBLIC_PATHS = {
+    "/health",
+    "/waitlist",
+    "/waitlist/count",
+    "/pcl/onboarding/questions",
+    "/pcl/integrations/catalog",
+    "/v1/auth/local/session",
+}
+_PUBLIC_PREFIXES = ("/landing", "/dashboard")
+_EXTENSION_INGEST_PATHS = {"/v1/ingest/extension", "/event"}
+_SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "no-referrer",
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+}
+
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    response = await call_next(request)
+    for name, value in _SECURITY_HEADERS.items():
+        response.headers.setdefault(name, value)
+    if is_production_env():
+        response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+    return response
+
+
+@app.middleware("http")
+async def request_size_limit(request: Request, call_next):
+    content_length = request.headers.get("content-length")
+    if content_length:
+        try:
+            if int(content_length) > max_request_bytes():
+                return Response(
+                    status_code=413,
+                    content=json.dumps({"error": "payload_too_large"}),
+                    media_type="application/json",
+                )
+        except ValueError:
+            return Response(
+                status_code=400,
+                content=json.dumps({"error": "invalid_content_length"}),
+                media_type="application/json",
+            )
+    return await call_next(request)
 
 
 @app.middleware("http")
@@ -237,26 +295,22 @@ async def scoped_local_cors(request: Request, call_next):
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
     """Enforce local auth on sensitive endpoints."""
-    if not LOCAL_AUTH_ENABLED:
+    if not local_auth_enabled():
         return await call_next(request)
-    # Public endpoints that do not require auth
-    public_paths = {
-        "/health",
-        "/waitlist",
-        "/waitlist/count",
-        "/pcl/onboarding/questions",
-        "/landing",
-        "/dashboard",
-        "/v1/web/permissions/check",
-    }
     path = request.url.path
-    if any(path.startswith(p) for p in public_paths):
+    if path in _PUBLIC_PATHS or any(path.startswith(prefix) for prefix in _PUBLIC_PREFIXES):
         return await call_next(request)
 
     # Allow extension origins without session token for ingest (they have domain checks)
     origin = request.headers.get("origin", "")
-    if origin.startswith("chrome-extension://") or origin.startswith("safari-web-extension://"):
-        if path in {"/v1/ingest/extension", "/event"}:
+    if origin and not _is_cors_origin_allowed(origin):
+        return Response(
+            status_code=403,
+            content=json.dumps({"error": "forbidden_origin"}),
+            media_type="application/json",
+        )
+    if _is_extension_origin_allowed(origin):
+        if path in _EXTENSION_INGEST_PATHS:
             return await call_next(request)
 
     # ContextLayer developer API keys are authorized inside the endpoint because
@@ -280,6 +334,8 @@ async def auth_middleware(request: Request, call_next):
         if token:
             session = require_local_auth(token)
             request.state.user_id = session["user_id"]
+        else:
+            raise AuthError("missing_session_token")
     except AuthError:
         if request.method == "OPTIONS":
             return await call_next(request)
@@ -294,15 +350,37 @@ async def auth_middleware(request: Request, call_next):
 def _is_cors_origin_allowed(origin: str) -> bool:
     if not origin:
         return False
+    if origin in _allowed_http_origins():
+        return True
+    if _is_extension_origin_allowed(origin):
+        return True
+    return False
+
+
+def _allowed_http_origins() -> set[str]:
+    configured = csv_env("PERSONALAYER_ALLOWED_ORIGINS")
+    configured.discard("*")
+    if configured:
+        return configured
+    return set() if is_production_env() else set(_DEFAULT_ALLOWED_ORIGINS)
+
+
+def _allowed_extension_origins() -> set[str]:
+    configured = csv_env("PERSONALAYER_EXTENSION_ORIGINS")
+    configured.discard("*")
+    return configured
+
+
+def _is_extension_origin_allowed(origin: str) -> bool:
+    allowed = _allowed_extension_origins()
+    if allowed:
+        return origin in allowed
+    if is_production_env():
+        return False
     parsed = urlparse(origin)
-    host = (parsed.hostname or "").lower()
     scheme = (parsed.scheme or "").lower()
     if scheme in {"chrome-extension", "safari-web-extension"}:
         return True
-    if scheme in {"http", "https"} and host in {"localhost", "127.0.0.1", "::1"}:
-        return True
-    if scheme in {"http", "https"} and host:
-        return bool(check_web_domain_permission("local_user", host, []).get("authorized"))
     return False
 
 PROJECT_ROOT = Path(__file__).parent.parent.parent
@@ -320,6 +398,11 @@ class WaitlistEntry(BaseModel):
     source: Optional[str] = "landing"
 
 
+class LocalSessionRequest(BaseModel):
+    user_id: str = "local_user"
+    bootstrap_token: str = ""
+
+
 @app.post("/waitlist")
 async def join_waitlist(entry: WaitlistEntry):
     if "@" not in entry.email or "." not in entry.email:
@@ -334,6 +417,30 @@ async def join_waitlist(entry: WaitlistEntry):
 @app.get("/waitlist/count")
 async def waitlist_count():
     return {"count": get_waitlist_count()}
+
+
+@app.post("/v1/auth/local/session")
+async def create_local_auth_session(payload: LocalSessionRequest, response: Response):
+    try:
+        token = create_bootstrap_session(payload.user_id or "local_user", payload.bootstrap_token)
+    except AuthError as exc:
+        return Response(
+            status_code=401,
+            content=json.dumps({"error": "unauthorized", "detail": str(exc)}),
+            media_type="application/json",
+        )
+    response.set_cookie(
+        "pl_session",
+        token,
+        httponly=True,
+        samesite="strict",
+        secure=os.getenv("PERSONALAYER_COOKIE_SECURE", "0") == "1",
+        max_age=60 * 60 * 24 * 7,
+    )
+    body = {"status": "ok", "user_id": payload.user_id or "local_user"}
+    if os.getenv("PERSONALAYER_RETURN_SESSION_TOKEN", "0") == "1" or not is_production_env():
+        body["session_token"] = token
+    return body
 
 
 class BrowsingEvent(BaseModel):
@@ -1830,7 +1937,7 @@ class PersonaFeedback(BaseModel):
 
 @app.post("/context/negotiate")
 async def negotiate_context(payload: ContextNegotiationRequest):
-    return negotiate_context_contract(
+    return create_context_contract(
         platform_type=payload.platform_type,
         facilities=payload.facilities,
         requested_context=payload.requested_context,
@@ -1841,7 +1948,7 @@ async def negotiate_context(payload: ContextNegotiationRequest):
 
 @app.get("/context/{contract_id}")
 async def get_scoped_context(contract_id: str):
-    return build_scoped_persona(contract_id)
+    return build_context_package(contract_id)
 
 
 @app.get("/context-contracts")

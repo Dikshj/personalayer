@@ -109,8 +109,8 @@ def handle_get_current_focus(persona_file: str = DEFAULT_PERSONA_FILE) -> str:
 
 
 def handle_negotiate_context(arguments: dict) -> str:
-    from policy import negotiate_context_contract
-    contract = negotiate_context_contract(
+    from context_packaging import create_context_contract
+    contract = create_context_contract(
         platform_type=arguments.get("platform_type", "unknown"),
         facilities=arguments.get("facilities", []),
         requested_context=arguments.get("requested_context"),
@@ -121,8 +121,8 @@ def handle_negotiate_context(arguments: dict) -> str:
 
 
 def handle_get_scoped_persona(contract_id: str) -> str:
-    from policy import build_scoped_persona
-    return _json_with_egress(build_scoped_persona(contract_id))
+    from context_packaging import build_context_package
+    return _json_with_egress(build_context_package(contract_id))
 
 
 def handle_revoke_context_contract(contract_id: str) -> str:
