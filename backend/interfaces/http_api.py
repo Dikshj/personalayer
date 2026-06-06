@@ -216,7 +216,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="PersonaLayer", lifespan=lifespan)
 
 _CORS_METHODS = "POST, GET, PATCH, DELETE, OPTIONS"
-_CORS_HEADERS = "Content-Type, Authorization, x-user-token, x-contextlayer-api-key, x-csrf-token"
+_CORS_HEADERS = "Content-Type, Authorization, x-user-token, x-contextlayer-api-key, x-upstream-api-key, x-csrf-token"
 _DEFAULT_ALLOWED_ORIGINS = {
     "http://localhost:7823",
     "http://127.0.0.1:7823",
@@ -1606,6 +1606,7 @@ async def contextlayer_chat_completions(
     x_app_id: Optional[str] = Header(default="human_api_proxy"),
     x_user_token: Optional[str] = Header(default=""),
     x_contextlayer_api_key: Optional[str] = Header(default=""),
+    x_upstream_api_key: Optional[str] = Header(default=""),
 ):
     data = payload.model_dump(exclude_none=True)
     user_id = _resolve_context_user_id(payload.user_id or x_user_id or "local_user", x_user_token or "")
@@ -1621,7 +1622,7 @@ async def contextlayer_chat_completions(
         data,
         user_id=user_id,
         app_id=app_id,
-        authorization=authorization or "",
+        authorization=_upstream_authorization(x_upstream_api_key or ""),
         context_authorization=context_authorization,
     )
 
@@ -1630,12 +1631,13 @@ async def contextlayer_chat_completions(
 async def contextlayer_assistant_chat(
     payload: AssistantChatRequest,
     authorization: Optional[str] = Header(default=""),
+    x_upstream_api_key: Optional[str] = Header(default=""),
 ):
     return await personal_assistant_chat(
         message=payload.message,
         user_id=payload.user_id,
         model=payload.model,
-        authorization=authorization or "",
+        authorization=_upstream_authorization(x_upstream_api_key or ""),
     )
 
 
