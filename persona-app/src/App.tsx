@@ -34,7 +34,7 @@ const manualCode = ["A", "7", "-", "B", "2", "-", "X", "9"];
 const keys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "A", "0"];
 
 function App() {
-  const [screen, setScreen] = useState<Screen>("laptop");
+  const [screen, setScreen] = useState<Screen>("privacy-home");
   const [pairingCode, setPairingCode] = useState("");
   const [backendStatus, setBackendStatus] = useState<BackendStatus>("loading");
   const [pairingSession, setPairingSession] = useState<PairingSession | null>(null);
@@ -317,30 +317,27 @@ function TopBar({
         </div>
       </div>
 
-      <div className="flex items-center gap-2">
-        <div className="hidden items-center rounded-full bg-surface-container-low p-1 sm:flex">
+      <div className="flex min-w-0 items-center gap-2">
+        <div className="flex max-w-[calc(100vw-160px)] items-center overflow-x-auto rounded-full bg-surface-container-low p-1 sm:max-w-none">
           <button
-            className={`rounded-full px-4 py-2 text-sm font-semibold transition ${!privacyScreen && !legalScreen ? "bg-white text-primary shadow-sm" : "text-on-surface-variant"}`}
+            className={`shrink-0 rounded-full px-3 py-2 text-sm font-semibold transition sm:px-4 ${!privacyScreen && !legalScreen ? "bg-white text-primary shadow-sm" : "text-on-surface-variant"}`}
             onClick={() => setScreen("laptop")}
           >
             Pairing
           </button>
           <button
-            className={`rounded-full px-4 py-2 text-sm font-semibold transition ${privacyScreen ? "bg-white text-primary shadow-sm" : "text-on-surface-variant"}`}
+            className={`shrink-0 rounded-full px-3 py-2 text-sm font-semibold transition sm:px-4 ${privacyScreen ? "bg-white text-primary shadow-sm" : "text-on-surface-variant"}`}
             onClick={() => setScreen("privacy-home")}
           >
             Privacy
           </button>
           <button
-            className={`rounded-full px-4 py-2 text-sm font-semibold transition ${legalScreen ? "bg-white text-primary shadow-sm" : "text-on-surface-variant"}`}
+            className={`shrink-0 rounded-full px-3 py-2 text-sm font-semibold transition sm:px-4 ${legalScreen ? "bg-white text-primary shadow-sm" : "text-on-surface-variant"}`}
             onClick={() => setScreen("legal")}
           >
             Legal
           </button>
         </div>
-        <button className="icon-button sm:hidden" aria-label="Legal" title="Legal" onClick={() => setScreen("legal")}>
-          <FileText size={20} />
-        </button>
         <button className="icon-button" aria-label="Settings" title="Settings">
           <Settings size={20} />
         </button>
