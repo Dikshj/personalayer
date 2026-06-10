@@ -1,11 +1,17 @@
 const SESSION_STORAGE_KEY = "personalayer_session_token";
 const rawApiBase = import.meta.env.VITE_PERSONALAYER_API_BASE || (import.meta.env.DEV ? "http://127.0.0.1:7823" : "");
 export const API_BASE = rawApiBase.replace(/\/$/, "");
+function readBool(value: unknown, fallback: boolean): boolean {
+  if (value === undefined || value === null || value === "") return fallback;
+  return !["0", "false", "no", "off"].includes(String(value).toLowerCase());
+}
+
 export const API_CONFIG = {
   apiBase: API_BASE,
   hasApiBase: Boolean(API_BASE),
   isProduction: import.meta.env.PROD,
-  requiresSession: import.meta.env.PROD || Boolean(import.meta.env.VITE_PERSONALAYER_REQUIRE_SESSION),
+  // Defaults to required in production; the env var can force it on/off.
+  requiresSession: readBool(import.meta.env.VITE_PERSONALAYER_REQUIRE_SESSION, import.meta.env.PROD),
 };
 
 export function getStoredSessionToken(): string {
@@ -133,6 +139,17 @@ export async function deleteSignal(signalId: number): Promise<{ deleted: boolean
   return deleteJson(`/v1/control-center/signals/${signalId}?user_id=local_user`);
 }
 
+export async function editSignal(
+  signalId: number,
+  patch: { name?: string; confidence?: number; shareable?: boolean },
+): Promise<PersonaSignal> {
+  return patchJson(`/v1/control-center/signals/${signalId}`, {
+    user_id: "local_user",
+    reason: "Edited from persona dashboard",
+    ...patch,
+  });
+}
+
 export async function getApps(): Promise<{ apps: PclApp[] }> {
   return getJson("/pcl/apps");
 }
@@ -152,6 +169,10 @@ export async function disconnectIntegration(source: string): Promise<Record<stri
   return postJson(`/pcl/integrations/${encodeURIComponent(source)}/disconnect`, {});
 }
 
+export async function syncIntegration(source: string): Promise<Record<string, unknown>> {
+  return postJson(`/pcl/integrations/${encodeURIComponent(source)}/sync`, {});
+}
+
 export async function getPrivacyProfile(): Promise<PrivacyProfile> {
   return getJson("/v1/user/privacy-profile");
 }
@@ -167,6 +188,96 @@ export async function addPrivacyBoundary(boundaryType: string, target: string, r
 
 export async function deletePrivacyBoundary(boundaryId: string): Promise<Record<string, unknown>> {
   return deleteJson(`/v1/user/boundaries/${encodeURIComponent(boundaryId)}?user_id=local_user`);
+}
+
+// ---- Control-center: permissions, audit, export -----------------------------
+
+export type ControlCenterPermission = {
+  id?: string;
+  app_id?: string;
+  name?: string;
+  permission_type?: string;
+  type?: string;
+  status?: string;
+  scopes?: string[];
+  granted_at?: string | number;
+  expires_at?: string | number | null;
+};
+
+export type AuditEntry = {
+  id?: string;
+  action?: string;
+  target_type?: string;
+  target_id?: string;
+  details?: Record<string, unknown>;
+  created_at?: string | number;
+};
+
+export type SyncDevice = {
+  device_id?: string;
+  device_name?: string;
+  status?: string;
+  platform?: string;
+  created_at?: string | number;
+  last_seen_at?: string | number | null;
+};
+
+export async function getControlCenterPermissions(): Promise<{
+  all_permissions?: ControlCenterPermission[];
+  active?: ControlCenterPermission[];
+  revoked?: ControlCenterPermission[];
+  expired?: ControlCenterPermission[];
+  counts?: Record<string, number>;
+}> {
+  return getJson("/v1/control-center/permissions?user_id=local_user");
+}
+
+export async function revokeControlCenterPermission(
+  permissionId: string,
+  permissionType: string,
+): Promise<Record<string, unknown>> {
+  return postJson(`/v1/control-center/permissions/${encodeURIComponent(permissionId)}/revoke`, {
+    user_id: "local_user",
+    permission_type: permissionType,
+  });
+}
+
+export async function getAuditLog(limit = 100): Promise<{ logs: AuditEntry[]; count: number }> {
+  return getJson(`/v1/control-center/audit?user_id=local_user&limit=${limit}`);
+}
+
+export async function getPrivacyDrops(limit = 100): Promise<{ drops: Array<Record<string, unknown>> }> {
+  return getJson(`/v1/context/privacy-drops?user_id=local_user&limit=${limit}`);
+}
+
+export async function getSyncDevices(): Promise<{ devices: SyncDevice[] }> {
+  return getJson("/v1/sync/devices?user_id=local_user");
+}
+
+export async function revokeSyncDevice(deviceId: string): Promise<Record<string, unknown>> {
+  return postJson(`/v1/sync/devices/${encodeURIComponent(deviceId)}/revoke`, { user_id: "local_user" });
+}
+
+export async function exportControlCenterData(): Promise<Record<string, unknown>> {
+  return postJson("/v1/control-center/export?user_id=local_user&format=json", {});
+}
+
+export async function deleteAllContext(): Promise<Record<string, unknown>> {
+  return deleteJson("/v1/context/all?user_id=local_user");
+}
+
+export async function deleteUserData(userId = "local_user"): Promise<Record<string, unknown>> {
+  return deleteJson(`/pcl/users/${encodeURIComponent(userId)}/data`);
+}
+
+// Creates a local session token via the backend bootstrap flow. When the
+// backend returns a token (non-production or RETURN_SESSION_TOKEN=1) it is
+// stored for Bearer auth; otherwise the httpOnly cookie carries the session.
+export async function createLocalSession(
+  userId = "local_user",
+  bootstrapToken = "",
+): Promise<{ status?: string; user_id?: string; session_token?: string }> {
+  return postJson("/v1/auth/local/session", { user_id: userId, bootstrap_token: bootstrapToken });
 }
 
 async function getJson<T>(path: string): Promise<T> {
