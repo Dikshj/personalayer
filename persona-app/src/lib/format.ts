@@ -29,3 +29,21 @@ export function titleize(value: string | undefined | null): string {
     .replace(/\b\w/g, (c) => c.toUpperCase())
     .trim();
 }
+
+// Compact, deterministic fingerprint for a public key so the raw key is never
+// shown. Folds the key into 8 bytes rendered as colon-separated hex groups.
+export function fingerprint(key: string | undefined | null): string {
+  if (!key) return "—";
+  const bytes = new Array(8).fill(0);
+  for (let i = 0; i < key.length; i += 1) {
+    const idx = i % 8;
+    bytes[idx] = (bytes[idx] * 31 + key.charCodeAt(i)) & 0xff;
+  }
+  return bytes.map((b) => b.toString(16).padStart(2, "0")).join(":").toUpperCase();
+}
+
+// Shortens a long version/hash for display while keeping it recognizable.
+export function shortHash(value: string | undefined | null, head = 8): string {
+  if (!value) return "—";
+  return value.length <= head + 2 ? value : `${value.slice(0, head)}…`;
+}

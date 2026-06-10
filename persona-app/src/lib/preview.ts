@@ -7,6 +7,8 @@ import type {
   PclIntegration,
   PersonaSignal,
   PrivacyBoundary,
+  SyncAuditEvent,
+  SyncConflict,
   SyncDevice,
 } from "../api";
 
@@ -55,5 +57,51 @@ export const previewAudit: AuditEntry[] = [
 ];
 
 export const previewDevices: SyncDevice[] = [
-  { device_id: "iphone-15-pro", device_name: "iPhone 15 Pro", platform: "ios", status: "trusted", created_at: hoursAgo(400), last_seen_at: hoursAgo(2) },
+  {
+    id: "d1",
+    device_id: "iphone-15-pro",
+    device_name: "iPhone 15 Pro",
+    public_key: "preview-ios-public-key-aaaa",
+    trust_status: "trusted",
+    created_at: hoursAgo(400),
+    last_seen_at: hoursAgo(2),
+  },
+  {
+    id: "d2",
+    device_id: "macbook-air",
+    device_name: "MacBook Air",
+    public_key: "preview-mac-public-key-bbbb",
+    trust_status: "trusted",
+    created_at: hoursAgo(900),
+    last_seen_at: hoursAgo(26),
+  },
+  {
+    id: "d3",
+    device_id: "pixel-tablet",
+    device_name: "Pixel Tablet",
+    public_key: "preview-android-public-key-cccc",
+    trust_status: "pending",
+    created_at: hoursAgo(1),
+    last_seen_at: hoursAgo(1),
+  },
+  {
+    id: "d4",
+    device_id: "old-laptop",
+    device_name: "Old Laptop",
+    public_key: "preview-old-public-key-dddd",
+    trust_status: "revoked",
+    created_at: hoursAgo(4000),
+    last_seen_at: hoursAgo(800),
+    revoked_at: hoursAgo(300),
+  },
+];
+
+export const previewConflicts: SyncConflict[] = [];
+
+export const previewSyncAudit: SyncAuditEvent[] = [
+  { id: "s1", action: "snapshot_created", device_id: "web-local", version: "9f2a1c4d8e", details: {}, created_at: hoursAgo(1) },
+  { id: "s2", action: "pairing_claimed", device_id: "iphone-15-pro", details: { scopes: ["profile_summary", "preferences"] }, created_at: hoursAgo(3) },
+  { id: "s3", action: "pairing_approved", device_id: "iphone-15-pro", details: {}, created_at: hoursAgo(3) },
+  { id: "s4", action: "device_trusted", device_id: "macbook-air", details: {}, created_at: hoursAgo(26) },
+  { id: "s5", action: "device_revoked", device_id: "old-laptop", details: { reason: "lost device" }, created_at: hoursAgo(300) },
 ];

@@ -2,7 +2,7 @@
 // only for repeated items and tool panels — never nested.
 
 import { useState, type ButtonHTMLAttributes, type ReactNode } from "react";
-import { Loader2 } from "lucide-react";
+import { Check, Copy, Loader2 } from "lucide-react";
 
 export function Panel({
   title,
@@ -118,16 +118,18 @@ export function ConfirmButton({
   children,
   confirmLabel = "Confirm",
   onConfirm,
+  disabled = false,
 }: {
   children: ReactNode;
   confirmLabel?: string;
   onConfirm: () => void | Promise<void>;
+  disabled?: boolean;
 }) {
   const [armed, setArmed] = useState(false);
   const [busy, setBusy] = useState(false);
   if (!armed) {
     return (
-      <Button variant="danger" onClick={() => setArmed(true)}>
+      <Button variant="danger" disabled={disabled} onClick={() => setArmed(true)}>
         {children}
       </Button>
     );
@@ -163,6 +165,83 @@ export function Stat({ value, label, hint }: { value: ReactNode; label: string; 
       <div className="mt-0.5 text-sm text-on-surface-variant">{label}</div>
       {hint && <div className="mt-0.5 text-xs text-outline">{hint}</div>}
     </div>
+  );
+}
+
+// Copies text to the clipboard with a transient confirmation. Renders inline
+// so it can sit next to a code, fingerprint, or token.
+export function CopyButton({
+  value,
+  label = "Copy",
+  className = "",
+}: {
+  value: string;
+  label?: string;
+  className?: string;
+}) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(value);
+    } catch {
+      // Fallback for non-secure contexts.
+      const ta = document.createElement("textarea");
+      ta.value = value;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      try {
+        document.execCommand("copy");
+      } catch {
+        /* ignore */
+      }
+      document.body.removeChild(ta);
+    }
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1500);
+  };
+  return (
+    <button
+      type="button"
+      onClick={copy}
+      className={`inline-flex items-center gap-1.5 rounded-lg border border-outline-variant px-2.5 py-1.5 text-xs font-semibold text-on-surface-variant transition hover:bg-surface-container-low ${className}`}
+    >
+      {copied ? <Check size={13} className="text-[#006e2f]" /> : <Copy size={13} />}
+      {copied ? "Copied" : label}
+    </button>
+  );
+}
+
+// Horizontal stepper for the pairing flow. Compact and wraps on narrow widths.
+export function Stepper({ steps, current }: { steps: string[]; current: number }) {
+  return (
+    <ol className="flex flex-wrap items-center gap-x-2 gap-y-2">
+      {steps.map((label, i) => {
+        const state = i < current ? "done" : i === current ? "active" : "todo";
+        return (
+          <li key={label} className="flex items-center gap-2">
+            <span
+              className={`grid h-6 w-6 shrink-0 place-items-center rounded-full text-xs font-bold ${
+                state === "done"
+                  ? "bg-[#006e2f] text-white"
+                  : state === "active"
+                    ? "bg-primary text-white"
+                    : "bg-surface-container text-on-surface-variant"
+              }`}
+            >
+              {state === "done" ? <Check size={13} /> : i + 1}
+            </span>
+            <span
+              className={`text-xs font-semibold ${state === "todo" ? "text-outline" : "text-on-surface"}`}
+            >
+              {label}
+            </span>
+            {i < steps.length - 1 && <span className="hidden h-px w-6 bg-outline-variant sm:block" />}
+          </li>
+        );
+      })}
+    </ol>
   );
 }
 
