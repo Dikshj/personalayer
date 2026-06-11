@@ -15,7 +15,33 @@ import {
   Smartphone,
 } from "lucide-react";
 import { BackendProvider, useBackend } from "../lib/backend";
-import { clearSessionToken } from "../api";
+import { clearSessionToken, getPrivacyProfile } from "../api";
+
+const ONBOARDING_CHECK_KEY = "pl_onboarding_checked";
+
+// Sends brand-new users (onboarding not completed) straight to the welcome
+// wizard, once per session. Stays out of the way when the backend is
+// unreachable or onboarding is already done, so no one gets trapped.
+function useFirstRunRedirect() {
+  const navigate = useNavigate();
+  useEffect(() => {
+    if (sessionStorage.getItem(ONBOARDING_CHECK_KEY)) return;
+    let cancelled = false;
+    getPrivacyProfile()
+      .then((profile) => {
+        sessionStorage.setItem(ONBOARDING_CHECK_KEY, "1");
+        if (!cancelled && profile && profile.onboarding_completed === false) {
+          navigate("/app/onboarding", { replace: true });
+        }
+      })
+      .catch(() => {
+        // Offline or error — don't redirect, and retry on the next session.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [navigate]);
+}
 
 interface NavItem {
   to: string;
@@ -62,6 +88,7 @@ function ConnectionDot() {
 function ShellInner() {
   const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
+  useFirstRunRedirect();
 
   useEffect(() => {
     if (!menuOpen) return;

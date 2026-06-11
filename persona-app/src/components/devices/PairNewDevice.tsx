@@ -2,7 +2,7 @@
 // → claim encrypted transfer → success. This browser generates a keypair, keeps
 // the private key locally, and uses it to decrypt the transfer on claim.
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   CheckCircle2,
   Clock,
@@ -13,6 +13,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { Button, CopyButton, Panel, Pill, Stepper } from "../ui";
+import { Qr } from "../Qr";
 import { titleize } from "../../lib/format";
 import {
   type PairingClaimResponse,
@@ -23,21 +24,6 @@ import {
 } from "../../api";
 
 const STEPS = ["Generate code", "Await approval", "Claim transfer", "Done"];
-
-function QrVisual({ payload }: { payload: string }) {
-  const cells = useMemo(() => {
-    let hash = 0;
-    for (const char of payload) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
-    return Array.from({ length: 49 }, (_, index) => ((hash >> (index % 24)) + index * 7) % 3 === 0);
-  }, [payload]);
-  return (
-    <div className="grid h-[180px] w-[180px] grid-cols-7 gap-1 rounded-lg bg-white p-3" title="Pairing QR (scan in the PersonaLayer app)">
-      {cells.map((filled, index) => (
-        <span key={index} className={filled ? "rounded-sm bg-slate-900" : "rounded-sm bg-slate-100"} />
-      ))}
-    </div>
-  );
-}
 
 function formatCode(code?: string) {
   if (!code) return "— — — —";
@@ -163,8 +149,8 @@ export default function PairNewDevice({ online, onChange }: { online: boolean; o
       {/* Steps 2–3 — show code, await approval, claim */}
       {session && step < 3 && (
         <div className="flex flex-col gap-5 md:flex-row md:items-start">
-          <div className="mx-auto shrink-0 rounded-xl border border-outline-variant bg-white p-3 md:mx-0">
-            <QrVisual payload={payload} />
+          <div className="mx-auto shrink-0 rounded-xl border border-outline-variant bg-white p-3 md:mx-0" title="Scan in the PersonaLayer app to pair">
+            <Qr value={payload} size={180} />
           </div>
           <div className="flex min-w-0 flex-1 flex-col gap-3">
             <div className="flex flex-wrap items-center gap-2">

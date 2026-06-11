@@ -25,6 +25,9 @@ import {
   storeSessionMeta,
   storeSessionToken,
 } from "../api";
+import { Qr } from "../components/Qr";
+
+const appUrl = typeof window !== "undefined" ? `${window.location.origin}/app/devices` : "";
 
 function daysLeft(expiresAt?: number) {
   if (!expiresAt) return null;
@@ -249,10 +252,11 @@ export default function Session() {
 
             {/* Pair from another device */}
             <div className="mt-4 flex items-start gap-3 rounded-xl border border-outline-variant bg-surface-container-low p-3">
-              <Smartphone size={18} className="mt-0.5 shrink-0 text-primary" />
+              <Qr value={appUrl} size={96} className="shrink-0 border border-outline-variant" />
               <div className="text-sm">
-                <div className="font-semibold">Already set up elsewhere?</div>
-                <Link to="/app/devices" className="text-primary hover:underline">Pair this browser from another device →</Link>
+                <div className="font-semibold">Open on another device</div>
+                <p className="mt-0.5 text-xs text-on-surface-variant">Scan to open PersonaLayer on your phone, then pair from there.</p>
+                <Link to="/app/devices" className="mt-1 inline-block text-primary hover:underline">Pair from Devices →</Link>
               </div>
             </div>
 
