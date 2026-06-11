@@ -33,6 +33,99 @@ Developer platform:
 4. Active context: current project, active tools, current goal, blockers.
 5. Explicit preferences: hard user rules, disabled features, declared preferences.
 
+## Persona Schema
+
+PersonaLayer separates what the user explicitly declared from what the system inferred.
+
+Declared preferences are user-authored and authoritative. They are stored as natural language statements, with an optional structured representation for matching against context fields. They are not confidence-scored because they are facts the user stated.
+
+Inferred persona signals are derived from metadata and activity signals. They are confidence-scored, source-linked, and editable.
+
+Precedence rule:
+
+```text
+declared_preferences always override conflicting persona_signals
+```
+
+When `backend/pcl/composer.py` assembles a bundle, it must suppress inferred signals that conflict with an active declared preference for the same field. Bundle metadata should mark whether each field came from a declared or inferred source.
+
+Frontend copy should surface the distinction:
+
+- "What you told us": declared preferences.
+- "What we inferred": persona signals.
+
+Declared preference implementation target:
+
+- New module: `backend/pcl/declared_preferences.py`
+- New table: `declared_preferences`
+
+```text
+pref_id        uuid
+user_id        uuid
+statement      text
+category       text
+structured     json
+authored_ts    timestamp
+source         text
+active         boolean
+```
+
+Example statement:
+
+```text
+I don't take meetings before noon.
+```
+
+Example categories:
+
+- `schedule`
+- `diet`
+- `professional`
+- `communication_style`
+- `location`
+- `health`
+- `financial`
+- `interests`
+
+Declared preferences are captured during `/app/onboarding`, especially goals and preferences steps, and remain editable in `/app/persona`.
+
+## Canonical Scope Vocabulary
+
+PersonaLayer uses a canonical scope vocabulary so apps can request interoperable scopes instead of PersonaLayer-specific field names.
+
+Implementation target:
+
+- New module: `backend/pcl/scope_vocab.py`
+
+Each canonical scope has:
+
+- stable id
+- plain-language description
+- internal persona fields it maps to
+- aliases from existing custom scopes
+
+Initial canonical scopes:
+
+- `schedule`
+- `diet`
+- `professional`
+- `location`
+- `health`
+- `financial`
+- `communication_style`
+- `interests`
+
+Example:
+
+```text
+scope id: schedule
+description: Calendar patterns, availability preferences, meeting constraints, and time-of-day working habits.
+internal fields: active_context.schedule, declared_preferences.schedule, persona_signals.meeting_pattern
+aliases: calendar, availability, meeting_preferences
+```
+
+The consent UI at `/app/consent/:appId` displays the canonical scope name and standard description. An HCP-compatible app built against the shared vocabulary should work with PersonaLayer without custom per-app mapping.
+
 ## Runtime Architecture
 
 ```text
@@ -145,6 +238,7 @@ Local SQLite, implemented in `backend/database.py`, stores all personal data on 
 - `pcl_integrations`: connected sources, auth state, and last sync.
 - `pcl_apps`: registered third-party apps.
 - `app_permissions`: per-app consent, granted scopes, denied scopes, consent timestamp, and query count.
+- `declared_preferences`: authoritative user-authored natural language preferences plus structured matching metadata.
 - `privacy_boundaries`: user-defined field-level rules. Empty by default.
 - `context_bundles`: assembled bundles served to agents. Ephemeral and TTL-based.
 - `query_logs`: full audit trail of every read by every app.
@@ -167,11 +261,13 @@ Supabase thin cloud stores developer metadata only, never raw personal history:
 The core intelligence layer turns raw signals into a structured, living persona:
 
 - `backend/living_persona.py`: builds and updates persona signals and profile summaries from raw events.
+- `backend/pcl/declared_preferences.py`: stores and resolves authoritative user-authored preferences.
 - `backend/pcl/contextlayer.py`: assembles active context bundles scoped to requesting apps.
 - `backend/pcl/profile.py`: manages the stable user profile.
 - `backend/pcl/daily_refresh.py`: runs nightly to produce an insight digest and update signal confidence scores.
 - `backend/pcl/memory.py`: tiered memory: HOT is always in the bundle, WARM is retrieved by relevance, COLD is archived.
 - `backend/pcl/composer.py`: composes final bundle payloads from resolved signals and memory tiers.
+- `backend/pcl/scope_vocab.py`: maps app-requested scopes to the canonical PersonaLayer scope vocabulary.
 
 Engine outputs:
 
@@ -182,6 +278,7 @@ Engine outputs:
 - Memory summaries.
 - Daily insight digest.
 - Decision bundles.
+- Bundle provenance metadata that identifies declared versus inferred fields.
 
 ## User Consent Gate
 
@@ -197,9 +294,21 @@ Gate 1: `auth.py`, identity only:
 Gate 2: `app_permissions`, user-granted scopes:
 
 - Resolve scopes the user granted to the app.
+- Normalize requested scopes through the canonical vocabulary in `scope_vocab.py`.
 - Strip requested fields that are outside granted scopes.
 - The app receives only what the user said yes to.
 - PersonaLayer does not impose a system opinion on what scopes are appropriate.
+
+Gate 2 also enforces purpose binding. Every scope grant carries a stated purpose:
+
+```text
+purpose        text
+purpose_bound  boolean
+```
+
+If `purpose_bound` is true, a grant approved for one purpose cannot silently serve a bundle for another purpose. For example, a `schedule` grant approved "for restaurant booking" cannot be reused for a different stated purpose unless the user approved that purpose.
+
+The consent flow at `/app/consent/:appId` requires each requesting app to state a purpose per scope. The user sees both the canonical scope and the stated purpose before approval.
 
 Gate 3: `privacy_boundaries`, user-defined rules only:
 
@@ -219,6 +328,7 @@ PersonaLayer outputs scoped context, not raw history:
 - User dashboard: `https://mypersonalayer.com`.
 - Dashboard routes: `/app/persona`, `/app/apps`, `/app/privacy`, `/app/devices`, `/app/activity`, and `/app/settings`.
 - Audit logs: every query is logged to `query_logs` with app, timestamp, scopes requested, scopes served, fields blocked by user rules, and result status.
+- Purpose-aware audit logs: `query_logs` records the stated purpose for each read, plus whether the served bundle matched a purpose-bound grant.
 - Encrypted sync payloads: delta transfers to trusted devices.
 
 ## Device Sync
