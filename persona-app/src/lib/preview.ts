@@ -7,6 +7,7 @@ import type {
   PclIntegration,
   PersonaSignal,
   PrivacyBoundary,
+  QueryLogEntry,
   SyncAuditEvent,
   SyncConflict,
   SyncDevice,
@@ -94,6 +95,14 @@ export const previewDevices: SyncDevice[] = [
     last_seen_at: hoursAgo(800),
     revoked_at: hoursAgo(300),
   },
+];
+
+export const previewQueryLog: QueryLogEntry[] = [
+  { id: "q1", app_id: "code_assistant", purpose: "suggest_features", requested_layers: ["identity_role", "capability_signals", "active_context"], returned_layers: ["identity_role", "capability_signals", "active_context"], feature_ids: ["rank_features"], status: "returned", reason: "", created_at: hoursAgo(1) },
+  { id: "q2", app_id: "inbox_zero", purpose: "adapt_ui", requested_layers: ["identity_role", "behavior_patterns", "explicit_preferences"], returned_layers: ["identity_role", "behavior_patterns"], feature_ids: [], status: "returned", reason: "explicit_preferences blocked by your rule", created_at: hoursAgo(4) },
+  { id: "q3", app_id: "unknown_app", purpose: "full_profile", requested_layers: ["identity_role", "active_context"], returned_layers: [], feature_ids: [], status: "denied", reason: "app_consent_revoked", created_at: hoursAgo(9) },
+  { id: "q4", app_id: "code_assistant", purpose: "constraints", requested_layers: ["explicit_preferences"], returned_layers: ["explicit_preferences"], feature_ids: [], status: "returned", reason: "", created_at: hoursAgo(28) },
+  { id: "q5", app_id: "inbox_zero", purpose: "suggest_features", requested_layers: ["capability_signals"], returned_layers: ["capability_signals"], feature_ids: ["smart_replies"], status: "returned", reason: "", created_at: hoursAgo(52) },
 ];
 
 export const previewConflicts: SyncConflict[] = [];

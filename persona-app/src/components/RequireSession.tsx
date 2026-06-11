@@ -3,12 +3,13 @@
 
 import type { ReactNode } from "react";
 import { Navigate, useLocation } from "react-router-dom";
-import { API_CONFIG, getStoredSessionToken } from "../api";
+import { API_CONFIG, getStoredSessionToken, isSessionExpired } from "../api";
 
 export default function RequireSession({ children }: { children: ReactNode }) {
   const location = useLocation();
-  if (API_CONFIG.requiresSession && !getStoredSessionToken()) {
-    return <Navigate to="/app/session" replace state={{ from: location.pathname }} />;
+  if (API_CONFIG.requiresSession && (!getStoredSessionToken() || isSessionExpired())) {
+    const reason = isSessionExpired() ? "expired" : undefined;
+    return <Navigate to="/app/session" replace state={{ from: location.pathname, reason }} />;
   }
   return <>{children}</>;
 }

@@ -30,6 +30,34 @@ export function storeSessionToken(token: string) {
 
 export function clearSessionToken() {
   localStorage.removeItem(SESSION_STORAGE_KEY);
+  localStorage.removeItem(SESSION_META_KEY);
+}
+
+// Session metadata (user + expiry) tracked locally. The backend issues a 7-day
+// session; we record the expiry so the UI can warn and the guard can redirect.
+const SESSION_META_KEY = "personalayer_session_meta";
+const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+export type SessionMeta = { user_id: string; created_at: number; expires_at: number };
+
+export function storeSessionMeta(userId: string) {
+  const now = Date.now();
+  const meta: SessionMeta = { user_id: userId, created_at: now, expires_at: now + SESSION_TTL_MS };
+  localStorage.setItem(SESSION_META_KEY, JSON.stringify(meta));
+}
+
+export function getSessionMeta(): SessionMeta | null {
+  try {
+    const raw = localStorage.getItem(SESSION_META_KEY);
+    return raw ? (JSON.parse(raw) as SessionMeta) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function isSessionExpired(): boolean {
+  const meta = getSessionMeta();
+  return Boolean(meta?.expires_at && Date.now() > meta.expires_at);
 }
 
 export type BackendStatus = "loading" | "online" | "offline";
@@ -137,6 +165,8 @@ export type PersonaSignal = {
   human_readable_type?: string;
   shareable?: boolean;
   currently_shareable?: boolean;
+  created_at?: string | number;
+  timestamp?: number;
 };
 
 export type PclApp = {
@@ -211,6 +241,16 @@ const DEVICE_NAME_KEY = "personalayer_web_device_name";
 
 export function getWebDeviceId(): string {
   return `web-${getStableDeviceId()}`;
+}
+
+// Registers this browser as a trusted sync device (ensuring it has a keypair).
+export async function rememberBrowserAsDevice(): Promise<{ status?: string; device?: SyncDevice; error?: string }> {
+  const keypair = await ensureWebKeypair();
+  return registerSyncDevice({
+    device_id: getWebDeviceId(),
+    device_name: getWebDeviceName(),
+    public_key: keypair.public_key,
+  });
 }
 
 export function getWebDeviceName(): string {
@@ -330,12 +370,13 @@ export async function deleteSignal(signalId: number): Promise<{ deleted: boolean
 
 export async function editSignal(
   signalId: number,
-  patch: { name?: string; confidence?: number; shareable?: boolean },
+  patch: { name?: string; confidence?: number; shareable?: boolean; evidence?: string; weight?: number; reason?: string },
 ): Promise<PersonaSignal> {
+  const { reason, ...rest } = patch;
   return patchJson(`/v1/control-center/signals/${signalId}`, {
     user_id: "local_user",
-    reason: "Edited from persona dashboard",
-    ...patch,
+    reason: reason || "Edited from persona dashboard",
+    ...rest,
   });
 }
 
@@ -435,6 +476,75 @@ export async function deletePrivacyBoundary(boundaryId: string): Promise<Record<
   return deleteJson(`/v1/user/boundaries/${encodeURIComponent(boundaryId)}?user_id=local_user`);
 }
 
+export async function getBoundaries(activeOnly = true): Promise<{ user_id?: string; boundaries: PrivacyBoundary[] }> {
+  return getJson(`/v1/user/boundaries?user_id=local_user&active_only=${activeOnly}`);
+}
+
+export async function deactivateBoundary(boundaryId: string): Promise<{ revoked?: boolean; boundary_id?: string }> {
+  return postJson(`/v1/user/boundaries/${encodeURIComponent(boundaryId)}/deactivate?user_id=local_user`, {});
+}
+
+// ---- Context preview (what an app would receive) ----------------------------
+
+export type ContextPreview = {
+  id?: string;
+  user_id?: string;
+  app_id?: string;
+  app_name?: string;
+  requested_purpose?: string;
+  permission_scope?: string[];
+  allowed_fields?: string[];
+  excluded_fields?: string[];
+  confidence_levels?: Record<string, number>;
+  plain_english_summary?: string;
+  preview_json?: Record<string, unknown>;
+  status?: string;
+  user_decision?: string;
+  narrowed_fields?: string[];
+  created_at?: string;
+  decided_at?: string | null;
+};
+
+export const CONTEXT_LAYERS = [
+  "identity_role",
+  "capability_signals",
+  "behavior_patterns",
+  "active_context",
+  "explicit_preferences",
+];
+
+export async function createContextPreview(opts: {
+  app_id: string;
+  app_name?: string;
+  requested_purpose?: string;
+  requested_layers?: string[];
+  requested_scopes?: string[];
+}): Promise<ContextPreview> {
+  return postJson("/v1/context/preview", {
+    user_id: "local_user",
+    app_id: opts.app_id,
+    app_name: opts.app_name || "",
+    requested_purpose: opts.requested_purpose || "",
+    requested_layers: opts.requested_layers || CONTEXT_LAYERS,
+    requested_scopes: opts.requested_scopes || [],
+  });
+}
+
+export async function getContextPreview(previewId: string): Promise<ContextPreview> {
+  return getJson(`/v1/context/preview/${encodeURIComponent(previewId)}`);
+}
+
+export async function decideContextPreview(
+  previewId: string,
+  decision: "approved" | "denied" | "narrowed",
+  narrowedFields: string[] = [],
+): Promise<ContextPreview> {
+  return postJson(`/v1/context/preview/${encodeURIComponent(previewId)}/decision`, {
+    decision,
+    narrowed_fields: narrowedFields,
+  });
+}
+
 // ---- Control-center: permissions, audit, export -----------------------------
 
 export type ControlCenterPermission = {
@@ -492,6 +602,34 @@ export async function revokeControlCenterPermission(
 
 export async function getAuditLog(limit = 100): Promise<{ logs: AuditEntry[]; count: number }> {
   return getJson(`/v1/control-center/audit?user_id=local_user&limit=${limit}`);
+}
+
+// ---- App context-request log (query_logs) -----------------------------------
+
+export type QueryLogEntry = {
+  id?: string;
+  app_id?: string;
+  user_id?: string;
+  purpose?: string;
+  requested_layers?: string[];
+  returned_layers?: string[];
+  feature_ids?: string[];
+  status?: string; // "returned" | "denied"
+  reason?: string;
+  created_at?: string | number;
+};
+
+export async function getQueryLog(opts: { app_id?: string; limit?: number } = {}): Promise<{ logs: QueryLogEntry[] }> {
+  const params = new URLSearchParams();
+  if (opts.app_id) params.set("app_id", opts.app_id);
+  params.set("limit", String(opts.limit ?? 200));
+  return getJson(`/pcl/query-log?${params.toString()}`);
+}
+
+export async function clearQueryLog(appId?: string): Promise<{ status?: string; deleted?: Record<string, number> }> {
+  const params = new URLSearchParams({ user_id: "local_user" });
+  if (appId) params.set("app_id", appId);
+  return deleteJson(`/pcl/query-log?${params.toString()}`);
 }
 
 export async function getPrivacyDrops(limit = 100): Promise<{ drops: Array<Record<string, unknown>> }> {

@@ -5,6 +5,7 @@ import Landing from "./pages/Landing";
 import Session from "./pages/Session";
 import Onboarding from "./pages/Onboarding";
 import Consent from "./pages/Consent";
+import ContextPreview from "./pages/ContextPreview";
 import Persona from "./pages/Persona";
 import Apps from "./pages/Apps";
 import Privacy from "./pages/Privacy";
@@ -36,6 +37,14 @@ export default function App() {
         element={
           <RequireSession>
             <Consent />
+          </RequireSession>
+        }
+      />
+      <Route
+        path="/app/context-preview/:previewId"
+        element={
+          <RequireSession>
+            <ContextPreview />
           </RequireSession>
         }
       />
