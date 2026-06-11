@@ -36,44 +36,213 @@ Developer platform:
 ## Runtime Architecture
 
 ```text
-Connected apps and first-party integrations
-  emit behavioral signals through SDK/API
+Input sources
+  browser extension, SDK/app events, OAuth connectors, AI tools, onboarding
         |
         v
-Local ingest safety gate
-  blocks credentials, secrets, and payment tokens only
+Collection layer
+  scheduled collectors, OAuth token refresh, extension bridge, SDK, native clients
         |
         v
-Local raw data vault and profile builder
-  stores sensitive source payloads on device for full-persona synthesis
+Ingestion API
+  FastAPI endpoints normalize incoming metadata and signals
         |
         v
-Policy and permission layer
-  per-app scopes, revocation, audit log
+Inbound privacy tagger
+  detects secrets in payloads and tags contains_secret=true for user review
         |
         v
-Egress privacy filter
-  redacts, scopes, and denies data before anything leaves the system
+Local storage
+  raw_events, persona_signals, feature_signals, profile, permissions, audit, sync
         |
         v
-Response composer
-  ranks features and returns typed decision bundle
+Persona + context engine
+  living persona, profile, daily refresh, memory tiers, context composer
         |
         v
-MCP server / query API
-  getProfile, getFeatureUsage, getContext, getConstraints
+User consent gate
+  auth -> app permission scopes -> user-defined privacy boundaries
+        |
+        v
+Output layer
+  context bundles, assistant context, dashboard, audit logs, encrypted sync payloads
 ```
 
 ## Trust Rules
 
 - Users own the data.
-- Apps never receive raw data or a durable copy.
+- Apps receive only context the user explicitly authorized.
 - Every app query is logged and visible.
 - Disconnecting an app revokes access immediately.
 - Delete is real and complete.
-- Sensitive behavioral data may be stored locally for persona synthesis, but only on the user's device.
-- The hard privacy boundary is egress: every MCP, SDK, API, extension, agent, cloud, and notification response is scoped and redacted before leaving the local system.
-- Ingest still blocks credentials, secrets, auth tokens, cookies, passwords, private keys, and payment card-like values because those are not persona material.
+- Sources collect metadata and signals only. Raw content such as email bodies, document content, and code is never stored or shared.
+- Inbound privacy logic tags potential secrets for user visibility; it does not make outbound decisions.
+- Outbound policy is user-sovereign: no system-level filters or hardcoded blocklists run after the user consent gates. PersonaLayer enforces app identity, user-granted scopes, and explicit user privacy boundaries.
+
+## Input Sources
+
+PersonaLayer ingests from:
+
+- Browser extension: domain visits, search activity, and page metadata, not page content.
+- SDK and app events: feature usage signals from integrated apps.
+- OAuth connectors: Gmail metadata and signals only, GitHub, Google Calendar, Google Drive, Notion, Spotify, Apple Health, and YouTube.
+- AI tools: Claude, ChatGPT, Perplexity, Gemini, Grok, Cursor, IDE/terminal activity, and coding agents.
+- Manual onboarding: explicit seed answers from the user during setup.
+
+All sources are metadata/signal sources. Raw content, including email bodies, document content, and code, is never stored or shared.
+
+## Collection Layer
+
+Collection code lives in:
+
+- `backend/collectors/`
+- `backend/pcl/connectors.py`
+- `backend/pcl/integration_jobs.py`
+- `extension/`
+- `sdk/`
+- `native/`
+
+Collectors run on schedule through APScheduler and connector jobs refresh OAuth tokens when needed. They produce activity signals, not raw data.
+
+Examples:
+
+- Browser extension -> domain/search/page activity signals.
+- GitHub -> repository activity, commit frequency, and language signals.
+- Gmail -> email metadata signals such as sender domain, subject tags, and thread count.
+- Notion -> workspace and task metadata.
+- SDK -> feature usage events.
+
+## Ingestion API
+
+The main backend is `backend/interfaces/http_api.py`, served by FastAPI. Production API origin:
+
+```text
+https://personalayer.onrender.com
+```
+
+Primary endpoints:
+
+- `POST /pcl/integrations`: register an OAuth integration.
+- `GET /pcl/apps`: list connected apps.
+- `POST /pcl/query`: internal query endpoint.
+- `GET /v1/context/bundle`: serve a scoped context bundle to an agent.
+- `GET /v1/control-center/summary`: user's persona summary.
+- `GET /v1/control-center/signals/search`: search across signals.
+- `GET /v1/user/privacy-profile`: user's current consent and rules configuration.
+- `POST /v1/sync/*`: device sync endpoints.
+- `POST /v1/auth/local/session`: local session auth.
+
+At ingestion, `privacy.py` is an inbound tagger. It detects secrets such as API keys, tokens, and passwords in raw event payloads, tags them with `contains_secret: true`, and surfaces them in the privacy dashboard. It does not block storage or later sharing by itself.
+
+## Storage Layer
+
+Local SQLite, implemented in `backend/database.py`, stores all personal data on device:
+
+- `raw_events`: every incoming signal before processing.
+- `persona_signals`: inferred behavioral facts about the user.
+- `feature_signals`: per-app usage patterns.
+- `user_profiles`: stable identity layer such as name, location, skills, occupation, and projects.
+- `pcl_integrations`: connected sources, auth state, and last sync.
+- `pcl_apps`: registered third-party apps.
+- `app_permissions`: per-app consent, granted scopes, denied scopes, consent timestamp, and query count.
+- `privacy_boundaries`: user-defined field-level rules. Empty by default.
+- `context_bundles`: assembled bundles served to agents. Ephemeral and TTL-based.
+- `query_logs`: full audit trail of every read by every app.
+- `sync_devices`: trusted, pending, and revoked device registry.
+- `sync_conflicts`: conflict records from cross-device sync.
+- `sync_audit_logs`: every sync transfer event.
+
+Supabase thin cloud stores developer metadata only, never raw personal history:
+
+- `developers`
+- `apps`
+- `api_keys`
+- `app_permissions` registration records
+- `push_tokens`
+- `notification_routes`
+- encrypted summary blobs, using AES-GCM with keys that never leave the device
+
+## Persona + Context Engine
+
+The core intelligence layer turns raw signals into a structured, living persona:
+
+- `backend/living_persona.py`: builds and updates persona signals and profile summaries from raw events.
+- `backend/pcl/contextlayer.py`: assembles active context bundles scoped to requesting apps.
+- `backend/pcl/profile.py`: manages the stable user profile.
+- `backend/pcl/daily_refresh.py`: runs nightly to produce an insight digest and update signal confidence scores.
+- `backend/pcl/memory.py`: tiered memory: HOT is always in the bundle, WARM is retrieved by relevance, COLD is archived.
+- `backend/pcl/composer.py`: composes final bundle payloads from resolved signals and memory tiers.
+
+Engine outputs:
+
+- Persona signals.
+- Feature usage patterns.
+- Profile summaries.
+- Active context bundles.
+- Memory summaries.
+- Daily insight digest.
+- Decision bundles.
+
+## User Consent Gate
+
+There are no system-level filters or hardcoded outbound blocklists after bundle assembly. PersonaLayer enforces only what the user explicitly configured. Three gates run in sequence on every outbound request.
+
+Gate 1: `auth.py`, identity only:
+
+- Is this app registered?
+- Is the API key valid?
+- Is the session valid?
+- If no, return `403` and deny the request entirely.
+
+Gate 2: `app_permissions`, user-granted scopes:
+
+- Resolve scopes the user granted to the app.
+- Strip requested fields that are outside granted scopes.
+- The app receives only what the user said yes to.
+- PersonaLayer does not impose a system opinion on what scopes are appropriate.
+
+Gate 3: `privacy_boundaries`, user-defined rules only:
+
+- `privacy_boundaries` starts empty at install.
+- It contains only rules the user explicitly created.
+- Rule types are `block`, where a field is excluded from the bundle, and `redact`, where the field stays present but its value is masked.
+- There are no system defaults and no pre-populated rules.
+
+If a request passes all three gates, the bundle ships as assembled. No further interception runs.
+
+## Output Layer
+
+PersonaLayer outputs scoped context, not raw history:
+
+- Context bundles: scoped JSON payloads assembled per app per request, served via `GET /v1/context/bundle`. Bundles are TTL-based and ephemeral.
+- Assistant context: natural language context blocks injected into AI assistant system prompts through MCP so Claude, Cursor, Perplexity, and related tools can understand current projects, stack, preferences, and working context.
+- User dashboard: `https://mypersonalayer.com`.
+- Dashboard routes: `/app/persona`, `/app/apps`, `/app/privacy`, `/app/devices`, `/app/activity`, and `/app/settings`.
+- Audit logs: every query is logged to `query_logs` with app, timestamp, scopes requested, scopes served, fields blocked by user rules, and result status.
+- Encrypted sync payloads: delta transfers to trusted devices.
+
+## Device Sync
+
+Cross-device sync flow:
+
+```text
+Device A initiates pairing
+  -> QR code or manual pairing code generated
+Device B approves
+  -> X25519 key exchange establishes shared secret
+AES-GCM encrypted summary transfer
+  -> receiving device claims and imports
+Trusted device record stored in sync_devices
+  -> every transfer logged in sync_audit_logs
+```
+
+Device states:
+
+- `trusted`
+- `pending`
+- `revoked`
+
+Conflict resolution is latest-write-wins with the conflict logged. Revocation is immediate: revoked devices cannot receive further sync.
 
 Current delete controls:
 
