@@ -3,6 +3,8 @@ import AppShell from "./components/AppShell";
 import RequireSession from "./components/RequireSession";
 import Landing from "./pages/Landing";
 import Session from "./pages/Session";
+import Onboarding from "./pages/Onboarding";
+import Consent from "./pages/Consent";
 import Persona from "./pages/Persona";
 import Apps from "./pages/Apps";
 import Privacy from "./pages/Privacy";
@@ -19,6 +21,24 @@ export default function App() {
 
       {/* Session connection screen (outside the guarded shell). */}
       <Route path="/app/session" element={<Session />} />
+
+      {/* Focused, full-screen guarded flows (no sidebar). */}
+      <Route
+        path="/app/onboarding"
+        element={
+          <RequireSession>
+            <Onboarding />
+          </RequireSession>
+        }
+      />
+      <Route
+        path="/app/consent/:appId"
+        element={
+          <RequireSession>
+            <Consent />
+          </RequireSession>
+        }
+      />
 
       {/* Authenticated app shell. First product screen is /app/persona. */}
       <Route

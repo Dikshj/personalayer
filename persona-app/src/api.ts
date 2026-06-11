@@ -152,9 +152,20 @@ export type PclIntegration = {
   name?: string;
   status?: string;
   auth_status?: string;
+  auth_type?: string;
   connected?: boolean;
   items_synced?: number;
   last_sync_status?: string;
+  last_sync_at?: string | number | null;
+  account_hint?: string;
+  error?: string;
+  scopes?: string[];
+  description?: string;
+  oauth?: Record<string, unknown> | null;
+  metadata_example?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
+  connected_at?: string | null;
+  disconnected_at?: string | null;
 };
 
 export type PrivacyBoundary = {
@@ -336,19 +347,75 @@ export async function getIntegrations(): Promise<{ integrations: PclIntegration[
   return getJson("/pcl/integrations");
 }
 
-export async function connectIntegration(source: string): Promise<Record<string, unknown>> {
+export async function getIntegrationCatalog(): Promise<{ integrations: PclIntegration[] }> {
+  return getJson("/pcl/integrations/catalog");
+}
+
+export async function connectIntegration(
+  source: string,
+  metadata: Record<string, unknown> = { connected_from: "persona_app" },
+  accountHint = "",
+): Promise<{ status?: string; integration?: PclIntegration }> {
   return postJson(`/pcl/integrations/${encodeURIComponent(source)}/connect`, {
-    metadata: { connected_from: "persona_app" },
+    metadata,
+    account_hint: accountHint,
     auth_status: "local_metadata",
   });
 }
 
-export async function disconnectIntegration(source: string): Promise<Record<string, unknown>> {
+export async function disconnectIntegration(source: string): Promise<{ status?: string }> {
   return postJson(`/pcl/integrations/${encodeURIComponent(source)}/disconnect`, {});
 }
 
-export async function syncIntegration(source: string): Promise<Record<string, unknown>> {
+export async function syncIntegration(
+  source: string,
+): Promise<{ source?: string; status?: string; items_synced?: number; error?: string | null; last_sync_at?: string }> {
   return postJson(`/pcl/integrations/${encodeURIComponent(source)}/sync`, {});
+}
+
+// ---- OAuth connector lifecycle ----------------------------------------------
+
+export type OAuthStartResponse = {
+  status?: string; // "ok" | "configuration_required" | "error"
+  source?: string;
+  state?: string;
+  auth_url?: string;
+  client_id_env?: string;
+  redirect_uri?: string;
+  error?: string;
+};
+
+export async function startOAuth(source: string, redirectUri: string): Promise<OAuthStartResponse> {
+  return postJson(`/pcl/integrations/${encodeURIComponent(source)}/oauth/start`, {
+    user_id: "local_user",
+    redirect_uri: redirectUri,
+  });
+}
+
+export async function completeOAuthCallback(opts: {
+  state: string;
+  code: string;
+  account_hint?: string;
+}): Promise<{ status?: string; source?: string; integration?: PclIntegration; error?: string }> {
+  return postJson("/pcl/integrations/oauth/callback", {
+    state: opts.state,
+    code: opts.code,
+    account_hint: opts.account_hint || "",
+  });
+}
+
+export async function refreshOAuth(source: string): Promise<{ status?: string; error?: string; expires_at?: number }> {
+  return postJson(`/pcl/integrations/${encodeURIComponent(source)}/oauth/refresh?user_id=local_user`, {});
+}
+
+export async function revokeOAuthToken(source: string): Promise<{ status?: string }> {
+  return deleteJson(`/pcl/integrations/${encodeURIComponent(source)}/oauth/token?user_id=local_user`);
+}
+
+export async function deleteIntegrationData(
+  source: string,
+): Promise<{ status?: string; deleted?: Record<string, number> }> {
+  return deleteJson(`/pcl/integrations/${encodeURIComponent(source)}/data`);
 }
 
 export async function getPrivacyProfile(): Promise<PrivacyProfile> {
@@ -562,6 +629,79 @@ export async function createLocalSession(
   bootstrapToken = "",
 ): Promise<{ status?: string; user_id?: string; session_token?: string }> {
   return postJson("/v1/auth/local/session", { user_id: userId, bootstrap_token: bootstrapToken });
+}
+
+// ---- Onboarding (first-run persona seed) ------------------------------------
+
+export type OnboardingSeedAnswers = {
+  identity?: string;
+  features?: string | string[];
+  behavior?: string;
+  active_context?: string;
+  preferences?: string | string[];
+};
+
+// Seeds the first persona from the welcome wizard (role, goals, tools, focus).
+export async function seedOnboarding(
+  answers: OnboardingSeedAnswers,
+): Promise<{ status?: string; user_id?: string; profile_seed?: Record<string, unknown> }> {
+  return postJson("/pcl/onboarding/seed", { user_id: "local_user", answers });
+}
+
+export async function getOnboardingSeed(): Promise<{
+  user_id?: string;
+  answers?: Record<string, unknown>;
+  profile_seed?: Record<string, unknown>;
+  error?: string;
+}> {
+  return getJson("/pcl/onboarding/seed?user_id=local_user");
+}
+
+// Records the initial privacy posture and marks onboarding complete.
+export async function submitOnboardingFlow(answers: Record<string, unknown>): Promise<PrivacyProfile> {
+  return postJson("/v1/onboarding/flow", { user_id: "local_user", answers });
+}
+
+// ---- App consent (third-party scope approval) -------------------------------
+
+export type AppConsent = {
+  id?: string;
+  user_id?: string;
+  app_id?: string;
+  developer_id?: string;
+  scopes?: string[];
+  granted_via?: string;
+  is_active?: boolean;
+  granted_at?: string;
+  revoked_at?: string | null;
+};
+
+export async function getApp(appId: string): Promise<PclApp | undefined> {
+  const { apps } = await getApps();
+  return apps.find((a) => a.app_id === appId);
+}
+
+export async function getConsents(): Promise<{ user_id?: string; permissions: AppConsent[] }> {
+  return getJson("/v1/auth/consent?user_id=local_user");
+}
+
+export async function grantConsent(opts: {
+  app_id: string;
+  scopes: string[];
+  granted_via?: string;
+  developer_id?: string;
+}): Promise<{ status?: string; permission?: AppConsent }> {
+  return postJson("/v1/auth/consent", {
+    user_id: "local_user",
+    app_id: opts.app_id,
+    scopes: opts.scopes,
+    granted_via: opts.granted_via || "explicit",
+    developer_id: opts.developer_id || "",
+  });
+}
+
+export async function revokeConsent(appId: string): Promise<{ status?: string }> {
+  return deleteJson(`/v1/auth/consent/${encodeURIComponent(appId)}?user_id=local_user`);
 }
 
 async function getJson<T>(path: string): Promise<T> {
