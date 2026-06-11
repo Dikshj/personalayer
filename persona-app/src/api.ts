@@ -1,11 +1,17 @@
 const SESSION_STORAGE_KEY = "personalayer_session_token";
 const rawApiBase = import.meta.env.VITE_PERSONALAYER_API_BASE || (import.meta.env.DEV ? "http://127.0.0.1:7823" : "");
 export const API_BASE = rawApiBase.replace(/\/$/, "");
+function readBool(value: unknown, fallback: boolean): boolean {
+  if (value === undefined || value === null || value === "") return fallback;
+  return !["0", "false", "no", "off"].includes(String(value).toLowerCase());
+}
+
 export const API_CONFIG = {
   apiBase: API_BASE,
   hasApiBase: Boolean(API_BASE),
   isProduction: import.meta.env.PROD,
-  requiresSession: import.meta.env.PROD || Boolean(import.meta.env.VITE_PERSONALAYER_REQUIRE_SESSION),
+  // Defaults to required in production; the env var can force it on/off.
+  requiresSession: readBool(import.meta.env.VITE_PERSONALAYER_REQUIRE_SESSION, import.meta.env.PROD),
 };
 
 export function getStoredSessionToken(): string {
@@ -28,13 +34,94 @@ export function clearSessionToken() {
 
 export type BackendStatus = "loading" | "online" | "offline";
 
+// ---- Cross-device sync types ------------------------------------------------
+
+export type Keypair = {
+  algorithm?: string;
+  public_key: string;
+  private_key: string;
+};
+
+export type TransferEnvelope = {
+  schema?: string;
+  ephemeral_public_key?: string;
+  nonce?: string;
+  ciphertext?: string;
+};
+
 export type PairingSession = {
   id?: string;
+  user_id?: string;
+  requester_device_id?: string;
+  requester_device_name?: string;
+  requester_public_key?: string;
+  approver_device_id?: string;
+  approver_public_key?: string;
   pairing_code?: string;
+  qr_payload?: Record<string, unknown>;
+  requested_scopes?: string[];
   status?: string;
   expires_at?: number;
-  requested_scopes?: string[];
-  qr_payload?: Record<string, unknown>;
+  approved_at?: string | null;
+  claimed_at?: string | null;
+  revoked_at?: string | null;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type MergeResult = {
+  updated?: number;
+  scopes?: string[];
+};
+
+export type PairingApprovalResponse = {
+  status?: string;
+  session?: PairingSession;
+  transfer_envelope?: TransferEnvelope;
+  recovery_token?: string;
+  error?: string;
+};
+
+export type PairingClaimResponse = {
+  status?: string;
+  session?: PairingSession;
+  transfer_envelope?: TransferEnvelope;
+  merged?: MergeResult;
+  local_snapshot?: SyncSnapshot;
+  error?: string;
+};
+
+export type SyncSnapshot = {
+  id?: string;
+  user_id?: string;
+  device_id?: string;
+  version?: string;
+  parent_version?: string;
+  summary_hash?: string;
+  merge_status?: string;
+  created_at?: string;
+};
+
+export type SyncConflict = {
+  id?: string;
+  user_id?: string;
+  local_version?: string;
+  remote_version?: string;
+  reason?: string;
+  status?: string;
+  details?: Record<string, unknown>;
+  created_at?: string;
+  resolved_at?: string | null;
+};
+
+export type SyncAuditEvent = {
+  id?: string;
+  user_id?: string;
+  action?: string;
+  device_id?: string;
+  version?: string;
+  details?: Record<string, unknown>;
+  created_at?: string | number;
 };
 
 export type PersonaSignal = {
@@ -94,19 +181,116 @@ export async function getHealth(): Promise<{ status?: string }> {
   return getJson("/health");
 }
 
-export async function startPairingSession(): Promise<{ status: string; session?: PairingSession; qr_payload?: unknown }> {
-  const keypair = await postJson<{ public_key: string }>("/v1/sync/keypair", {});
+export const DEFAULT_PAIRING_SCOPES = [
+  "profile_summary",
+  "preferences",
+  "feature_signals",
+  "memory_summaries",
+];
+
+// Generates an ephemeral X25519 keypair on the backend. The private key is
+// returned once; native clients should persist it in the OS keychain. The web
+// client keeps it in localStorage for this browser device only.
+export async function generateKeypair(): Promise<Keypair> {
+  return postJson("/v1/sync/keypair", {});
+}
+
+const KEYPAIR_STORAGE_KEY = "personalayer_sync_keypair";
+const DEVICE_NAME_KEY = "personalayer_web_device_name";
+
+export function getWebDeviceId(): string {
+  return `web-${getStableDeviceId()}`;
+}
+
+export function getWebDeviceName(): string {
+  const stored = localStorage.getItem(DEVICE_NAME_KEY);
+  if (stored) return stored;
+  const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
+  const guess = /Mobi|Android|iPhone|iPad/.test(ua) ? "PersonaLayer Mobile Web" : "PersonaLayer Web";
+  return guess;
+}
+
+export function setWebDeviceName(name: string) {
+  const value = name.trim();
+  if (value) localStorage.setItem(DEVICE_NAME_KEY, value);
+  else localStorage.removeItem(DEVICE_NAME_KEY);
+}
+
+export function getStoredKeypair(): Keypair | null {
+  try {
+    const raw = localStorage.getItem(KEYPAIR_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Keypair;
+    return parsed.public_key && parsed.private_key ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+// Returns this browser's sync keypair, generating and persisting one on first
+// use. Only the public key is ever displayed; the private key stays local.
+export async function ensureWebKeypair(forceRotate = false): Promise<Keypair> {
+  if (!forceRotate) {
+    const existing = getStoredKeypair();
+    if (existing) return existing;
+  }
+  const keypair = await generateKeypair();
+  localStorage.setItem(KEYPAIR_STORAGE_KEY, JSON.stringify(keypair));
+  return keypair;
+}
+
+export function clearStoredKeypair() {
+  localStorage.removeItem(KEYPAIR_STORAGE_KEY);
+}
+
+// Requester side: start a pairing session from this browser device. Uses (and
+// persists) this device's keypair so the later claim step can decrypt.
+export async function startPairingSession(
+  scopes: string[] = DEFAULT_PAIRING_SCOPES,
+): Promise<{ status: string; session?: PairingSession; qr_payload?: Record<string, unknown>; error?: string }> {
+  const keypair = await ensureWebKeypair();
   return postJson("/v1/sync/pairing/start", {
-    requester_device_id: `web-${getStableDeviceId()}`,
-    requester_device_name: "PersonaLayer Web",
+    requester_device_id: getWebDeviceId(),
+    requester_device_name: getWebDeviceName(),
     requester_public_key: keypair.public_key,
-    requested_scopes: ["profile_summary", "preferences", "feature_signals", "memory_summaries"],
+    requested_scopes: scopes,
     ttl_seconds: 600,
   });
 }
 
-export async function getPairingSession(sessionId: string): Promise<{ status: string; session?: PairingSession }> {
-  return getJson(`/v1/sync/pairing/${encodeURIComponent(sessionId)}`);
+export async function getPairingSession(
+  sessionId: string,
+): Promise<{ status: string; session?: PairingSession }> {
+  return getJson(`/v1/sync/pairing/${encodeURIComponent(sessionId)}?user_id=local_user`);
+}
+
+// Approver side: approve an incoming requester by pairing code or session id.
+// Reuses this browser's keypair as the approver key. Returns the one-time
+// recovery token, which must be shown to the user only once.
+export async function approvePairing(opts: {
+  pairingCode?: string;
+  sessionId?: string;
+  approverDeviceName?: string;
+}): Promise<PairingApprovalResponse> {
+  const keypair = await ensureWebKeypair();
+  return postJson("/v1/sync/pairing/approve", {
+    user_id: "local_user",
+    pairing_code: opts.pairingCode || "",
+    session_id: opts.sessionId || "",
+    approver_device_id: getWebDeviceId(),
+    approver_device_name: opts.approverDeviceName || getWebDeviceName(),
+    approver_public_key: keypair.public_key,
+  });
+}
+
+// Requester side: claim the encrypted transfer once the session is approved.
+export async function claimPairing(sessionId: string): Promise<PairingClaimResponse> {
+  const keypair = getStoredKeypair();
+  return postJson(`/v1/sync/pairing/${encodeURIComponent(sessionId)}/claim`, {
+    user_id: "local_user",
+    requester_device_id: getWebDeviceId(),
+    requester_private_key: keypair?.private_key || "",
+  });
 }
 
 export async function getControlCenterSummary(): Promise<Record<string, unknown>> {
@@ -133,6 +317,17 @@ export async function deleteSignal(signalId: number): Promise<{ deleted: boolean
   return deleteJson(`/v1/control-center/signals/${signalId}?user_id=local_user`);
 }
 
+export async function editSignal(
+  signalId: number,
+  patch: { name?: string; confidence?: number; shareable?: boolean },
+): Promise<PersonaSignal> {
+  return patchJson(`/v1/control-center/signals/${signalId}`, {
+    user_id: "local_user",
+    reason: "Edited from persona dashboard",
+    ...patch,
+  });
+}
+
 export async function getApps(): Promise<{ apps: PclApp[] }> {
   return getJson("/pcl/apps");
 }
@@ -152,6 +347,10 @@ export async function disconnectIntegration(source: string): Promise<Record<stri
   return postJson(`/pcl/integrations/${encodeURIComponent(source)}/disconnect`, {});
 }
 
+export async function syncIntegration(source: string): Promise<Record<string, unknown>> {
+  return postJson(`/pcl/integrations/${encodeURIComponent(source)}/sync`, {});
+}
+
 export async function getPrivacyProfile(): Promise<PrivacyProfile> {
   return getJson("/v1/user/privacy-profile");
 }
@@ -167,6 +366,202 @@ export async function addPrivacyBoundary(boundaryType: string, target: string, r
 
 export async function deletePrivacyBoundary(boundaryId: string): Promise<Record<string, unknown>> {
   return deleteJson(`/v1/user/boundaries/${encodeURIComponent(boundaryId)}?user_id=local_user`);
+}
+
+// ---- Control-center: permissions, audit, export -----------------------------
+
+export type ControlCenterPermission = {
+  id?: string;
+  app_id?: string;
+  name?: string;
+  permission_type?: string;
+  type?: string;
+  status?: string;
+  scopes?: string[];
+  granted_at?: string | number;
+  expires_at?: string | number | null;
+};
+
+export type AuditEntry = {
+  id?: string;
+  action?: string;
+  target_type?: string;
+  target_id?: string;
+  details?: Record<string, unknown>;
+  created_at?: string | number;
+};
+
+export type SyncDevice = {
+  id?: string;
+  user_id?: string;
+  device_id?: string;
+  device_name?: string;
+  public_key?: string;
+  trust_status?: string;
+  last_seen_at?: string | number | null;
+  created_at?: string | number;
+  revoked_at?: string | number | null;
+};
+
+export async function getControlCenterPermissions(): Promise<{
+  all_permissions?: ControlCenterPermission[];
+  active?: ControlCenterPermission[];
+  revoked?: ControlCenterPermission[];
+  expired?: ControlCenterPermission[];
+  counts?: Record<string, number>;
+}> {
+  return getJson("/v1/control-center/permissions?user_id=local_user");
+}
+
+export async function revokeControlCenterPermission(
+  permissionId: string,
+  permissionType: string,
+): Promise<Record<string, unknown>> {
+  return postJson(`/v1/control-center/permissions/${encodeURIComponent(permissionId)}/revoke`, {
+    user_id: "local_user",
+    permission_type: permissionType,
+  });
+}
+
+export async function getAuditLog(limit = 100): Promise<{ logs: AuditEntry[]; count: number }> {
+  return getJson(`/v1/control-center/audit?user_id=local_user&limit=${limit}`);
+}
+
+export async function getPrivacyDrops(limit = 100): Promise<{ drops: Array<Record<string, unknown>> }> {
+  return getJson(`/v1/context/privacy-drops?user_id=local_user&limit=${limit}`);
+}
+
+export async function getSyncDevices(): Promise<{ user_id?: string; devices: SyncDevice[] }> {
+  return getJson("/v1/sync/devices?user_id=local_user");
+}
+
+export async function registerSyncDevice(opts: {
+  device_id: string;
+  device_name?: string;
+  public_key?: string;
+  requested_scopes?: string[];
+}): Promise<{ status?: string; device?: SyncDevice; error?: string }> {
+  return postJson("/v1/sync/devices", { user_id: "local_user", ...opts });
+}
+
+export async function trustSyncDevice(
+  deviceId: string,
+  opts: { device_name?: string; public_key?: string } = {},
+): Promise<{ status?: string; device?: SyncDevice; error?: string }> {
+  return postJson(`/v1/sync/devices/${encodeURIComponent(deviceId)}/trust`, {
+    user_id: "local_user",
+    ...opts,
+  });
+}
+
+export async function revokeSyncDevice(
+  deviceId: string,
+): Promise<{ status?: string; device?: SyncDevice; error?: string }> {
+  return postJson(`/v1/sync/devices/${encodeURIComponent(deviceId)}/revoke`, { user_id: "local_user" });
+}
+
+export async function rotateSyncDeviceKey(
+  deviceId: string,
+  publicKey: string,
+  recoveryToken = "",
+): Promise<{ status?: string; device?: SyncDevice; error?: string }> {
+  return postJson(`/v1/sync/devices/${encodeURIComponent(deviceId)}/rotate-key`, {
+    user_id: "local_user",
+    public_key: publicKey,
+    recovery_token: recoveryToken,
+  });
+}
+
+export async function recoveryRevokeSyncDevice(
+  deviceId: string,
+  reason = "",
+): Promise<{ status?: string; device?: SyncDevice; error?: string }> {
+  return postJson(`/v1/sync/devices/${encodeURIComponent(deviceId)}/recovery-revoke`, {
+    user_id: "local_user",
+    reason,
+  });
+}
+
+// ---- Snapshots, import, conflicts, sync audit -------------------------------
+
+export async function createSyncSnapshot(): Promise<{
+  status?: string;
+  snapshot?: SyncSnapshot;
+  encrypted_blob?: string;
+  error?: string;
+}> {
+  return postJson("/v1/sync/snapshot", {
+    user_id: "local_user",
+    device_id: getWebDeviceId(),
+    device_name: getWebDeviceName(),
+  });
+}
+
+export async function importSyncSnapshot(opts: {
+  remote_device_id: string;
+  encrypted_blob: string;
+  expected_parent_version?: string | null;
+}): Promise<{
+  status?: string;
+  snapshot?: SyncSnapshot;
+  conflict?: SyncConflict;
+  merged?: MergeResult;
+  error?: string;
+}> {
+  return postJson("/v1/sync/import", { user_id: "local_user", ...opts });
+}
+
+export async function compactSnapshots(
+  keepPerDevice = 5,
+): Promise<{ user_id?: string; keep_per_device?: number; deleted?: number }> {
+  return postJson("/v1/sync/snapshots/compact", {
+    user_id: "local_user",
+    keep_per_device: keepPerDevice,
+  });
+}
+
+export async function getSyncConflicts(
+  status = "open",
+  limit = 100,
+): Promise<{ user_id?: string; conflicts: SyncConflict[] }> {
+  return getJson(`/v1/sync/conflicts?user_id=local_user&status=${encodeURIComponent(status)}&limit=${limit}`);
+}
+
+export async function resolveSyncConflict(
+  conflictId: string,
+  action: "accept_remote" | "keep_local" | "ignore",
+): Promise<{ status?: string; resolution?: string; merged?: MergeResult; conflict?: SyncConflict; error?: string }> {
+  return postJson(`/v1/sync/conflicts/${encodeURIComponent(conflictId)}/resolve`, {
+    user_id: "local_user",
+    action,
+    device_id: getWebDeviceId(),
+  });
+}
+
+export async function getSyncAudit(limit = 100): Promise<{ user_id?: string; audit: SyncAuditEvent[] }> {
+  return getJson(`/v1/sync/audit?user_id=local_user&limit=${limit}`);
+}
+
+export async function exportControlCenterData(): Promise<Record<string, unknown>> {
+  return postJson("/v1/control-center/export?user_id=local_user&format=json", {});
+}
+
+export async function deleteAllContext(): Promise<Record<string, unknown>> {
+  return deleteJson("/v1/context/all?user_id=local_user");
+}
+
+export async function deleteUserData(userId = "local_user"): Promise<Record<string, unknown>> {
+  return deleteJson(`/pcl/users/${encodeURIComponent(userId)}/data`);
+}
+
+// Creates a local session token via the backend bootstrap flow. When the
+// backend returns a token (non-production or RETURN_SESSION_TOKEN=1) it is
+// stored for Bearer auth; otherwise the httpOnly cookie carries the session.
+export async function createLocalSession(
+  userId = "local_user",
+  bootstrapToken = "",
+): Promise<{ status?: string; user_id?: string; session_token?: string }> {
+  return postJson("/v1/auth/local/session", { user_id: userId, bootstrap_token: bootstrapToken });
 }
 
 async function getJson<T>(path: string): Promise<T> {
