@@ -3,7 +3,9 @@
 // to hide / edit / delete (wired to the control-center signal endpoints).
 
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import {
+  ArrowRight,
   Briefcase,
   Check,
   Code,
@@ -15,9 +17,10 @@ import {
   RefreshCw,
   Sparkles,
   Trash2,
+  Wand2,
   X,
 } from "lucide-react";
-import { ErrorState, LoadingState, OfflineBanner, PageHeader } from "../components/states";
+import { EmptyState, ErrorState, LoadingState, OfflineBanner, PageHeader } from "../components/states";
 import { Button, ConfidenceBar, Panel, Pill, Stat } from "../components/ui";
 import { useResource } from "../lib/useResource";
 import { relativeTime, titleize } from "../lib/format";
@@ -170,7 +173,21 @@ export default function Persona() {
 
           <Panel title="Signals" action={<span className="text-xs text-on-surface-variant">{signals.length} signals</span>}>
             {signals.length === 0 ? (
-              <p className="text-sm text-on-surface-variant">No signals yet. Connect apps to start building your persona.</p>
+              <EmptyState
+                icon={<Wand2 size={22} />}
+                title="No signals yet"
+                hint="Seed your persona in a minute, or connect an app to start building it from your activity."
+                action={
+                  <div className="mt-2 flex flex-wrap justify-center gap-2">
+                    <Link to="/app/onboarding" className="primary-button !px-4 !py-2 !text-sm">
+                      Set up your persona <ArrowRight size={15} />
+                    </Link>
+                    <Link to="/app/apps" className="secondary-button !px-4 !py-2 !text-sm">
+                      Connect an app
+                    </Link>
+                  </div>
+                }
+              />
             ) : (
               <ul className="-my-1">
                 {signals.map((s, i) => (
