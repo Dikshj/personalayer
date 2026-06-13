@@ -52,7 +52,7 @@ function Field({ label, children, error }: { label: string; children: React.Reac
     <label className="flex flex-col gap-1.5">
       <span className="text-sm font-semibold">{label}</span>
       {children}
-      {error && <span className="text-xs font-semibold text-[#ba1a1a]">{error}</span>}
+      {error && <span className="text-xs font-semibold text-danger">{error}</span>}
     </label>
   );
 }
@@ -118,15 +118,18 @@ export default function Onboarding() {
     setSaving(true);
     setError("");
     try {
-      await seedOnboarding(seedAnswers);
-      await submitOnboardingFlow({
-        privacy_level: postureCfg.privacy_level,
-        sharing_default: postureCfg.sharing_default,
-        personalization_goals: goals,
-        personalization_aggression: "medium",
-        enabled_integrations: [],
-        never_share: [],
-      });
+      // Fire both calls in parallel: persona seed + privacy posture.
+      await Promise.all([
+        seedOnboarding(seedAnswers),
+        submitOnboardingFlow({
+          privacy_level: postureCfg.privacy_level,
+          sharing_default: postureCfg.sharing_default,
+          personalization_goals: goals,
+          personalization_aggression: "medium",
+          enabled_integrations: [],
+          never_share: [],
+        }),
+      ]);
       navigate("/app/persona", { replace: true });
     } catch (err) {
       setError(
@@ -186,9 +189,9 @@ export default function Onboarding() {
                 decide what’s ever shared.
               </p>
               <ul className="flex flex-col gap-2 text-sm text-on-surface-variant">
-                <li className="flex items-center gap-2"><Check size={16} className="text-[#006e2f]" /> Takes about a minute</li>
-                <li className="flex items-center gap-2"><Check size={16} className="text-[#006e2f]" /> Nothing is shared without your say-so</li>
-                <li className="flex items-center gap-2"><Check size={16} className="text-[#006e2f]" /> You can edit or delete any signal later</li>
+                <li className="flex items-center gap-2"><Check size={16} className="text-ok" /> Takes about a minute</li>
+                <li className="flex items-center gap-2"><Check size={16} className="text-ok" /> Nothing is shared without your say-so</li>
+                <li className="flex items-center gap-2"><Check size={16} className="text-ok" /> You can edit or delete any signal later</li>
               </ul>
             </div>
           )}
@@ -327,7 +330,7 @@ export default function Onboarding() {
           {/* Step 5 — Confirm */}
           {step === 5 && (
             <div className="flex flex-col gap-4">
-              <h1 className="flex items-center gap-2 text-2xl font-bold"><Check size={22} className="text-[#006e2f]" /> Review your persona</h1>
+              <h1 className="flex items-center gap-2 text-2xl font-bold"><Check size={22} className="text-ok" /> Review your persona</h1>
               <p className="text-on-surface-variant">Here’s what we’ll seed. You can jump back to edit anything.</p>
 
               <ReviewRow label="Role" value={seedAnswers.identity || "—"} onEdit={() => setStep(1)} />
@@ -351,7 +354,7 @@ export default function Onboarding() {
               </div>
 
               {error && (
-                <p className="rounded-lg border border-[#ba1a1a]/20 bg-[#ba1a1a]/5 px-3 py-2 text-sm font-semibold text-[#ba1a1a]">{error}</p>
+                <p className="rounded-lg border border-danger/20 bg-danger/5 px-3 py-2 text-sm font-semibold text-danger">{error}</p>
               )}
             </div>
           )}

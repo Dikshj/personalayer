@@ -858,13 +858,43 @@ async function deleteJson<T>(path: string): Promise<T> {
   return requestJson(path, { method: "DELETE" });
 }
 
+const USER_STORAGE_KEY = "personalayer_user";
+
+// Resolves the current user id. With a Supabase user signed in this is
+// `supabase:<uuid>`; otherwise it falls back to the local default. Used to
+// thread user_id through request paths/bodies that default to "local_user".
+export function getUserId(): string {
+  try {
+    const raw = localStorage.getItem(USER_STORAGE_KEY);
+    if (raw) {
+      const user = JSON.parse(raw) as { id?: string };
+      if (user?.id) return `supabase:${user.id}`;
+    }
+  } catch {
+    /* ignore malformed user */
+  }
+  return "local_user";
+}
+
 async function requestJson<T>(path: string, init: RequestInit): Promise<T> {
   if (!API_BASE) {
     throw new Error("Production API is not configured. Set VITE_PERSONALAYER_API_BASE for the deployed frontend.");
   }
   const token = getStoredSessionToken();
-  const response = await fetch(`${API_BASE}${path}`, {
+  // Centrally substitute the real user id into the default "local_user"
+  // sentinel used across query strings and request bodies.
+  const uid = getUserId();
+  let finalPath = path;
+  let body = init.body;
+  if (uid !== "local_user") {
+    finalPath = finalPath.replace(/user_id=local_user/g, `user_id=${encodeURIComponent(uid)}`);
+    if (typeof body === "string") {
+      body = body.replace(/"user_id":"local_user"/g, `"user_id":${JSON.stringify(uid)}`);
+    }
+  }
+  const response = await fetch(`${API_BASE}${finalPath}`, {
     ...init,
+    body,
     credentials: "include",
     headers: {
       "Content-Type": "application/json",

@@ -75,16 +75,16 @@ export default function ApproveDevice({ online, onChange }: { online: boolean; o
   // Success: show the recovery token once.
   if (result) {
     return (
-      <Panel title={<span className="inline-flex items-center gap-2"><CheckCircle2 size={16} className="text-[#006e2f]" /> Device approved</span>}>
+      <Panel title={<span className="inline-flex items-center gap-2"><CheckCircle2 size={16} className="text-ok" /> Device approved</span>}>
         <p className="mb-4 text-sm text-on-surface-variant">
           The requesting device can now claim its encrypted transfer.
           {result.session?.requester_device_name ? ` (${result.session.requester_device_name})` : ""}
         </p>
-        <div className="rounded-xl border border-[#fea619]/40 bg-[#fff8ec] p-4">
-          <div className="mb-2 flex items-center gap-2 text-sm font-bold text-[#9a5b00]">
+        <div className="rounded-xl border border-warn/40 bg-warn/10 p-4">
+          <div className="mb-2 flex items-center gap-2 text-sm font-bold text-warn">
             <AlertTriangle size={16} /> Recovery token — shown once
           </div>
-          <p className="mb-3 text-xs text-[#9a5b00]">
+          <p className="mb-3 text-xs text-warn">
             Store this somewhere safe. It can recover or re-key this pairing later. You will not be able to see it again
             after you leave this screen.
           </p>
@@ -112,7 +112,7 @@ export default function ApproveDevice({ online, onChange }: { online: boolean; o
       </p>
 
       {error && (
-        <p className="mb-4 rounded-lg border border-[#ba1a1a]/20 bg-[#ba1a1a]/5 px-3 py-2 text-sm font-semibold text-[#ba1a1a]">
+        <p className="mb-4 rounded-lg border border-danger/20 bg-danger/5 px-3 py-2 text-sm font-semibold text-danger">
           {error}
         </p>
       )}
@@ -139,10 +139,10 @@ export default function ApproveDevice({ online, onChange }: { online: boolean; o
             placeholder='{"session_id":"…","pairing_code":"ABCD-1234","requested_scopes":[…]}'
             rows={3}
             className={`w-full rounded-lg border bg-white px-3 py-2 font-mono text-xs outline-none focus:border-primary ${
-              qrInvalid ? "border-[#ba1a1a]" : "border-outline-variant"
+              qrInvalid ? "border-danger" : "border-outline-variant"
             }`}
           />
-          {qrInvalid && <span className="text-xs font-semibold text-[#ba1a1a]">That doesn’t look like valid JSON.</span>}
+          {qrInvalid && <span className="text-xs font-semibold text-danger">That doesn’t look like valid JSON.</span>}
         </label>
 
         {previewScopes.length > 0 && (

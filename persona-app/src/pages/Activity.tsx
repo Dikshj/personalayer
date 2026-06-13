@@ -76,7 +76,7 @@ function Detail({ e }: { e: QueryLogEntry }) {
             <span
               key={l}
               className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-semibold ${
-                returned.has(l) ? "border-[#006e2f]/20 bg-[#006e2f]/5 text-[#006e2f]" : "border-[#ba1a1a]/20 bg-[#ba1a1a]/5 text-[#ba1a1a] line-through"
+                returned.has(l) ? "border-ok/20 bg-ok/5 text-ok" : "border-danger/20 bg-danger/5 text-danger line-through"
               }`}
             >
               {returned.has(l) ? <CheckCircle2 size={11} /> : <ShieldX size={11} />} {titleize(l)}
@@ -86,7 +86,7 @@ function Detail({ e }: { e: QueryLogEntry }) {
       </div>
 
       {blocked.length > 0 && (
-        <div className="flex items-start gap-2 text-xs text-[#9a5b00]">
+        <div className="flex items-start gap-2 text-xs text-warn">
           <ShieldX size={13} className="mt-0.5 shrink-0" />
           <span><strong>{blocked.length}</strong> field(s) blocked by your rules: {blocked.map(titleize).join(", ")}.</span>
         </div>
@@ -216,7 +216,7 @@ export default function Activity() {
                 return (
                   <li key={e.id ?? i} className="border-b border-outline-variant py-3 last:border-none">
                     <button className="flex w-full items-center gap-3 text-left" onClick={() => setOpen(isOpen ? null : (e.id ?? String(i)))}>
-                      <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg ${allowed ? "bg-[#006e2f]/10 text-[#006e2f]" : "bg-[#ba1a1a]/10 text-[#ba1a1a]"}`}>
+                      <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg ${allowed ? "bg-ok/10 text-ok" : "bg-danger/10 text-danger"}`}>
                         {allowed ? <CheckCircle2 size={16} /> : <Ban size={16} />}
                       </span>
                       <div className="min-w-0 flex-1">

@@ -56,7 +56,7 @@ function Node({
         <span
           className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold shadow-lg backdrop-blur ${
             locked
-              ? "border-[#fea619]/40 bg-[#1a1305]/80 text-[#fec25a]"
+              ? "border-warn/40 bg-[#1a1305]/80 text-warn"
               : "border-white/15 bg-white/10 text-white"
           }`}
         >
@@ -78,11 +78,11 @@ function SignalRow({ name, source, pct, shared }: { name: string; source: string
       <div className="flex shrink-0 items-center gap-2">
         <span className="h-1.5 w-14 overflow-hidden rounded-full bg-white/10">
           <span
-            className="block h-full rounded-full bg-gradient-to-r from-[#2563eb] to-[#6cf8bb]"
+            className="block h-full rounded-full bg-gradient-to-r from-[#bd5d3f] to-[#e0b48f]"
             style={{ width: `${pct}%` }}
           />
         </span>
-        <span className={`h-3.5 w-3.5 rounded-full ${shared ? "bg-[#6cf8bb]" : "bg-[#fea619]"}`} />
+        <span className={`h-3.5 w-3.5 rounded-full ${shared ? "bg-[#e0b48f]" : "bg-warn"}`} />
       </div>
     </div>
   );
@@ -103,12 +103,12 @@ export default function Landing() {
   return (
     <div className="min-h-dvh bg-surface text-on-surface">
       {/* ---- Hero: dark, animated, 3D --------------------------------------- */}
-      <div className="relative overflow-hidden bg-[#070b16] text-white">
+      <div className="relative overflow-hidden bg-[#1f1b17] text-white">
         {/* Aurora glow blobs */}
         <div className="pointer-events-none absolute inset-0" aria-hidden>
-          <div className="aurora absolute -left-24 top-[-10%] h-[420px] w-[420px] rounded-full bg-[#2563eb]/50" />
-          <div className="aurora aurora-2 absolute right-[-10%] top-[20%] h-[460px] w-[460px] rounded-full bg-[#6cf8bb]/25" />
-          <div className="aurora absolute bottom-[-20%] left-1/3 h-[380px] w-[380px] rounded-full bg-[#7c3aed]/30" />
+          <div className="aurora absolute -left-24 top-[-10%] h-[420px] w-[420px] rounded-full bg-[#bd5d3f]/50" />
+          <div className="aurora aurora-2 absolute right-[-10%] top-[20%] h-[460px] w-[460px] rounded-full bg-[#e0b48f]/25" />
+          <div className="aurora absolute bottom-[-20%] left-1/3 h-[380px] w-[380px] rounded-full bg-[#b8543a]/30" />
         </div>
         {/* Depth grid */}
         <div
@@ -135,7 +135,7 @@ export default function Landing() {
             <a href="#privacy" className="hidden hover:text-white sm:inline">Privacy</a>
             <Link
               to="/app/persona"
-              className="inline-flex items-center gap-2 rounded-lg bg-white px-4 py-2 text-sm font-bold text-[#070b16] transition hover:bg-white/90 active:scale-[0.98]"
+              className="inline-flex items-center gap-2 rounded-lg bg-white px-4 py-2 text-sm font-bold text-[#1f1b17] transition hover:bg-white/90 active:scale-[0.98]"
             >
               {entered ? "Open app" : "Open control center"} <ArrowRight size={15} />
             </Link>
@@ -150,11 +150,11 @@ export default function Landing() {
           {/* Left: copy */}
           <div className="flex flex-col items-start gap-5 text-left">
             <span className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3.5 py-1.5 text-xs font-semibold text-white/80 backdrop-blur">
-              <Sparkles size={14} className="text-[#6cf8bb]" /> Local-first personal context layer
+              <Sparkles size={14} className="text-[#e0b48f]" /> Local-first personal context layer
             </span>
             <h1 className="text-4xl font-bold leading-[1.05] tracking-tight md:text-6xl">
               See, edit, and control what apps can{" "}
-              <span className="bg-gradient-to-r from-[#7db4ff] via-white to-[#6cf8bb] bg-clip-text text-transparent shimmer">
+              <span className="bg-gradient-to-r from-[#e8b48f] via-white to-[#e0b48f] bg-clip-text text-transparent shimmer">
                 know about you.
               </span>
             </h1>
@@ -165,7 +165,7 @@ export default function Landing() {
             <div className="mt-1 flex flex-wrap items-center gap-3">
               <Link
                 to="/app/persona"
-                className="inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-[#2563eb] to-[#4f7cff] px-5 py-3 font-bold text-white shadow-lg shadow-[#2563eb]/30 transition hover:brightness-110 active:scale-[0.98]"
+                className="inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-[#bd5d3f] to-[#cc785c] px-5 py-3 font-bold text-white shadow-lg shadow-[#bd5d3f]/30 transition hover:brightness-110 active:scale-[0.98]"
               >
                 Open control center <ArrowRight size={16} />
               </Link>
@@ -192,7 +192,7 @@ export default function Landing() {
                 aria-hidden
               />
               <div
-                className="absolute inset-0 m-auto h-[210px] w-[210px] rounded-full bg-[#2563eb]/20 blur-2xl"
+                className="absolute inset-0 m-auto h-[210px] w-[210px] rounded-full bg-[#bd5d3f]/20 blur-2xl"
                 style={{ transform: "translateZ(-90px)" }}
                 aria-hidden
               />
@@ -205,7 +205,7 @@ export default function Landing() {
                 <div className="rounded-2xl border border-white/15 bg-white/[0.07] p-4 shadow-2xl backdrop-blur-xl">
                   <div className="mb-3 flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <span className="grid h-7 w-7 place-items-center rounded-lg bg-[#6cf8bb]/20 text-[#6cf8bb]">
+                      <span className="grid h-7 w-7 place-items-center rounded-lg bg-[#e0b48f]/20 text-[#e0b48f]">
                         <ShieldCheck size={15} />
                       </span>
                       <span className="text-sm font-bold text-white">What we know</span>
@@ -221,7 +221,7 @@ export default function Landing() {
                   </div>
                   <div className="mt-3 flex items-center justify-between rounded-lg bg-white/[0.04] px-3 py-2">
                     <span className="text-[11px] text-white/60">3 signals · 2 apps · 2 rules</span>
-                    <span className="flex items-center gap-1 text-[11px] font-semibold text-[#6cf8bb]">
+                    <span className="flex items-center gap-1 text-[11px] font-semibold text-[#e0b48f]">
                       <Lock size={11} /> Private
                     </span>
                   </div>

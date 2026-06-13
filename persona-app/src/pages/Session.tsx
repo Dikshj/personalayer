@@ -1,130 +1,74 @@
-// /app/session — connect and manage your session. Create a session from a
-// bootstrap code (or paste a token), optionally remember this browser as a
-// trusted device, see when the session expires, and sign out everywhere.
+// /app/session — sign up or sign in with Supabase email/password. On success
+// the access token + user are stored locally (never shown), and the user is
+// routed onward: new signups to onboarding, returning users to the dashboard.
 
 import { useState, type FormEvent } from "react";
-import { Link, useLocation, useNavigate } from "react-router-dom";
-import {
-  ArrowRight,
-  Clock,
-  KeyRound,
-  Loader2,
-  LogOut,
-  Smartphone,
-  ShieldCheck,
-} from "lucide-react";
-import {
-  API_BASE,
-  API_CONFIG,
-  clearSessionToken,
-  createLocalSession,
-  getSessionMeta,
-  getStoredSessionToken,
-  isSessionExpired,
-  rememberBrowserAsDevice,
-  storeSessionMeta,
-  storeSessionToken,
-} from "../api";
-import { Qr } from "../components/Qr";
+import { Link, useNavigate } from "react-router-dom";
+import { ArrowRight, Loader2, Lock, LogOut, Mail, ShieldCheck, TriangleAlert } from "lucide-react";
+import { isSupabaseConfigured, supabase } from "../lib/supabase";
+import { clearSession, hasSession, maskedHint, setSession } from "../auth/session";
 
-const appUrl = typeof window !== "undefined" ? `${window.location.origin}/app/devices` : "";
-
-function daysLeft(expiresAt?: number) {
-  if (!expiresAt) return null;
-  const ms = expiresAt - Date.now();
-  if (ms <= 0) return "expired";
-  const d = Math.floor(ms / 86_400_000);
-  const h = Math.floor((ms % 86_400_000) / 3_600_000);
-  return d >= 1 ? `${d} day${d === 1 ? "" : "s"}` : `${h} hour${h === 1 ? "" : "s"}`;
-}
+type Mode = "signin" | "signup";
 
 export default function Session() {
   const navigate = useNavigate();
-  const location = useLocation();
-  const expiredRedirect = (location.state as { reason?: string } | null)?.reason === "expired";
-
-  const [connected, setConnected] = useState(Boolean(getStoredSessionToken()) && !isSessionExpired());
-  const [token, setToken] = useState("");
-  const [bootstrap, setBootstrap] = useState("");
-  const [userId, setUserId] = useState("local_user");
-  const [remember, setRemember] = useState(false);
+  const [connected, setConnected] = useState(hasSession());
+  const [mode, setMode] = useState<Mode>("signin");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<"token" | "bootstrap" | "remember" | null>(null);
-  const [note, setNote] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
 
-  const host = (() => {
-    try {
-      return new URL(API_BASE).host;
-    } catch {
-      return API_BASE || "(not configured)";
-    }
-  })();
-
-  const finishConnect = async (uid: string) => {
-    storeSessionMeta(uid);
-    if (remember) await rememberBrowserAsDevice().catch(() => undefined);
-    navigate("/app/persona", { replace: true });
-  };
-
-  const connectWithToken = async (e: FormEvent) => {
+  const submit = async (e: FormEvent) => {
     e.preventDefault();
-    const trimmed = token.trim();
-    if (!trimmed) {
-      setError("Enter a session token to connect.");
+    setError(null);
+    setInfo(null);
+    if (!supabase) {
+      setError("Sign-in isn’t configured yet. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY, then reload.");
       return;
     }
-    setBusy("token");
-    storeSessionToken(trimmed);
-    await finishConnect(userId.trim() || "local_user");
-    setBusy(null);
-  };
-
-  const connectWithBootstrap = async () => {
-    setBusy("bootstrap");
-    setError(null);
-    const uid = userId.trim() || "local_user";
+    if (!email.trim() || !password) {
+      setError("Enter your email and password.");
+      return;
+    }
+    setBusy(true);
     try {
-      const res = await createLocalSession(uid, bootstrap.trim());
-      storeSessionToken(res.session_token || `user:${uid}`);
-      await finishConnect(uid);
-    } catch (err) {
-      // Backend unreachable — store a scoped marker so the control center loads
-      // with preview data, and still record session metadata.
-      if (err instanceof Error && /not configured|failed to fetch|networkerror/i.test(err.message)) {
-        storeSessionToken(`user:${uid}`);
-        await finishConnect(uid);
+      if (mode === "signup") {
+        const { data, error } = await supabase.auth.signUp({ email: email.trim(), password });
+        if (error) throw error;
+        if (data.session && data.user) {
+          setSession(data.session.access_token, { id: data.user.id, email: data.user.email ?? email.trim() });
+          navigate("/app/onboarding", { replace: true });
+        } else {
+          setInfo("Check your email to confirm your account, then sign in.");
+          setMode("signin");
+        }
       } else {
-        setError(err instanceof Error ? err.message : "Couldn’t create a session. Check your bootstrap code.");
+        const { data, error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+        if (error) throw error;
+        if (data.session && data.user) {
+          setSession(data.session.access_token, { id: data.user.id, email: data.user.email ?? email.trim() });
+          navigate("/app/persona", { replace: true });
+        } else {
+          setError("Couldn’t start a session. Try again.");
+        }
       }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Authentication failed. Check your details and try again.");
     } finally {
-      setBusy(null);
+      setBusy(false);
     }
   };
 
-  const signOutEverywhere = () => {
-    clearSessionToken();
+  const signOut = async () => {
+    if (supabase) await supabase.auth.signOut().catch(() => undefined);
+    clearSession();
     setConnected(false);
-    setToken("");
-    setBootstrap("");
-    setNote("Signed out. This browser no longer holds a session.");
   };
-
-  const rememberThisBrowser = async () => {
-    setBusy("remember");
-    try {
-      const res = await rememberBrowserAsDevice();
-      setNote(res.status === "pending" || res.device ? "This browser is now a known device." : "Saved.");
-    } catch {
-      setNote("Couldn’t reach the backend — try again when connected.");
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const meta = getSessionMeta();
 
   return (
-    <div className="grid min-h-dvh place-items-center bg-surface px-4 py-10">
+    <div className="grid min-h-dvh place-items-center bg-surface px-4 py-10 text-on-surface">
       <div className="w-full max-w-md rounded-2xl border border-outline-variant bg-white p-7 shadow-ambient">
         <span className="mb-4 flex items-center gap-2">
           <span className="grid h-8 w-8 place-items-center rounded-lg bg-primary/10 text-primary">
@@ -133,141 +77,87 @@ export default function Session() {
           <span className="text-lg font-bold text-primary">PersonaLayer</span>
         </span>
 
-        {expiredRedirect && !connected && (
-          <div className="mb-4 flex items-center gap-2 rounded-lg border border-[#fea619]/40 bg-[#fff8ec] px-3 py-2 text-sm font-semibold text-[#9a5b00]">
-            <Clock size={15} /> Your session expired. Connect again to continue.
-          </div>
-        )}
-        {note && (
-          <div className="mb-4 rounded-lg border border-[#006e2f]/20 bg-[#006e2f]/5 px-3 py-2 text-sm font-semibold text-[#006e2f]">{note}</div>
-        )}
-
         {connected ? (
-          // ---- Manage an active session ----
           <>
-            <h1 className="text-xl font-bold">Session active</h1>
-            <p className="mt-1.5 text-sm leading-6 text-on-surface-variant">
-              Connected to <code className="rounded bg-surface-container-low px-1.5 py-0.5 text-xs">{host}</code> as{" "}
-              <strong>{meta?.user_id || "local_user"}</strong>.
-            </p>
-
-            <dl className="mt-4 grid grid-cols-2 gap-3">
-              <div className="rounded-xl border border-outline-variant p-3">
-                <dt className="text-xs uppercase tracking-wide text-outline">Expires in</dt>
-                <dd className="font-semibold">{daysLeft(meta?.expires_at) || "—"}</dd>
-              </div>
-              <div className="rounded-xl border border-outline-variant p-3">
-                <dt className="text-xs uppercase tracking-wide text-outline">Token</dt>
-                <dd className="font-semibold text-on-surface-variant">Stored · hidden</dd>
-              </div>
-            </dl>
-
+            <h1 className="text-xl font-bold">You’re signed in</h1>
+            <p className="mt-1.5 text-sm text-on-surface-variant">Signed in as <strong>{maskedHint()}</strong>.</p>
             <Link to="/app/persona" className="primary-button mt-5 w-full justify-center">
               Go to your control center <ArrowRight size={15} />
             </Link>
-
-            <button className="secondary-button mt-3 w-full justify-center" onClick={rememberThisBrowser} disabled={busy === "remember"}>
-              {busy === "remember" ? <Loader2 size={15} className="animate-spin" /> : <Smartphone size={15} />}
-              Remember this browser as a device
-            </button>
-
             <button
-              className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg border border-[#ba1a1a]/30 bg-[#ba1a1a]/5 px-3 py-2.5 text-sm font-semibold text-[#ba1a1a] transition hover:bg-[#ba1a1a]/10"
-              onClick={signOutEverywhere}
+              className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg border border-danger/30 bg-danger/5 px-3 py-2.5 text-sm font-semibold text-danger transition hover:bg-danger/10"
+              onClick={signOut}
             >
-              <LogOut size={15} /> Sign out everywhere
+              <LogOut size={15} /> Sign out
             </button>
-            <p className="mt-2 text-xs text-outline">Clears the session on this browser. Pair again from another device anytime.</p>
           </>
         ) : (
-          // ---- Connect ----
           <>
-            <h1 className="text-xl font-bold">Connect your session</h1>
+            <h1 className="text-xl font-bold">{mode === "signup" ? "Create your account" : "Welcome back"}</h1>
             <p className="mt-1.5 text-sm leading-6 text-on-surface-variant">
-              Create a session with a bootstrap code from your backend. It’s stored locally and sent only to{" "}
-              <code className="rounded bg-surface-container-low px-1.5 py-0.5 text-xs">{host}</code>.
+              {mode === "signup"
+                ? "Sign up to build your private context layer. Your data stays yours."
+                : "Sign in to your PersonaLayer control center."}
             </p>
 
-            {/* Primary: bootstrap code */}
-            <div className="mt-5 flex flex-col gap-3">
+            {!isSupabaseConfigured && (
+              <div className="mt-4 flex items-start gap-2 rounded-lg border border-warn/40 bg-warn/10 px-3 py-2 text-sm font-semibold text-warn">
+                <TriangleAlert size={15} className="mt-0.5 shrink-0" />
+                Sign-in isn’t configured in this environment yet.
+              </div>
+            )}
+
+            <form onSubmit={submit} className="mt-5 flex flex-col gap-4">
               <label className="flex flex-col gap-1.5">
                 <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-on-surface-variant">
-                  <KeyRound size={13} /> Bootstrap code
+                  <Mail size={13} /> Email
                 </span>
                 <input
-                  type="password"
-                  autoComplete="off"
-                  spellCheck={false}
-                  placeholder="Paste your bootstrap code"
-                  value={bootstrap}
-                  onChange={(e) => { setBootstrap(e.target.value); setError(null); }}
-                  className="h-11 rounded-lg border border-outline-variant px-3.5 font-mono text-sm outline-none focus:border-primary"
+                  type="email"
+                  autoComplete="email"
+                  placeholder="you@example.com"
+                  value={email}
+                  onChange={(e) => { setEmail(e.target.value); setError(null); }}
+                  className="h-11 rounded-lg border border-outline-variant px-3.5 text-sm outline-none focus:border-primary"
                 />
               </label>
               <label className="flex flex-col gap-1.5">
-                <span className="text-xs font-semibold text-on-surface-variant">User ID</span>
+                <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-on-surface-variant">
+                  <Lock size={13} /> Password
+                </span>
                 <input
-                  type="text"
-                  autoComplete="off"
-                  spellCheck={false}
-                  placeholder="local_user"
-                  value={userId}
-                  onChange={(e) => setUserId(e.target.value)}
+                  type="password"
+                  autoComplete={mode === "signup" ? "new-password" : "current-password"}
+                  placeholder={mode === "signup" ? "Choose a strong password" : "Your password"}
+                  value={password}
+                  onChange={(e) => { setPassword(e.target.value); setError(null); }}
                   className="h-11 rounded-lg border border-outline-variant px-3.5 text-sm outline-none focus:border-primary"
                 />
               </label>
 
-              <label className="flex cursor-pointer items-center gap-2.5">
-                <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} className="h-4 w-4 accent-[#004ac6]" />
-                <span className="text-sm font-semibold">Remember this browser as a device</span>
-              </label>
+              {error && <p className="text-sm font-semibold text-danger">{error}</p>}
+              {info && <p className="text-sm font-semibold text-ok">{info}</p>}
 
-              {error && <p className="text-sm font-semibold text-[#ba1a1a]">{error}</p>}
-
-              <button className="primary-button w-full justify-center" onClick={connectWithBootstrap} disabled={busy === "bootstrap"}>
-                {busy === "bootstrap" && <Loader2 size={15} className="animate-spin" />}
-                Create session <ArrowRight size={15} />
+              <button type="submit" className="primary-button justify-center" disabled={busy}>
+                {busy && <Loader2 size={15} className="animate-spin" />}
+                {mode === "signup" ? "Create account" : "Sign in"} <ArrowRight size={15} />
               </button>
-            </div>
+            </form>
 
-            {/* Advanced: paste a token */}
-            <details className="mt-4 rounded-lg border border-outline-variant px-3 py-2">
-              <summary className="cursor-pointer text-xs font-semibold text-on-surface-variant">Advanced — paste a session token</summary>
-              <form onSubmit={connectWithToken} className="mt-3 flex flex-col gap-3">
-                <input
-                  type="password"
-                  autoComplete="off"
-                  spellCheck={false}
-                  placeholder="Session token"
-                  value={token}
-                  onChange={(e) => { setToken(e.target.value); setError(null); }}
-                  className="h-10 rounded-lg border border-outline-variant px-3 font-mono text-sm outline-none focus:border-primary"
-                />
-                <button type="submit" className="secondary-button w-full justify-center" disabled={busy === "token"}>
-                  {busy === "token" && <Loader2 size={15} className="animate-spin" />}
-                  Connect with token
-                </button>
-              </form>
-            </details>
-
-            {/* Pair from another device */}
-            <div className="mt-4 flex items-start gap-3 rounded-xl border border-outline-variant bg-surface-container-low p-3">
-              <Qr value={appUrl} size={96} className="shrink-0 border border-outline-variant" />
-              <div className="text-sm">
-                <div className="font-semibold">Open on another device</div>
-                <p className="mt-0.5 text-xs text-on-surface-variant">Scan to open PersonaLayer on your phone, then pair from there.</p>
-                <Link to="/app/devices" className="mt-1 inline-block text-primary hover:underline">Pair from Devices →</Link>
-              </div>
-            </div>
-
-            <p className="mt-4 text-xs text-on-surface-variant">
-              {API_CONFIG.requiresSession ? "A session is required to use the control center." : "A session is optional in this environment."}
+            <p className="mt-4 text-center text-sm text-on-surface-variant">
+              {mode === "signup" ? "Already have an account?" : "New to PersonaLayer?"}{" "}
+              <button
+                className="font-semibold text-primary hover:underline"
+                onClick={() => { setMode(mode === "signup" ? "signin" : "signup"); setError(null); setInfo(null); }}
+              >
+                {mode === "signup" ? "Sign in" : "Create one"}
+              </button>
             </p>
           </>
         )}
 
         <div className="mt-5 flex items-center gap-2 border-t border-outline-variant pt-4 text-xs text-outline">
-          <ShieldCheck size={13} /> Codes and tokens are never displayed again after entry.
+          <ShieldCheck size={13} /> Your session token is stored only on this device and never displayed.
         </div>
         <Link to="/" className="mt-3 block text-center text-xs text-on-surface-variant hover:text-on-surface">← Back to home</Link>
       </div>

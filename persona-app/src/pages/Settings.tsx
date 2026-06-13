@@ -8,11 +8,12 @@ import { Button, ConfirmButton, Panel } from "../components/ui";
 import { useBackend } from "../lib/backend";
 import {
   API_BASE,
-  clearSessionToken,
   deleteAllContext,
   deleteUserData,
   exportControlCenterData,
 } from "../api";
+import { clearSession, maskedHint } from "../auth/session";
+import { supabase } from "../lib/supabase";
 
 const SECURITY_CONTACT = "security@personallayer.dev";
 
@@ -55,8 +56,9 @@ export default function Settings() {
     }
   };
 
-  const logout = () => {
-    clearSessionToken();
+  const logout = async () => {
+    if (supabase) await supabase.auth.signOut().catch(() => undefined);
+    clearSession();
     navigate("/app/session", { replace: true });
   };
 
@@ -70,8 +72,8 @@ export default function Settings() {
         <Panel title="Session">
           <dl className="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-4">
             <div>
-              <dt className="text-xs uppercase tracking-wide text-outline">User</dt>
-              <dd className="font-semibold">local_user</dd>
+              <dt className="text-xs uppercase tracking-wide text-outline">Account</dt>
+              <dd className="truncate font-semibold">{maskedHint()}</dd>
             </div>
             <div>
               <dt className="text-xs uppercase tracking-wide text-outline">Backend</dt>
@@ -106,7 +108,7 @@ export default function Settings() {
         <Panel title={<span className="inline-flex items-center gap-2"><Trash2 size={16} /> Delete data</span>}>
           <p className="mb-4 text-sm text-on-surface-variant">Permanently remove your context. This cannot be undone.</p>
           <div className="flex flex-col gap-3">
-            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#ba1a1a]/20 bg-[#ba1a1a]/[0.03] p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-danger/20 bg-danger/[0.03] p-4">
               <div>
                 <div className="font-semibold">Delete all context</div>
                 <div className="text-xs text-on-surface-variant">Removes signals, events, and synthesized profile.</div>
@@ -115,7 +117,7 @@ export default function Settings() {
                 Delete
               </ConfirmButton>
             </div>
-            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#ba1a1a]/20 bg-[#ba1a1a]/[0.03] p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-danger/20 bg-danger/[0.03] p-4">
               <div>
                 <div className="font-semibold">Delete account data</div>
                 <div className="text-xs text-on-surface-variant">Removes all records associated with this user.</div>

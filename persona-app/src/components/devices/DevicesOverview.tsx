@@ -200,7 +200,7 @@ export default function DevicesOverview({
         </div>
 
         {actionError && (
-          <p className="mb-3 rounded-lg border border-[#ba1a1a]/20 bg-[#ba1a1a]/5 px-3 py-2 text-sm font-semibold text-[#ba1a1a]">
+          <p className="mb-3 rounded-lg border border-danger/20 bg-danger/5 px-3 py-2 text-sm font-semibold text-danger">
             {actionError}
           </p>
         )}

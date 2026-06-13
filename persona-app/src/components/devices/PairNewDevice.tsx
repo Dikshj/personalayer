@@ -127,7 +127,7 @@ export default function PairNewDevice({ online, onChange }: { online: boolean; o
       </div>
 
       {error && (
-        <p className="mb-4 rounded-lg border border-[#ba1a1a]/20 bg-[#ba1a1a]/5 px-3 py-2 text-sm font-semibold text-[#ba1a1a]">
+        <p className="mb-4 rounded-lg border border-danger/20 bg-danger/5 px-3 py-2 text-sm font-semibold text-danger">
           {error}
         </p>
       )}
@@ -177,15 +177,15 @@ export default function PairNewDevice({ online, onChange }: { online: boolean; o
 
             {/* Approval status */}
             {expired ? (
-              <div className="flex flex-wrap items-center gap-3 rounded-lg border border-[#ba1a1a]/20 bg-[#ba1a1a]/5 px-3 py-2 text-sm text-[#ba1a1a]">
+              <div className="flex flex-wrap items-center gap-3 rounded-lg border border-danger/20 bg-danger/5 px-3 py-2 text-sm text-danger">
                 <XCircle size={16} /> This pairing session expired.
                 <Button variant="default" onClick={begin} loading={starting}>
                   <RefreshCw size={15} /> Restart pairing
                 </Button>
               </div>
             ) : status === "approved" ? (
-              <div className="flex flex-col gap-2 rounded-lg border border-[#006e2f]/20 bg-[#006e2f]/5 px-3 py-3">
-                <div className="flex items-center gap-2 text-sm font-semibold text-[#006e2f]">
+              <div className="flex flex-col gap-2 rounded-lg border border-ok/20 bg-ok/5 px-3 py-3">
+                <div className="flex items-center gap-2 text-sm font-semibold text-ok">
                   <CheckCircle2 size={16} /> Approved on the other device.
                 </div>
                 <Button variant="primary" loading={claiming} disabled={!online} onClick={doClaim}>
@@ -204,7 +204,7 @@ export default function PairNewDevice({ online, onChange }: { online: boolean; o
       {/* Step 4 — success */}
       {step === 3 && claim && (
         <div className="flex flex-col gap-3">
-          <div className="flex items-center gap-2 text-sm font-semibold text-[#006e2f]">
+          <div className="flex items-center gap-2 text-sm font-semibold text-ok">
             <CheckCircle2 size={18} /> Device paired and transfer imported.
           </div>
           <dl className="grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-3">

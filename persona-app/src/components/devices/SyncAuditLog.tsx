@@ -24,9 +24,9 @@ function iconFor(action: string): { icon: LucideIcon; tone: string } {
   if (a.includes("pairing")) return { icon: Link2, tone: "text-primary" };
   if (a.includes("snapshot") || a.includes("compact")) return { icon: Archive, tone: "text-on-surface-variant" };
   if (a.includes("rotate") || a.includes("key")) return { icon: RotateCcw, tone: "text-primary" };
-  if (a.includes("conflict")) return { icon: GitMerge, tone: "text-[#9a5b00]" };
-  if (a.includes("revoke")) return { icon: ShieldX, tone: "text-[#ba1a1a]" };
-  if (a.includes("trust")) return { icon: ShieldCheck, tone: "text-[#006e2f]" };
+  if (a.includes("conflict")) return { icon: GitMerge, tone: "text-warn" };
+  if (a.includes("revoke")) return { icon: ShieldX, tone: "text-danger" };
+  if (a.includes("trust")) return { icon: ShieldCheck, tone: "text-ok" };
   return { icon: KeyRound, tone: "text-on-surface-variant" };
 }
 

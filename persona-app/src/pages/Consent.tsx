@@ -144,7 +144,7 @@ export default function Consent() {
 
             {/* Remember + audit preview */}
             <label className="mt-5 flex cursor-pointer items-center gap-2.5">
-              <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} className="h-4 w-4 accent-[#004ac6]" />
+              <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} className="h-4 w-4 accent-[#bd5d3f]" />
               <span className="text-sm font-semibold">Remember this choice for {app?.name || titleize(appId)}</span>
             </label>
 
@@ -160,7 +160,7 @@ export default function Consent() {
             </div>
 
             {error && (
-              <p className="mt-4 rounded-lg border border-[#ba1a1a]/20 bg-[#ba1a1a]/5 px-3 py-2 text-sm font-semibold text-[#ba1a1a]">{error}</p>
+              <p className="mt-4 rounded-lg border border-danger/20 bg-danger/5 px-3 py-2 text-sm font-semibold text-danger">{error}</p>
             )}
 
             {/* Actions */}

@@ -15,7 +15,9 @@ import {
   Smartphone,
 } from "lucide-react";
 import { BackendProvider, useBackend } from "../lib/backend";
-import { clearSessionToken, getPrivacyProfile } from "../api";
+import { getPrivacyProfile } from "../api";
+import { clearSession } from "../auth/session";
+import { supabase } from "../lib/supabase";
 
 const ONBOARDING_CHECK_KEY = "pl_onboarding_checked";
 
@@ -72,7 +74,7 @@ function Brand({ compact = false }: { compact?: boolean }) {
 function ConnectionDot() {
   const { state, recheck } = useBackend();
   const label = state === "online" ? "Connected" : state === "offline" ? "Backend offline" : "Connecting…";
-  const dot = state === "online" ? "bg-[#006e2f]" : state === "offline" ? "bg-[#ba1a1a]" : "bg-[#fea619]";
+  const dot = state === "online" ? "bg-ok" : state === "offline" ? "bg-danger" : "bg-warn";
   return (
     <button
       className="inline-flex items-center gap-2 rounded-full border border-outline-variant bg-white px-3 py-1.5 text-xs font-semibold text-on-surface-variant"
@@ -97,8 +99,9 @@ function ShellInner() {
     return () => window.removeEventListener("click", close);
   }, [menuOpen]);
 
-  const logout = () => {
-    clearSessionToken();
+  const logout = async () => {
+    if (supabase) await supabase.auth.signOut().catch(() => undefined);
+    clearSession();
     navigate("/app/session", { replace: true });
   };
 
@@ -162,7 +165,7 @@ function ShellInner() {
                     <Settings size={15} /> Settings
                   </NavLink>
                   <button
-                    className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-[#ba1a1a] hover:bg-[#ba1a1a]/5"
+                    className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-danger hover:bg-danger/5"
                     onClick={logout}
                     role="menuitem"
                   >

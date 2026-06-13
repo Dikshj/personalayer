@@ -115,7 +115,7 @@ export default function ContextPreview() {
                 <div className="mb-2 text-xs font-bold uppercase tracking-wide text-outline">Blocked by your rules</div>
                 <div className="flex flex-wrap gap-1.5">
                   {excluded.map((f) => (
-                    <span key={f} className="inline-flex items-center gap-1 rounded-md border border-[#ba1a1a]/20 bg-[#ba1a1a]/5 px-2 py-0.5 text-xs font-semibold text-[#ba1a1a]">
+                    <span key={f} className="inline-flex items-center gap-1 rounded-md border border-danger/20 bg-danger/5 px-2 py-0.5 text-xs font-semibold text-danger">
                       <ShieldX size={11} /> {titleize(f)}
                     </span>
                   ))}
@@ -126,7 +126,7 @@ export default function ContextPreview() {
               </div>
             )}
 
-            {error && <p className="mt-4 rounded-lg border border-[#ba1a1a]/20 bg-[#ba1a1a]/5 px-3 py-2 text-sm font-semibold text-[#ba1a1a]">{error}</p>}
+            {error && <p className="mt-4 rounded-lg border border-danger/20 bg-danger/5 px-3 py-2 text-sm font-semibold text-danger">{error}</p>}
 
             {!decided && (
               <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">

@@ -96,7 +96,7 @@ function SignalRow({ signal, live, onChanged }: { signal: PersonaSignal; live: b
   return (
     <li className="border-b border-outline-variant py-3 last:border-none">
       <div className="flex items-center gap-3">
-        <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-full ${wrong ? "bg-[#ba1a1a]/10 text-[#ba1a1a]" : "bg-[#006e2f]/10 text-[#006e2f]"}`}>
+        <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-full ${wrong ? "bg-danger/10 text-danger" : "bg-ok/10 text-ok"}`}>
           {signalIcon(signal.signal_type)}
         </span>
 
@@ -143,7 +143,7 @@ function SignalRow({ signal, live, onChanged }: { signal: PersonaSignal; live: b
             <button className="grid h-8 w-8 place-items-center rounded-lg text-on-surface-variant hover:bg-surface-container-low disabled:opacity-40" title={hidden ? "Make shareable" : "Mark private (never shared)"} onClick={() => signal.id && act(() => updateSignalShareable(signal.id!, hidden))} disabled={!signal.id || busy || !live}>
               {hidden ? <Eye size={15} /> : <EyeOff size={15} />}
             </button>
-            <button className="grid h-8 w-8 place-items-center rounded-lg text-[#ba1a1a] hover:bg-[#ba1a1a]/10 disabled:opacity-40" title="Delete signal" onClick={() => signal.id && act(() => deleteSignal(signal.id!))} disabled={!signal.id || busy || !live}>
+            <button className="grid h-8 w-8 place-items-center rounded-lg text-danger hover:bg-danger/10 disabled:opacity-40" title="Delete signal" onClick={() => signal.id && act(() => deleteSignal(signal.id!))} disabled={!signal.id || busy || !live}>
               <Trash2 size={15} />
             </button>
           </div>
@@ -167,7 +167,7 @@ function SignalRow({ signal, live, onChanged }: { signal: PersonaSignal; live: b
               onChange={(e) => setConf(Number(e.target.value))}
               onPointerUp={commitConfidence}
               onKeyUp={commitConfidence}
-              className="w-full accent-[#004ac6]"
+              className="w-full accent-[#bd5d3f]"
             />
           </div>
 

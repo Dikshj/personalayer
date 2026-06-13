@@ -43,7 +43,7 @@ function ConflictRow({
     <li className="flex flex-col gap-3 rounded-xl border border-outline-variant p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <GitMerge size={16} className="text-[#9a5b00]" />
+          <GitMerge size={16} className="text-warn" />
           <span className="font-semibold">{titleize(conflict.reason || "Version conflict")}</span>
         </div>
         <Pill tone="warn">{titleize(conflict.status || "open")}</Pill>
@@ -93,7 +93,7 @@ export default function SyncConflicts({
       action={<Pill tone={conflicts.length ? "warn" : "good"}>{conflicts.length} open</Pill>}
     >
       {error && (
-        <p className="mb-3 rounded-lg border border-[#ba1a1a]/20 bg-[#ba1a1a]/5 px-3 py-2 text-sm font-semibold text-[#ba1a1a]">
+        <p className="mb-3 rounded-lg border border-danger/20 bg-danger/5 px-3 py-2 text-sm font-semibold text-danger">
           {error}
         </p>
       )}

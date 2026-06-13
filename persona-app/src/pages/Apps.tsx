@@ -140,7 +140,7 @@ function ConnectorCard({
       </div>
 
       {i.error && connected && (
-        <p className="flex items-center gap-1.5 text-xs font-semibold text-[#9a5b00]">
+        <p className="flex items-center gap-1.5 text-xs font-semibold text-warn">
           <TriangleAlert size={13} /> {i.error}
         </p>
       )}
@@ -161,7 +161,7 @@ function ConnectorCard({
       )}
 
       {configNote && (
-        <div className="flex flex-col gap-2 rounded-lg border border-[#fea619]/30 bg-[#fff8ec] p-3 text-xs text-[#9a5b00]">
+        <div className="flex flex-col gap-2 rounded-lg border border-warn/30 bg-warn/10 p-3 text-xs text-warn">
           <span>{configNote}</span>
           <div>
             <Button variant="default" loading={busy === "meta"} disabled={!live} onClick={() => run("meta", () => connectIntegration(source), `${i.name || titleize(source)} connected (local metadata).`)}>
@@ -263,7 +263,7 @@ export default function Apps() {
       {offline && <OfflineBanner onRetry={reload} />}
 
       {toast && (
-        <div className={`mb-4 rounded-lg border px-3 py-2 text-sm font-semibold ${toast.kind === "good" ? "border-[#006e2f]/20 bg-[#006e2f]/5 text-[#006e2f]" : "border-[#ba1a1a]/20 bg-[#ba1a1a]/5 text-[#ba1a1a]"}`}>
+        <div className={`mb-4 rounded-lg border px-3 py-2 text-sm font-semibold ${toast.kind === "good" ? "border-ok/20 bg-ok/5 text-ok" : "border-danger/20 bg-danger/5 text-danger"}`}>
           {toast.msg}
         </div>
       )}

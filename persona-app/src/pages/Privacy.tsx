@@ -256,7 +256,7 @@ function RuleBuilder({
                   <div className="flex flex-wrap gap-1.5">
                     {test.after.length ? test.after.map((f) => <Chip key={f}>{fieldLabel(f)}</Chip>) : <span className="text-xs text-on-surface-variant">No fields</span>}
                     {test.before.includes(target) && (
-                      <span className="inline-flex items-center gap-1 rounded-md border border-[#ba1a1a]/20 bg-[#ba1a1a]/5 px-2 py-0.5 text-xs font-semibold text-[#ba1a1a] line-through">
+                      <span className="inline-flex items-center gap-1 rounded-md border border-danger/20 bg-danger/5 px-2 py-0.5 text-xs font-semibold text-danger line-through">
                         {fieldLabel(target)}
                       </span>
                     )}
@@ -267,7 +267,7 @@ function RuleBuilder({
           </div>
         )}
 
-        {error && <p className="rounded-lg border border-[#ba1a1a]/20 bg-[#ba1a1a]/5 px-3 py-2 text-sm font-semibold text-[#ba1a1a]">{error}</p>}
+        {error && <p className="rounded-lg border border-danger/20 bg-danger/5 px-3 py-2 text-sm font-semibold text-danger">{error}</p>}
 
         <div className="flex items-center gap-2">
           <Button variant="primary" loading={saving} disabled={!targetValid || !live} onClick={save}>

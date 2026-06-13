@@ -59,7 +59,7 @@ export function EmptyState({
 export function ErrorState({ message, onRetry }: { message: string; onRetry?: () => void }) {
   return (
     <div className="flex flex-col items-center justify-center gap-2 py-10 text-center">
-      <span className="grid h-12 w-12 place-items-center rounded-xl bg-[#ba1a1a]/10 text-[#ba1a1a]">
+      <span className="grid h-12 w-12 place-items-center rounded-xl bg-danger/10 text-danger">
         <AlertTriangle size={22} />
       </span>
       <div className="font-semibold text-on-surface">Couldn’t load this</div>
@@ -75,13 +75,13 @@ export function ErrorState({ message, onRetry }: { message: string; onRetry?: ()
 
 export function OfflineBanner({ onRetry }: { onRetry?: () => void }) {
   return (
-    <div className="mb-5 flex flex-wrap items-center gap-3 rounded-xl border border-[#fea619]/40 bg-[#fff8ec] px-4 py-3 text-sm text-[#9a5b00]">
+    <div className="mb-5 flex flex-wrap items-center gap-3 rounded-xl border border-warn/40 bg-warn/10 px-4 py-3 text-sm text-warn">
       <CloudOff size={16} />
       <span className="flex-1">
         <strong className="text-on-surface">Backend offline.</strong> Showing preview data — changes won’t be saved.
       </span>
       {onRetry && (
-        <button className="rounded-full border border-[#fea619]/50 px-3 py-1 text-xs font-semibold" onClick={onRetry}>
+        <button className="rounded-full border border-warn/50 px-3 py-1 text-xs font-semibold" onClick={onRetry}>
           Retry
         </button>
       )}

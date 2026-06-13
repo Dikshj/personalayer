@@ -31,9 +31,9 @@ export function Panel({
 type Tone = "neutral" | "good" | "warn" | "danger" | "info";
 const toneClass: Record<Tone, string> = {
   neutral: "bg-surface-container-low text-on-surface-variant border-outline-variant",
-  good: "bg-[#006e2f]/10 text-[#006e2f] border-[#006e2f]/20",
-  warn: "bg-[#fea619]/10 text-[#9a5b00] border-[#fea619]/30",
-  danger: "bg-[#ba1a1a]/10 text-[#ba1a1a] border-[#ba1a1a]/20",
+  good: "bg-ok/10 text-ok border-ok/20",
+  warn: "bg-warn/10 text-warn border-warn/30",
+  danger: "bg-danger/10 text-danger border-danger/20",
   info: "bg-primary/10 text-primary border-primary/20",
 };
 
@@ -71,7 +71,7 @@ export function Button({
     default: "border border-outline-variant bg-white text-on-surface hover:bg-surface-container-low",
     primary: "bg-primary text-white hover:bg-primary-container",
     ghost: "text-on-surface-variant hover:bg-surface-container-low",
-    danger: "border border-[#ba1a1a]/30 bg-[#ba1a1a]/5 text-[#ba1a1a] hover:bg-[#ba1a1a]/10",
+    danger: "border border-danger/30 bg-danger/5 text-danger hover:bg-danger/10",
   };
   return (
     <button className={`${base} ${variants[variant]} ${className}`} disabled={loading || rest.disabled} {...rest}>
@@ -102,7 +102,7 @@ export function Switch({
       aria-label={label}
       disabled={disabled}
       className={`relative h-7 w-12 shrink-0 rounded-full transition disabled:opacity-50 ${
-        checked ? (amber ? "bg-[#fea619]" : "bg-[#006e2f]") : "bg-[#d3d8dd]"
+        checked ? (amber ? "bg-warn" : "bg-ok") : "bg-[#d3d8dd]"
       }`}
       onClick={() => onChange(!checked)}
     >
@@ -207,7 +207,7 @@ export function CopyButton({
       onClick={copy}
       className={`inline-flex items-center gap-1.5 rounded-lg border border-outline-variant px-2.5 py-1.5 text-xs font-semibold text-on-surface-variant transition hover:bg-surface-container-low ${className}`}
     >
-      {copied ? <Check size={13} className="text-[#006e2f]" /> : <Copy size={13} />}
+      {copied ? <Check size={13} className="text-ok" /> : <Copy size={13} />}
       {copied ? "Copied" : label}
     </button>
   );
@@ -224,7 +224,7 @@ export function Stepper({ steps, current }: { steps: string[]; current: number }
             <span
               className={`grid h-6 w-6 shrink-0 place-items-center rounded-full text-xs font-bold ${
                 state === "done"
-                  ? "bg-[#006e2f] text-white"
+                  ? "bg-ok text-white"
                   : state === "active"
                     ? "bg-primary text-white"
                     : "bg-surface-container text-on-surface-variant"
@@ -247,7 +247,7 @@ export function Stepper({ steps, current }: { steps: string[]; current: number }
 
 export function ConfidenceBar({ value }: { value: number }) {
   const n = value <= 1 ? value * 100 : value;
-  const color = n >= 70 ? "bg-[#006e2f]" : n >= 40 ? "bg-[#fea619]" : "bg-outline";
+  const color = n >= 70 ? "bg-ok" : n >= 40 ? "bg-warn" : "bg-outline";
   return (
     <span className="inline-flex h-1.5 w-20 overflow-hidden rounded-full bg-surface-container" title={`${Math.round(n)}% confidence`}>
       <span className={`h-full rounded-full ${color}`} style={{ width: `${Math.min(100, Math.max(5, n))}%` }} />

@@ -85,10 +85,10 @@ export default function SyncSnapshots({ online, onChange }: { online: boolean; o
         <p
           className={`mb-4 rounded-lg border px-3 py-2 text-sm font-semibold ${
             note.tone === "good"
-              ? "border-[#006e2f]/20 bg-[#006e2f]/5 text-[#006e2f]"
+              ? "border-ok/20 bg-ok/5 text-ok"
               : note.tone === "warn"
-                ? "border-[#fea619]/30 bg-[#fff8ec] text-[#9a5b00]"
-                : "border-[#ba1a1a]/20 bg-[#ba1a1a]/5 text-[#ba1a1a]"
+                ? "border-warn/30 bg-warn/10 text-warn"
+                : "border-danger/20 bg-danger/5 text-danger"
           }`}
         >
           {note.text}
