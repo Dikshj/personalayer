@@ -385,7 +385,7 @@ export async function getApps(): Promise<{ apps: PclApp[] }> {
 }
 
 export async function getIntegrations(): Promise<{ integrations: PclIntegration[] }> {
-  return getJson("/pcl/integrations");
+  return getJson("/pcl/integrations?user_id=local_user");
 }
 
 export async function getIntegrationCatalog(): Promise<{ integrations: PclIntegration[] }> {
@@ -398,6 +398,7 @@ export async function connectIntegration(
   accountHint = "",
 ): Promise<{ status?: string; integration?: PclIntegration }> {
   return postJson(`/pcl/integrations/${encodeURIComponent(source)}/connect`, {
+    user_id: "local_user",
     metadata,
     account_hint: accountHint,
     auth_status: "local_metadata",
@@ -405,13 +406,13 @@ export async function connectIntegration(
 }
 
 export async function disconnectIntegration(source: string): Promise<{ status?: string }> {
-  return postJson(`/pcl/integrations/${encodeURIComponent(source)}/disconnect`, {});
+  return postJson(`/pcl/integrations/${encodeURIComponent(source)}/disconnect`, { user_id: "local_user" });
 }
 
 export async function syncIntegration(
   source: string,
 ): Promise<{ source?: string; status?: string; items_synced?: number; error?: string | null; last_sync_at?: string }> {
-  return postJson(`/pcl/integrations/${encodeURIComponent(source)}/sync`, {});
+  return postJson(`/pcl/integrations/${encodeURIComponent(source)}/sync`, { user_id: "local_user" });
 }
 
 // ---- OAuth connector lifecycle ----------------------------------------------
@@ -456,7 +457,7 @@ export async function revokeOAuthToken(source: string): Promise<{ status?: strin
 export async function deleteIntegrationData(
   source: string,
 ): Promise<{ status?: string; deleted?: Record<string, number> }> {
-  return deleteJson(`/pcl/integrations/${encodeURIComponent(source)}/data`);
+  return deleteJson(`/pcl/integrations/${encodeURIComponent(source)}/data?user_id=local_user`);
 }
 
 export async function getPrivacyProfile(): Promise<PrivacyProfile> {

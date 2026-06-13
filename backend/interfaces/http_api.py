@@ -383,6 +383,19 @@ def _is_extension_origin_allowed(origin: str) -> bool:
         return True
     return False
 
+def _request_user_id(request: Request, payload_user_id: str = "") -> str:
+    """The authoritative user id for a request.
+
+    Prefers the identity verified by auth middleware (Supabase JWT or local
+    session). A browser-supplied user_id is only honoured when local auth is
+    disabled (self-host/dev), so one customer can never act as another.
+    """
+    verified = getattr(request.state, "user_id", "") or ""
+    if verified:
+        return verified
+    return (payload_user_id or "").strip() or "local_user"
+
+
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 DASHBOARD_DIR = PROJECT_ROOT / "dashboard"
 if DASHBOARD_DIR.exists():
@@ -1315,8 +1328,9 @@ async def get_pcl_integration_catalog():
 
 
 @app.get("/pcl/integrations")
-async def get_pcl_integrations():
-    connected = {item["source"]: item for item in list_pcl_integrations()}
+async def get_pcl_integrations(request: Request):
+    user_id = _request_user_id(request)
+    connected = {item["source"]: item for item in list_pcl_integrations(user_id)}
     rows = []
     for catalog_item in integration_catalog():
         source = catalog_item["source"]
@@ -1342,33 +1356,38 @@ async def get_pcl_integrations():
 
 
 @app.get("/pcl/integrations/oauth/tokens")
-async def get_pcl_integration_oauth_tokens(user_id: str = "local_user"):
-    return {"user_id": user_id, "tokens": list_pcl_integration_oauth_tokens(user_id)}
+async def get_pcl_integration_oauth_tokens(request: Request, user_id: str = "local_user"):
+    uid = _request_user_id(request, user_id)
+    return {"user_id": uid, "tokens": list_pcl_integration_oauth_tokens(uid)}
 
 
 @app.post("/pcl/integrations/{source}/connect")
-async def connect_pcl_integration_endpoint(source: str, payload: PclIntegrationConnectRequest):
+async def connect_pcl_integration_endpoint(source: str, payload: PclIntegrationConnectRequest, request: Request):
+    user_id = _request_user_id(request)
     try:
         config = default_integration(source)
     except ValueError:
         return {"status": "error", "error": "unknown_integration"}
+    metadata = sanitize_integration_metadata(payload.metadata)
+    metadata["user_id"] = user_id
     integration = connect_pcl_integration(
         source=source,
         name=config["name"],
         scopes=config["scopes"],
-        metadata=sanitize_integration_metadata(payload.metadata),
+        metadata=metadata,
         account_hint=payload.account_hint or "",
         auth_status=payload.auth_status or "local_metadata",
         auth_expires_at=payload.auth_expires_at,
+        user_id=user_id,
     )
     return {"status": "connected", "integration": integration}
 
 
 @app.post("/pcl/integrations/{source}/oauth/start")
-async def start_pcl_integration_oauth(source: str, payload: PclIntegrationOAuthStartRequest):
+async def start_pcl_integration_oauth(source: str, payload: PclIntegrationOAuthStartRequest, request: Request):
     return start_oauth_flow(
         source=source,
-        user_id=payload.user_id,
+        user_id=_request_user_id(request, payload.user_id),
         redirect_uri=payload.redirect_uri,
     )
 
@@ -1384,36 +1403,39 @@ async def complete_pcl_integration_oauth(payload: PclIntegrationOAuthCallbackReq
 
 
 @app.delete("/pcl/integrations/{source}/oauth/token")
-async def revoke_pcl_integration_oauth_token_endpoint(source: str, user_id: str = "local_user"):
-    revoked = revoke_pcl_integration_oauth_token(source=source, user_id=user_id)
+async def revoke_pcl_integration_oauth_token_endpoint(source: str, request: Request, user_id: str = "local_user"):
+    uid = _request_user_id(request, user_id)
+    revoked = revoke_pcl_integration_oauth_token(source=source, user_id=uid)
     return {"status": "revoked" if revoked else "not_found_or_already_revoked"}
 
 
 @app.post("/pcl/integrations/{source}/oauth/refresh")
-async def refresh_pcl_integration_oauth_token_endpoint(source: str, user_id: str = "local_user"):
-    return refresh_oauth_token(source=source, user_id=user_id)
+async def refresh_pcl_integration_oauth_token_endpoint(source: str, request: Request, user_id: str = "local_user"):
+    return refresh_oauth_token(source=source, user_id=_request_user_id(request, user_id))
 
 
 @app.post("/pcl/integrations/{source}/disconnect")
-async def disconnect_pcl_integration_endpoint(source: str):
-    disconnected = disconnect_pcl_integration(source)
+async def disconnect_pcl_integration_endpoint(source: str, request: Request):
+    user_id = _request_user_id(request)
+    disconnected = disconnect_pcl_integration(source, user_id=user_id)
     return {"status": "disconnected" if disconnected else "not_found_or_already_disconnected"}
 
 
 @app.delete("/pcl/integrations/{source}/data")
-async def delete_pcl_integration_data_endpoint(source: str):
-    deleted = delete_pcl_integration_data(source)
+async def delete_pcl_integration_data_endpoint(source: str, request: Request):
+    user_id = _request_user_id(request)
+    deleted = delete_pcl_integration_data(source, user_id=user_id)
     return {"status": "deleted", "deleted": deleted}
 
 
 @app.post("/pcl/integrations/{source}/sync")
-async def sync_pcl_integration_endpoint(source: str):
-    return sync_integration(source)
+async def sync_pcl_integration_endpoint(source: str, request: Request):
+    return sync_integration(source, user_id=_request_user_id(request))
 
 
 @app.post("/pcl/integrations/sync-due")
-async def sync_due_pcl_integrations_endpoint(user_id: str = "local_user"):
-    return sync_due_integrations(user_id=user_id)
+async def sync_due_pcl_integrations_endpoint(request: Request, user_id: str = "local_user"):
+    return sync_due_integrations(user_id=_request_user_id(request, user_id))
 
 
 @app.post("/pcl/events/feature")

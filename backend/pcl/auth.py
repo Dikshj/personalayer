@@ -8,8 +8,10 @@ Production-grade local auth:
 """
 from __future__ import annotations
 
+import base64
 import hashlib
 import hmac
+import json
 import logging
 import os
 import re
@@ -96,13 +98,69 @@ def revoke_local_session(token: str) -> bool:
     return _session_manager.revoke_session(token)
 
 
+def supabase_jwt_secret() -> str:
+    return os.getenv("SUPABASE_JWT_SECRET", "")
+
+
+def _b64url_decode(segment: str) -> bytes:
+    padding = "=" * (-len(segment) % 4)
+    return base64.urlsafe_b64decode(segment + padding)
+
+
+def verify_supabase_jwt(token: str) -> dict[str, Any] | None:
+    """Verify a Supabase HS256 access token with SUPABASE_JWT_SECRET.
+
+    Returns a session-shaped dict with user_id 'supabase:<sub>' on success, or
+    None when the secret is unset, the signature is invalid, or the token is
+    expired/malformed. The secret never leaves the backend.
+    """
+    secret = supabase_jwt_secret()
+    if not secret or not token or token.count(".") != 2:
+        return None
+    header_b64, payload_b64, signature_b64 = token.split(".")
+    try:
+        header = json.loads(_b64url_decode(header_b64))
+    except Exception:
+        return None
+    if header.get("alg") != "HS256":
+        return None
+    expected = hmac.new(
+        secret.encode("utf-8"),
+        f"{header_b64}.{payload_b64}".encode("utf-8"),
+        hashlib.sha256,
+    ).digest()
+    try:
+        actual = _b64url_decode(signature_b64)
+    except Exception:
+        return None
+    if not hmac.compare_digest(expected, actual):
+        return None
+    try:
+        claims = json.loads(_b64url_decode(payload_b64))
+    except Exception:
+        return None
+    exp = claims.get("exp")
+    try:
+        if exp is not None and time.time() > float(exp):
+            return None
+    except (TypeError, ValueError):
+        return None
+    sub = claims.get("sub")
+    if not sub:
+        return None
+    return {"user_id": f"supabase:{sub}", "auth": "supabase", "email": claims.get("email", "")}
+
+
 def require_local_auth(token: str) -> dict[str, Any]:
     if not local_auth_enabled():
         return {"user_id": "local_user", "auth": "disabled"}
     session = validate_local_session(token)
-    if not session:
-        raise AuthError("invalid_or_expired_session")
-    return session
+    if session:
+        return session
+    supabase_session = verify_supabase_jwt(token)
+    if supabase_session:
+        return supabase_session
+    raise AuthError("invalid_or_expired_session")
 
 
 def verify_dashboard_request(request_headers: dict[str, str]) -> dict[str, Any]:

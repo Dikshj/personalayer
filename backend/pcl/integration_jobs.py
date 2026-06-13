@@ -21,7 +21,7 @@ def sync_integration(source: str, user_id: str = "local_user") -> dict:
     except ValueError:
         return {"status": "error", "error": "unknown_integration"}
 
-    integration = get_pcl_integration(source)
+    integration = get_pcl_integration(source, user_id=user_id)
     if not integration or integration.get("status") != "connected":
         return {"status": "error", "error": "integration_not_connected"}
     if not _sync_due(integration):
@@ -35,7 +35,7 @@ def sync_integration(source: str, user_id: str = "local_user") -> dict:
     if refresh_result.get("status") == "error":
         return refresh_result
     if refresh_result.get("status") == "refreshed":
-        integration = get_pcl_integration(source) or integration
+        integration = get_pcl_integration(source, user_id=user_id) or integration
 
     syncers = {
         "gmail": _sync_gmail,
@@ -68,7 +68,7 @@ def sync_integration(source: str, user_id: str = "local_user") -> dict:
 def sync_due_integrations(user_id: str = "local_user") -> dict:
     results = []
     now = _timestamp_ms()
-    for integration in list_pcl_integrations():
+    for integration in list_pcl_integrations(user_id):
         if integration.get("status") != "connected":
             continue
         next_sync_after = int(integration.get("next_sync_after") or 0)
@@ -79,9 +79,6 @@ def sync_due_integrations(user_id: str = "local_user") -> dict:
                 "reason": "next_sync_after_not_reached",
                 "next_sync_after": next_sync_after,
             })
-            continue
-        metadata_user_id = str(integration.get("metadata", {}).get("user_id", user_id))
-        if metadata_user_id != user_id:
             continue
         results.append(sync_integration(integration["source"], user_id=user_id))
     return {
@@ -111,17 +108,15 @@ def _refresh_expired_oauth_if_needed(integration: dict, user_id: str) -> dict:
             status="error",
             items_synced=0,
             error=f"OAuth refresh required before sync: {result.get('error', 'refresh_failed')}",
+            user_id=user_id,
         )
     return result
 
 
 def sync_connected_integrations(user_id: str = "local_user") -> dict:
     results = []
-    for integration in list_pcl_integrations():
+    for integration in list_pcl_integrations(user_id):
         if integration.get("status") != "connected":
-            continue
-        metadata_user_id = str(integration.get("metadata", {}).get("user_id", user_id))
-        if metadata_user_id != user_id:
             continue
         results.append(sync_integration(integration["source"], user_id=user_id))
     return {
@@ -197,6 +192,7 @@ def _finish_sync(
     status: str = "ok",
     error: str = "",
     sync_cursor: dict | None = None,
+    user_id: str = "local_user",
 ) -> dict:
     if status == "ok":
         sync_cursor = {**(sync_cursor or {}), "retry_count": 0}
@@ -206,12 +202,13 @@ def _finish_sync(
         items_synced=count,
         error=error,
         sync_cursor=sync_cursor,
+        user_id=user_id,
     )
     return {"status": status, "items_synced": count, "integration": updated}
 
 
-def _missing_payload(source: str, expected: str) -> dict:
-    updated = _schedule_sync_retry(source, f"Import metadata required: {expected}")
+def _missing_payload(source: str, expected: str, user_id: str = "local_user") -> dict:
+    updated = _schedule_sync_retry(source, f"Import metadata required: {expected}", user_id=user_id)
     return {
         "status": "error",
         "error": "import_metadata_required",
@@ -220,8 +217,8 @@ def _missing_payload(source: str, expected: str) -> dict:
     }
 
 
-def _schedule_sync_retry(source: str, error: str, base_delay_seconds: int = 300) -> dict:
-    integration = get_pcl_integration(source) or {}
+def _schedule_sync_retry(source: str, error: str, base_delay_seconds: int = 300, user_id: str = "local_user") -> dict:
+    integration = get_pcl_integration(source, user_id=user_id) or {}
     cursor = integration.get("sync_cursor") or {}
     retry_count = min(int(cursor.get("retry_count", 0) or 0) + 1, 8)
     delay = min(base_delay_seconds * (2 ** (retry_count - 1)), 24 * 60 * 60)
@@ -233,6 +230,7 @@ def _schedule_sync_retry(source: str, error: str, base_delay_seconds: int = 300)
         error=error,
         sync_cursor={**cursor, "retry_count": retry_count, "last_error": error[:200]},
         next_sync_after=next_sync_after,
+        user_id=user_id,
     )
 
 
@@ -240,7 +238,7 @@ def _sync_gmail(integration: dict, user_id: str = "local_user") -> dict:
     metadata = integration.get("metadata", {})
     messages = _metadata_items(metadata, "messages", "emails", "threads", "import_items")
     if not messages:
-        return _missing_payload("gmail", "metadata.messages[]")
+        return _missing_payload("gmail", "metadata.messages[]", user_id=user_id)
 
     selected, cursor = _incremental_items(integration, messages, ("timestamp", "date"))
     saved = 0
@@ -316,14 +314,14 @@ def _sync_gmail(integration: dict, user_id: str = "local_user") -> dict:
             )
         saved += 1
 
-    return _finish_sync("gmail", saved, sync_cursor=cursor)
+    return _finish_sync("gmail", saved, sync_cursor=cursor, user_id=user_id)
 
 
 def _sync_calendar(integration: dict, user_id: str = "local_user") -> dict:
     metadata = integration.get("metadata", {})
     events = _metadata_items(metadata, "events", "meetings", "import_items")
     if not events:
-        return _missing_payload("calendar", "metadata.events[]")
+        return _missing_payload("calendar", "metadata.events[]", user_id=user_id)
 
     selected, cursor = _incremental_items(integration, events, ("start", "timestamp"))
     saved = 0
@@ -382,14 +380,14 @@ def _sync_calendar(integration: dict, user_id: str = "local_user") -> dict:
         _remember_calendar_event(user_id, event, duration, attendees)
         saved += 1
 
-    return _finish_sync("calendar", saved, sync_cursor=cursor)
+    return _finish_sync("calendar", saved, sync_cursor=cursor, user_id=user_id)
 
 
 def _sync_notion(integration: dict, user_id: str = "local_user") -> dict:
     metadata = integration.get("metadata", {})
     pages = _metadata_items(metadata, "pages", "page_activity", "import_items")
     if not pages:
-        return _missing_payload("notion", "metadata.pages[]")
+        return _missing_payload("notion", "metadata.pages[]", user_id=user_id)
 
     selected, cursor = _incremental_items(integration, pages, ("last_edited_time", "timestamp"))
     saved = 0
@@ -455,7 +453,7 @@ def _sync_notion(integration: dict, user_id: str = "local_user") -> dict:
         )
         saved += 1
 
-    return _finish_sync("notion", saved, sync_cursor=cursor)
+    return _finish_sync("notion", saved, sync_cursor=cursor, user_id=user_id)
 
 
 def _sync_github(integration: dict, user_id: str = "local_user") -> dict:
@@ -472,6 +470,7 @@ def _sync_github(integration: dict, user_id: str = "local_user") -> dict:
             status="error",
             items_synced=0,
             error="GitHub username required in integration metadata",
+            user_id=user_id,
         )
         return {"status": "error", "error": "username_required", "integration": updated}
 
@@ -484,6 +483,7 @@ def _sync_github(integration: dict, user_id: str = "local_user") -> dict:
             status="error",
             items_synced=0,
             error=str(exc),
+            user_id=user_id,
         )
         return {"status": "error", "error": str(exc), "integration": updated}
 
@@ -494,6 +494,7 @@ def _sync_github(integration: dict, user_id: str = "local_user") -> dict:
         status="ok",
         items_synced=count,
         error="",
+        user_id=user_id,
     )
     return {"status": "ok", "items_synced": count, "integration": updated}
 
@@ -502,7 +503,7 @@ def _sync_spotify(integration: dict, user_id: str = "local_user") -> dict:
     metadata = integration.get("metadata", {})
     plays = _metadata_items(metadata, "recently_played", "plays", "sessions", "import_items")
     if not plays:
-        return _missing_payload("spotify", "metadata.recently_played[]")
+        return _missing_payload("spotify", "metadata.recently_played[]", user_id=user_id)
 
     selected, cursor = _incremental_items(integration, plays, ("played_at", "timestamp"))
     saved = 0
@@ -550,14 +551,14 @@ def _sync_spotify(integration: dict, user_id: str = "local_user") -> dict:
             )
         saved += 1
 
-    return _finish_sync("spotify", saved, sync_cursor=cursor)
+    return _finish_sync("spotify", saved, sync_cursor=cursor, user_id=user_id)
 
 
 def _sync_youtube(integration: dict, user_id: str = "local_user") -> dict:
     metadata = integration.get("metadata", {})
     videos = _metadata_items(metadata, "watch_history", "videos", "sessions", "import_items")
     if not videos:
-        return _missing_payload("youtube", "metadata.watch_history[]")
+        return _missing_payload("youtube", "metadata.watch_history[]", user_id=user_id)
 
     selected, cursor = _incremental_items(integration, videos, ("watched_at", "timestamp"))
     saved = 0
@@ -604,14 +605,14 @@ def _sync_youtube(integration: dict, user_id: str = "local_user") -> dict:
             )
         saved += 1
 
-    return _finish_sync("youtube", saved, sync_cursor=cursor)
+    return _finish_sync("youtube", saved, sync_cursor=cursor, user_id=user_id)
 
 
 def _sync_apple_health(integration: dict, user_id: str = "local_user") -> dict:
     metadata = integration.get("metadata", {})
     samples = _metadata_items(metadata, "activity", "daily_activity", "samples", "import_items")
     if not samples:
-        return _missing_payload("apple_health", "metadata.activity[]")
+        return _missing_payload("apple_health", "metadata.activity[]", user_id=user_id)
 
     selected, cursor = _incremental_items(integration, samples, ("date", "timestamp"))
     saved = 0
@@ -669,14 +670,14 @@ def _sync_apple_health(integration: dict, user_id: str = "local_user") -> dict:
             )
         saved += 1
 
-    return _finish_sync("apple_health", saved, sync_cursor=cursor)
+    return _finish_sync("apple_health", saved, sync_cursor=cursor, user_id=user_id)
 
 
 def _sync_google_drive(integration: dict, user_id: str = "local_user") -> dict:
     metadata = integration.get("metadata", {})
     files = _metadata_items(metadata, "files", "documents", "file_activity", "import_items")
     if not files:
-        return _missing_payload("google_drive", "metadata.files[]")
+        return _missing_payload("google_drive", "metadata.files[]", user_id=user_id)
 
     selected, cursor = _incremental_items(integration, files, ("last_edited_time", "modified_time", "timestamp"))
     saved = 0
@@ -734,7 +735,7 @@ def _sync_google_drive(integration: dict, user_id: str = "local_user") -> dict:
         )
         saved += 1
 
-    return _finish_sync("google_drive", saved, sync_cursor=cursor)
+    return _finish_sync("google_drive", saved, sync_cursor=cursor, user_id=user_id)
 
 
 def _sync_social_activity(integration: dict, user_id: str = "local_user") -> dict:
@@ -742,7 +743,7 @@ def _sync_social_activity(integration: dict, user_id: str = "local_user") -> dic
     metadata = integration.get("metadata", {})
     items = _metadata_items(metadata, "items", "posts", "feed", "events", "import_items")
     if not items:
-        return _missing_payload(source, "metadata.items[]")
+        return _missing_payload(source, "metadata.items[]", user_id=user_id)
 
     selected, cursor = _incremental_items(integration, items, ("timestamp", "created_at", "seen_at", "watched_at"))
     saved = 0
@@ -792,7 +793,7 @@ def _sync_social_activity(integration: dict, user_id: str = "local_user") -> dic
         )
         saved += 1
 
-    return _finish_sync(source, saved, sync_cursor=cursor)
+    return _finish_sync(source, saved, sync_cursor=cursor, user_id=user_id)
 
 
 def _sync_ai_activity(integration: dict, user_id: str = "local_user") -> dict:
@@ -800,7 +801,7 @@ def _sync_ai_activity(integration: dict, user_id: str = "local_user") -> dict:
     metadata = integration.get("metadata", {})
     sessions = _metadata_items(metadata, "sessions", "queries", "prompts", "events", "import_items")
     if not sessions:
-        return _missing_payload(source, "metadata.sessions[]")
+        return _missing_payload(source, "metadata.sessions[]", user_id=user_id)
 
     selected, cursor = _incremental_items(integration, sessions, ("timestamp", "created_at", "started_at"))
     saved = 0
@@ -849,7 +850,7 @@ def _sync_ai_activity(integration: dict, user_id: str = "local_user") -> dict:
             )
         saved += 1
 
-    return _finish_sync(source, saved, sync_cursor=cursor)
+    return _finish_sync(source, saved, sync_cursor=cursor, user_id=user_id)
 
 
 def _sync_dev_activity(integration: dict, user_id: str = "local_user") -> dict:
@@ -857,7 +858,7 @@ def _sync_dev_activity(integration: dict, user_id: str = "local_user") -> dict:
     metadata = integration.get("metadata", {})
     sessions = _metadata_items(metadata, "sessions", "projects", "events", "import_items")
     if not sessions:
-        return _missing_payload(source, "metadata.sessions[]")
+        return _missing_payload(source, "metadata.sessions[]", user_id=user_id)
 
     selected, cursor = _incremental_items(integration, sessions, ("timestamp", "started_at", "ended_at", "last_active_at"))
     saved = 0
@@ -922,14 +923,14 @@ def _sync_dev_activity(integration: dict, user_id: str = "local_user") -> dict:
             )
         saved += 1
 
-    return _finish_sync(source, saved, sync_cursor=cursor)
+    return _finish_sync(source, saved, sync_cursor=cursor, user_id=user_id)
 
 
 def _sync_terminal_activity(integration: dict, user_id: str = "local_user") -> dict:
     metadata = integration.get("metadata", {})
     commands = _metadata_items(metadata, "commands", "sessions", "events", "import_items")
     if not commands:
-        return _missing_payload("terminal", "metadata.commands[]")
+        return _missing_payload("terminal", "metadata.commands[]", user_id=user_id)
 
     selected, cursor = _incremental_items(integration, commands, ("timestamp", "started_at"))
     saved = 0
@@ -977,7 +978,7 @@ def _sync_terminal_activity(integration: dict, user_id: str = "local_user") -> d
         )
         saved += 1
 
-    return _finish_sync("terminal", saved, sync_cursor=cursor)
+    return _finish_sync("terminal", saved, sync_cursor=cursor, user_id=user_id)
 
 
 def _remember_gmail_message(user_id: str, message: dict, labels: list[str], sender_domain: str) -> None:

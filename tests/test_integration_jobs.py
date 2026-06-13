@@ -100,12 +100,14 @@ def test_sync_due_integrations_skips_until_next_sync_after(monkeypatch, tmp_path
         name="Gmail",
         scopes=["email_metadata"],
         metadata={"user_id": "user_1"},
+        user_id="user_1",
     )
     database.update_pcl_integration_sync(
         source="gmail",
         status="error",
         next_sync_after=_timestamp_ms() + 60_000,
         sync_cursor={"retry_count": 1},
+        user_id="user_1",
     )
 
     result = sync_due_integrations("user_1")
@@ -299,6 +301,7 @@ def test_daily_refresh_connector_step_syncs_connected_integrations(monkeypatch, 
                 }
             ],
         },
+        user_id="user_1",
     )
 
     from pcl.daily_refresh import connector_sync

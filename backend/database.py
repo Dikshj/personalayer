@@ -324,7 +324,8 @@ def create_tables() -> None:
         """)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS pcl_integrations (
-                source TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL DEFAULT 'local_user',
+                source TEXT NOT NULL,
                 name TEXT NOT NULL,
                 status TEXT DEFAULT 'connected',
                 scopes TEXT DEFAULT '[]',
@@ -339,7 +340,8 @@ def create_tables() -> None:
                 auth_expires_at INTEGER,
                 error TEXT DEFAULT '',
                 connected_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                disconnected_at DATETIME
+                disconnected_at DATETIME,
+                PRIMARY KEY (user_id, source)
             )
         """)
         conn.execute("""
@@ -2198,14 +2200,16 @@ def connect_pcl_integration(
     account_hint: str = "",
     auth_status: str = "local_metadata",
     auth_expires_at: Optional[int] = None,
+    user_id: str = "local_user",
 ) -> dict:
     with get_connection() as conn:
         conn.execute(
             """INSERT OR REPLACE INTO pcl_integrations
-               (source, name, status, scopes, metadata, account_hint, auth_status,
+               (user_id, source, name, status, scopes, metadata, account_hint, auth_status,
                 auth_expires_at, disconnected_at)
-               VALUES (?, ?, 'connected', ?, ?, ?, ?, ?, NULL)""",
+               VALUES (?, ?, ?, 'connected', ?, ?, ?, ?, ?, NULL)""",
             (
+                user_id,
                 source,
                 name,
                 json.dumps(scopes),
@@ -2216,45 +2220,46 @@ def connect_pcl_integration(
             ),
         )
         conn.commit()
-    return get_pcl_integration(source) or {}
+    return get_pcl_integration(source, user_id=user_id) or {}
 
 
-def get_pcl_integration(source: str) -> Optional[dict]:
+def get_pcl_integration(source: str, user_id: str = "local_user") -> Optional[dict]:
     with get_connection() as conn:
         row = conn.execute(
-            "SELECT * FROM pcl_integrations WHERE source = ?",
-            (source,),
+            "SELECT * FROM pcl_integrations WHERE source = ? AND user_id = ?",
+            (source, user_id),
         ).fetchone()
     if not row:
         return None
     return _pcl_integration_row(row)
 
 
-def list_pcl_integrations() -> list[dict]:
+def list_pcl_integrations(user_id: str = "local_user") -> list[dict]:
     with get_connection() as conn:
         rows = conn.execute(
-            "SELECT * FROM pcl_integrations ORDER BY connected_at DESC"
+            "SELECT * FROM pcl_integrations WHERE user_id = ? ORDER BY connected_at DESC",
+            (user_id,),
         ).fetchall()
     return [_pcl_integration_row(row) for row in rows]
 
 
-def disconnect_pcl_integration(source: str) -> bool:
+def disconnect_pcl_integration(source: str, user_id: str = "local_user") -> bool:
     with get_connection() as conn:
         cursor = conn.execute(
             """UPDATE pcl_integrations
                SET status = 'disconnected', disconnected_at = CURRENT_TIMESTAMP
-               WHERE source = ? AND status != 'disconnected'""",
-            (source,),
+               WHERE source = ? AND user_id = ? AND status != 'disconnected'""",
+            (source, user_id),
         )
         conn.commit()
     return cursor.rowcount > 0
 
 
-def delete_pcl_integration_data(source: str) -> dict:
+def delete_pcl_integration_data(source: str, user_id: str = "local_user") -> dict:
     with get_connection() as conn:
         integrations = conn.execute(
-            "DELETE FROM pcl_integrations WHERE source = ?",
-            (source,),
+            "DELETE FROM pcl_integrations WHERE source = ? AND user_id = ?",
+            (source, user_id),
         ).rowcount
         feed_items = conn.execute(
             "DELETE FROM feed_items WHERE source = ?",
@@ -2265,16 +2270,17 @@ def delete_pcl_integration_data(source: str) -> dict:
             (source,),
         ).rowcount
         oauth_states = conn.execute(
-            "DELETE FROM pcl_integration_oauth_states WHERE source = ?",
-            (source,),
+            "DELETE FROM pcl_integration_oauth_states WHERE source = ? AND user_id = ?",
+            (source, user_id),
         ).rowcount
         oauth_tokens = conn.execute(
-            "DELETE FROM pcl_integration_oauth_tokens WHERE source = ?",
-            (source,),
+            "DELETE FROM pcl_integration_oauth_tokens WHERE source = ? AND user_id = ?",
+            (source, user_id),
         ).rowcount
         conn.commit()
     return {
         "source": source,
+        "user_id": user_id,
         "integrations": integrations,
         "feed_items": feed_items,
         "persona_signals": persona_signals,
@@ -2446,6 +2452,7 @@ def update_pcl_integration_sync(
     error: str = "",
     sync_cursor: Optional[dict] = None,
     next_sync_after: Optional[int] = None,
+    user_id: str = "local_user",
 ) -> dict:
     cursor_json = json.dumps(sync_cursor or {})
     with get_connection() as conn:
@@ -2456,8 +2463,8 @@ def update_pcl_integration_sync(
                        last_sync_status = ?,
                        items_synced = ?,
                        error = ?
-                   WHERE source = ?""",
-                (status, int(items_synced), error[:500], source),
+                   WHERE source = ? AND user_id = ?""",
+                (status, int(items_synced), error[:500], source, user_id),
             )
         elif next_sync_after is None:
             conn.execute(
@@ -2467,8 +2474,8 @@ def update_pcl_integration_sync(
                        items_synced = ?,
                        sync_cursor = ?,
                        error = ?
-                   WHERE source = ?""",
-                (status, int(items_synced), cursor_json, error[:500], source),
+                   WHERE source = ? AND user_id = ?""",
+                (status, int(items_synced), cursor_json, error[:500], source, user_id),
             )
         else:
             conn.execute(
@@ -2479,15 +2486,16 @@ def update_pcl_integration_sync(
                        sync_cursor = ?,
                        next_sync_after = ?,
                        error = ?
-                   WHERE source = ?""",
-                (status, int(items_synced), cursor_json, int(next_sync_after), error[:500], source),
+                   WHERE source = ? AND user_id = ?""",
+                (status, int(items_synced), cursor_json, int(next_sync_after), error[:500], source, user_id),
             )
         conn.commit()
-    return get_pcl_integration(source) or {}
+    return get_pcl_integration(source, user_id=user_id) or {}
 
 
 def _pcl_integration_row(row: sqlite3.Row) -> dict:
     return {
+        "user_id": row["user_id"],
         "source": row["source"],
         "name": row["name"],
         "status": row["status"],

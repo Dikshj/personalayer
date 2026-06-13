@@ -135,6 +135,7 @@ def complete_oauth_flow(
         account_hint=account_hint,
         auth_status="oauth_connected_local_token_store" if local_fallback else "oauth_connected",
         auth_expires_at=expires_at,
+        user_id=oauth_state["user_id"],
     )
     return {
         "status": "connected",
@@ -257,6 +258,7 @@ def refresh_oauth_token(source: str, user_id: str = "local_user") -> dict:
             status="error",
             items_synced=0,
             error=f"OAuth refresh failed: HTTP {exc.response.status_code}",
+            user_id=user_id,
         )
         return {"status": "error", "error": "refresh_failed", "detail": f"HTTP {exc.response.status_code}"}
     except Exception as exc:
@@ -265,6 +267,7 @@ def refresh_oauth_token(source: str, user_id: str = "local_user") -> dict:
             status="error",
             items_synced=0,
             error="OAuth refresh failed",
+            user_id=user_id,
         )
         return {"status": "error", "error": "refresh_failed", "detail": str(exc)}
 
@@ -274,6 +277,7 @@ def refresh_oauth_token(source: str, user_id: str = "local_user") -> dict:
             status="error",
             items_synced=0,
             error="OAuth refresh response missing access token",
+            user_id=user_id,
         )
         return {"status": "error", "error": "refresh_missing_access_token"}
 
@@ -296,7 +300,7 @@ def refresh_oauth_token(source: str, user_id: str = "local_user") -> dict:
         scopes=integration["scopes"],
         expires_at=expires_at,
     )
-    current = get_pcl_integration(source) or {}
+    current = get_pcl_integration(source, user_id=user_id) or {}
     updated = connect_pcl_integration(
         source=source,
         name=integration["name"],
@@ -305,11 +309,13 @@ def refresh_oauth_token(source: str, user_id: str = "local_user") -> dict:
         account_hint=current.get("account_hint", ""),
         auth_status="oauth_connected",
         auth_expires_at=expires_at,
+        user_id=user_id,
     )
     update_pcl_integration_sync(
         source=source,
         status="oauth_refreshed",
         items_synced=0,
+        user_id=user_id,
         error="",
     )
     return {

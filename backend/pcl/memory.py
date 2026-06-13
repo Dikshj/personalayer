@@ -387,6 +387,12 @@ def normalize_scope(scope: str) -> str:
 
 def _safe_segment(value: str, label: str) -> str:
     normalized = (value or "").strip().lower().replace(" ", "-")
+    # Map characters outside the safe set (e.g. the ':' in Supabase user ids
+    # like "supabase:<uuid>") to '-' so any authenticated user maps to a valid,
+    # collision-free filesystem segment.
+    normalized = re.sub(r"[^a-z0-9_-]", "-", normalized)
+    normalized = re.sub(r"-{2,}", "-", normalized).strip("-")
+    normalized = normalized[:64]
     if not _SAFE_NAME.fullmatch(normalized):
         raise ValueError(f"invalid_{label}")
     return normalized

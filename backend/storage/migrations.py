@@ -171,6 +171,62 @@ def _migration_011_raw_event_vault_payload(conn: sqlite3.Connection) -> None:
     ensure_column(conn, "raw_events", "raw_payload", "TEXT DEFAULT '{}'")
 
 
+def _migration_012_integration_user_scope(conn: sqlite3.Connection) -> None:
+    """Give pcl_integrations per-user ownership.
+
+    Old rows were keyed by ``source`` alone (global). Rebuild the table with a
+    composite ``(user_id, source)`` primary key so one customer can never see
+    or change another's connector state. Existing rows are attributed to their
+    metadata.user_id when present (OAuth connections recorded it), otherwise to
+    'local_user' for backward compatibility. SQLite can't drop the old primary
+    key in place, so this is the standard table-copy migration.
+    """
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(pcl_integrations)").fetchall()}
+    if not columns:
+        # Fresh database: create_tables() already builds the user-scoped shape.
+        return
+    if "user_id" in columns:
+        # Already migrated.
+        return
+    conn.execute("""
+        CREATE TABLE pcl_integrations_new (
+            user_id TEXT NOT NULL DEFAULT 'local_user',
+            source TEXT NOT NULL,
+            name TEXT NOT NULL,
+            status TEXT DEFAULT 'connected',
+            scopes TEXT DEFAULT '[]',
+            metadata TEXT DEFAULT '{}',
+            last_sync_at DATETIME,
+            last_sync_status TEXT DEFAULT '',
+            items_synced INTEGER DEFAULT 0,
+            sync_cursor TEXT DEFAULT '{}',
+            next_sync_after INTEGER,
+            account_hint TEXT DEFAULT '',
+            auth_status TEXT DEFAULT 'local_metadata',
+            auth_expires_at INTEGER,
+            error TEXT DEFAULT '',
+            connected_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            disconnected_at DATETIME,
+            PRIMARY KEY (user_id, source)
+        )
+    """)
+    conn.execute("""
+        INSERT OR REPLACE INTO pcl_integrations_new (
+            user_id, source, name, status, scopes, metadata, last_sync_at,
+            last_sync_status, items_synced, sync_cursor, next_sync_after,
+            account_hint, auth_status, auth_expires_at, error, connected_at, disconnected_at
+        )
+        SELECT
+            COALESCE(NULLIF(json_extract(metadata, '$.user_id'), ''), 'local_user'),
+            source, name, status, scopes, metadata, last_sync_at,
+            last_sync_status, items_synced, sync_cursor, next_sync_after,
+            account_hint, auth_status, auth_expires_at, error, connected_at, disconnected_at
+        FROM pcl_integrations
+    """)
+    conn.execute("DROP TABLE pcl_integrations")
+    conn.execute("ALTER TABLE pcl_integrations_new RENAME TO pcl_integrations")
+
+
 MIGRATIONS: tuple[tuple[str, Migration], ...] = (
     ("001_context_contract_status", _migration_001_context_contract_status),
     ("002_persona_feedback_calibration", _migration_002_persona_feedback_calibration),
@@ -183,6 +239,7 @@ MIGRATIONS: tuple[tuple[str, Migration], ...] = (
     ("009_device_push_routing", _migration_009_device_push_routing),
     ("010_integration_oauth_tokens", _migration_010_integration_oauth_tokens),
     ("011_raw_event_vault_payload", _migration_011_raw_event_vault_payload),
+    ("012_integration_user_scope", _migration_012_integration_user_scope),
 )
 
 

@@ -89,6 +89,7 @@ def test_sync_refreshes_expired_oauth_before_connector_job(monkeypatch, tmp_path
         account_hint="user@example.com",
         auth_status="oauth_connected",
         auth_expires_at=1,
+        user_id="user_1",
     )
     database.store_pcl_integration_oauth_token(
         source="gmail",
@@ -104,7 +105,7 @@ def test_sync_refreshes_expired_oauth_before_connector_job(monkeypatch, tmp_path
     )
 
     result = sync_integration("gmail", user_id="user_1")
-    integration = database.get_pcl_integration("gmail")
+    integration = database.get_pcl_integration("gmail", user_id="user_1")
 
     assert result["status"] == "ok"
     assert result["items_synced"] == 1
