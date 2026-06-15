@@ -14,7 +14,9 @@ FIRST_PARTY_INTEGRATIONS = {
         },
         "oauth": {
             "authorize_url": "https://accounts.google.com/o/oauth2/v2/auth",
+            "token_url": "https://oauth2.googleapis.com/token",
             "client_id_env": "GOOGLE_OAUTH_CLIENT_ID",
+            "client_secret_env": "GOOGLE_OAUTH_CLIENT_SECRET",
             "scopes": [
                 "https://www.googleapis.com/auth/gmail.metadata",
             ],
@@ -34,7 +36,9 @@ FIRST_PARTY_INTEGRATIONS = {
         },
         "oauth": {
             "authorize_url": "https://accounts.google.com/o/oauth2/v2/auth",
+            "token_url": "https://oauth2.googleapis.com/token",
             "client_id_env": "GOOGLE_OAUTH_CLIENT_ID",
+            "client_secret_env": "GOOGLE_OAUTH_CLIENT_SECRET",
             "scopes": [
                 "https://www.googleapis.com/auth/calendar.readonly",
             ],
@@ -55,7 +59,9 @@ FIRST_PARTY_INTEGRATIONS = {
         },
         "oauth": {
             "authorize_url": "https://api.notion.com/v1/oauth/authorize",
+            "token_url": "https://api.notion.com/v1/oauth/token",
             "client_id_env": "NOTION_OAUTH_CLIENT_ID",
+            "client_secret_env": "NOTION_OAUTH_CLIENT_SECRET",
             "scopes": [],
         },
     },
@@ -81,7 +87,9 @@ FIRST_PARTY_INTEGRATIONS = {
         },
         "oauth": {
             "authorize_url": "https://accounts.spotify.com/authorize",
+            "token_url": "https://accounts.spotify.com/api/token",
             "client_id_env": "SPOTIFY_OAUTH_CLIENT_ID",
+            "client_secret_env": "SPOTIFY_OAUTH_CLIENT_SECRET",
             "scopes": ["user-read-recently-played"],
         },
     },
@@ -99,7 +107,9 @@ FIRST_PARTY_INTEGRATIONS = {
         },
         "oauth": {
             "authorize_url": "https://accounts.google.com/o/oauth2/v2/auth",
+            "token_url": "https://oauth2.googleapis.com/token",
             "client_id_env": "GOOGLE_OAUTH_CLIENT_ID",
+            "client_secret_env": "GOOGLE_OAUTH_CLIENT_SECRET",
             "scopes": [
                 "https://www.googleapis.com/auth/youtube.readonly",
             ],
@@ -116,6 +126,243 @@ FIRST_PARTY_INTEGRATIONS = {
                 "active_minutes": 42,
                 "stand_hours": 9,
                 "sleep_hours": 7.5,
+            }],
+        },
+        "oauth": None,
+    },
+    "google_drive": {
+        "name": "Google Drive",
+        "scopes": ["file_metadata", "folder_activity", "edit_timing"],
+        "description": "Document and project activity metadata without storing raw file contents.",
+        "auth_type": "oauth_or_local_metadata",
+        "metadata_example": {
+            "files": [{
+                "mime_type": "application/vnd.google-apps.document",
+                "folder": "Product",
+                "last_edited_time": "2026-05-11T12:30:00Z",
+                "owner_domain": "example.com",
+            }],
+        },
+        "oauth": {
+            "authorize_url": "https://accounts.google.com/o/oauth2/v2/auth",
+            "token_url": "https://oauth2.googleapis.com/token",
+            "client_id_env": "GOOGLE_OAUTH_CLIENT_ID",
+            "client_secret_env": "GOOGLE_OAUTH_CLIENT_SECRET",
+            "scopes": [
+                "https://www.googleapis.com/auth/drive.metadata.readonly",
+            ],
+        },
+    },
+    "linkedin": {
+        "name": "LinkedIn",
+        "scopes": ["feed_activity", "profile_activity", "topic_patterns"],
+        "description": "Professional feed and topic signals captured locally through the extension bridge.",
+        "auth_type": "extension_bridge",
+        "metadata_example": {
+            "items": [{
+                "content_type": "post",
+                "topic": "go-to-market",
+                "author_role": "founder",
+                "timestamp": 1700000000000,
+            }],
+        },
+        "oauth": None,
+    },
+    "x": {
+        "name": "X",
+        "scopes": ["feed_activity", "post_activity", "topic_patterns"],
+        "description": "Public feed, topic, and creator signals captured locally through the extension bridge.",
+        "auth_type": "extension_bridge",
+        "metadata_example": {
+            "items": [{
+                "content_type": "post",
+                "topic": "ai agents",
+                "engagement": "read",
+                "timestamp": 1700000000000,
+            }],
+        },
+        "oauth": None,
+    },
+    "instagram": {
+        "name": "Instagram",
+        "scopes": ["feed_activity", "creator_activity", "topic_patterns"],
+        "description": "Creator and topic signals captured locally through the extension bridge.",
+        "auth_type": "extension_bridge",
+        "metadata_example": {
+            "items": [{
+                "content_type": "reel",
+                "topic": "productivity",
+                "creator_category": "education",
+                "timestamp": 1700000000000,
+            }],
+        },
+        "oauth": None,
+    },
+    "chatgpt": {
+        "name": "ChatGPT",
+        "scopes": ["session_signals", "prompt_metadata", "workflow_patterns"],
+        "description": "Local AI-assistant workflow signals captured through the extension bridge.",
+        "auth_type": "extension_bridge",
+        "metadata_example": {
+            "sessions": [{
+                "task_type": "writing",
+                "prompt_length_bucket": "medium",
+                "timestamp": 1700000000000,
+            }],
+        },
+        "oauth": None,
+    },
+    "claude": {
+        "name": "Claude",
+        "scopes": ["session_signals", "prompt_metadata", "workflow_patterns"],
+        "description": "Local Claude workflow signals captured through the extension bridge.",
+        "auth_type": "extension_bridge",
+        "metadata_example": {
+            "sessions": [{
+                "task_type": "research",
+                "artifact_used": True,
+                "timestamp": 1700000000000,
+            }],
+        },
+        "oauth": None,
+    },
+    "perplexity": {
+        "name": "Perplexity",
+        "scopes": ["query_metadata", "research_topics", "session_signals"],
+        "description": "Research query and topic signals captured locally through the extension bridge.",
+        "auth_type": "extension_bridge",
+        "metadata_example": {
+            "queries": [{
+                "topic": "market research",
+                "source_count_bucket": "many",
+                "timestamp": 1700000000000,
+            }],
+        },
+        "oauth": None,
+    },
+    "opencode": {
+        "name": "OpenCode",
+        "scopes": ["coding_session", "prompt_metadata", "project_activity"],
+        "description": "Coding-agent workflow signals from local OpenCode sessions.",
+        "auth_type": "local_metadata",
+        "metadata_example": {
+            "sessions": [{
+                "project": "personalayer",
+                "task_type": "refactor",
+                "timestamp": 1700000000000,
+            }],
+        },
+        "oauth": None,
+    },
+    "cursor": {
+        "name": "Cursor",
+        "scopes": ["coding_session", "prompt_metadata", "project_activity"],
+        "description": "IDE and coding-assistant workflow metadata from Cursor.",
+        "auth_type": "local_metadata",
+        "metadata_example": {
+            "sessions": [{
+                "project": "personalayer",
+                "language": "python",
+                "assistant_action": "edit",
+                "timestamp": 1700000000000,
+            }],
+        },
+        "oauth": None,
+    },
+    "gemini": {
+        "name": "Gemini",
+        "scopes": ["session_signals", "prompt_metadata", "workflow_patterns"],
+        "description": "Gemini workflow signals captured locally through the extension bridge.",
+        "auth_type": "extension_bridge",
+        "metadata_example": {
+            "sessions": [{
+                "task_type": "planning",
+                "timestamp": 1700000000000,
+            }],
+        },
+        "oauth": None,
+    },
+    "grok": {
+        "name": "Grok",
+        "scopes": ["session_signals", "prompt_metadata", "workflow_patterns"],
+        "description": "Grok workflow signals captured locally through the extension bridge.",
+        "auth_type": "extension_bridge",
+        "metadata_example": {
+            "sessions": [{
+                "task_type": "social_research",
+                "timestamp": 1700000000000,
+            }],
+        },
+        "oauth": None,
+    },
+    "github_copilot": {
+        "name": "GitHub Copilot",
+        "scopes": ["coding_session", "completion_activity", "project_activity"],
+        "description": "Coding-assistant usage and project metadata from local IDE integrations.",
+        "auth_type": "local_metadata",
+        "metadata_example": {
+            "sessions": [{
+                "project": "personalayer",
+                "language": "typescript",
+                "completion_accepted": True,
+                "timestamp": 1700000000000,
+            }],
+        },
+        "oauth": None,
+    },
+    "aider": {
+        "name": "Aider",
+        "scopes": ["coding_session", "prompt_metadata", "project_activity"],
+        "description": "Local coding-agent session metadata from Aider.",
+        "auth_type": "local_metadata",
+        "metadata_example": {
+            "sessions": [{
+                "project": "personalayer",
+                "files_changed_bucket": "small",
+                "timestamp": 1700000000000,
+            }],
+        },
+        "oauth": None,
+    },
+    "terminal": {
+        "name": "Terminal",
+        "scopes": ["command_metadata", "project_activity", "workflow_patterns"],
+        "description": "Local command and project metadata from shell wrappers.",
+        "auth_type": "local_metadata",
+        "metadata_example": {
+            "commands": [{
+                "project": "personalayer",
+                "command_category": "test",
+                "timestamp": 1700000000000,
+            }],
+        },
+        "oauth": None,
+    },
+    "vscode": {
+        "name": "VS Code",
+        "scopes": ["project_activity", "extension_activity", "coding_session"],
+        "description": "Local project, language, and editor workflow metadata from VS Code.",
+        "auth_type": "local_metadata",
+        "metadata_example": {
+            "sessions": [{
+                "project": "personalayer",
+                "language": "python",
+                "active_minutes": 45,
+                "timestamp": 1700000000000,
+            }],
+        },
+        "oauth": None,
+    },
+    "ide": {
+        "name": "Generic IDE",
+        "scopes": ["project_activity", "coding_session", "workflow_patterns"],
+        "description": "Generic local IDE project and coding-session metadata.",
+        "auth_type": "local_metadata",
+        "metadata_example": {
+            "sessions": [{
+                "project": "personalayer",
+                "language": "swift",
+                "timestamp": 1700000000000,
             }],
         },
         "oauth": None,

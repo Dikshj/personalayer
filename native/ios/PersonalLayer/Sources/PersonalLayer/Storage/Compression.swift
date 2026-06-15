@@ -3,12 +3,12 @@ import Compression
 
 /// Compression utility for COOL and COLD tier storage.
 /// Uses Apple Compression library (lz4/zlib) since zstd is not directly available on iOS.
-/// On macOS we can use libzstd via system library. Here we use COMPRESSION_ZSTD if available (iOS 15+),
+/// Use COMPRESSION_ZSTD when available (iOS 15+),
 /// falling back to COMPRESSION_LZ4 for older OS versions.
 enum CompressionHelper {
     static let algorithm: compression_algorithm = {
-        if #available(iOS 15.0, macOS 12.0, *) {
-            // ZSTD is available on iOS 15+ / macOS 12+
+        if #available(iOS 15.0, *) {
+            // ZSTD is available on iOS 15+
             return COMPRESSION_ZSTD
         }
         return COMPRESSION_LZ4_RAW

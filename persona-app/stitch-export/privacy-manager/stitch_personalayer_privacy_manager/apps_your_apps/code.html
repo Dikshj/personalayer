@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>PersonaLayer - Your Apps</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "error-container": "#ffdad6",
+                    "primary": "#006e2f",
+                    "tertiary-container": "#a1a3ff",
+                    "on-secondary-fixed": "#2a1700",
+                    "on-surface": "#1a1c1c",
+                    "surface-dim": "#dadada",
+                    "tertiary": "#494bd6",
+                    "on-surface-variant": "#3d4a3d",
+                    "on-primary-fixed-variant": "#005321",
+                    "secondary": "#855300",
+                    "surface-container-highest": "#e2e2e2",
+                    "surface-container": "#eeeeee",
+                    "primary-container": "#22c55e",
+                    "on-secondary": "#ffffff",
+                    "on-secondary-container": "#684000",
+                    "on-error": "#ffffff",
+                    "on-tertiary-fixed-variant": "#2f2ebe",
+                    "on-error-container": "#93000a",
+                    "on-tertiary-container": "#2623b8",
+                    "secondary-fixed-dim": "#ffb95f",
+                    "on-background": "#1a1c1c",
+                    "surface-variant": "#e2e2e2",
+                    "surface-container-low": "#f3f3f3",
+                    "surface-bright": "#f9f9f9",
+                    "primary-fixed-dim": "#4ae176",
+                    "secondary-container": "#fea619",
+                    "on-primary-container": "#004b1e",
+                    "surface-tint": "#006e2f",
+                    "error": "#ba1a1a",
+                    "tertiary-fixed-dim": "#c0c1ff",
+                    "on-primary": "#ffffff",
+                    "tertiary-fixed": "#e1e0ff",
+                    "outline-variant": "#bccbb9",
+                    "secondary-fixed": "#ffddb8",
+                    "surface": "#f9f9f9",
+                    "on-primary-fixed": "#002109",
+                    "primary-fixed": "#6bff8f",
+                    "inverse-primary": "#4ae176",
+                    "on-secondary-fixed-variant": "#653e00",
+                    "background": "#f9f9f9",
+                    "surface-container-high": "#e8e8e8",
+                    "inverse-surface": "#2f3131",
+                    "inverse-on-surface": "#f0f1f1",
+                    "on-tertiary-fixed": "#07006c",
+                    "surface-container-lowest": "#ffffff",
+                    "outline": "#6d7b6c",
+                    "on-tertiary": "#ffffff"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.25rem",
+                    "lg": "0.5rem",
+                    "xl": "0.75rem",
+                    "full": "9999px"
+            },
+            "spacing": {
+                    "gutter": "24px",
+                    "container-padding-mobile": "20px",
+                    "stack-md": "24px",
+                    "stack-sm": "12px",
+                    "unit": "8px",
+                    "container-padding-desktop": "40px",
+                    "stack-lg": "48px"
+            },
+            "fontFamily": {
+                    "headline-lg": ["Plus Jakarta Sans"],
+                    "headline-lg-mobile": ["Plus Jakarta Sans"],
+                    "headline-md": ["Plus Jakarta Sans"],
+                    "label-sm": ["Plus Jakarta Sans"],
+                    "body-md": ["Plus Jakarta Sans"],
+                    "label-bold": ["Plus Jakarta Sans"],
+                    "body-lg": ["Plus Jakarta Sans"]
+            },
+            "fontSize": {
+                    "headline-lg": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                    "headline-lg-mobile": ["26px", {"lineHeight": "32px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                    "headline-md": ["24px", {"lineHeight": "32px", "fontWeight": "600"}],
+                    "label-sm": ["12px", {"lineHeight": "16px", "fontWeight": "500"}],
+                    "body-md": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+                    "label-bold": ["14px", {"lineHeight": "20px", "letterSpacing": "0.01em", "fontWeight": "600"}],
+                    "body-lg": ["18px", {"lineHeight": "28px", "fontWeight": "400"}]
+            }
+          },
+        },
+      }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        body {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            -webkit-font-smoothing: antialiased;
+        }
+        .pulse-dot {
+            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: .5; transform: scale(1.2); }
+        }
+        .app-card {
+            transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.2s ease;
+        }
+        .app-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 12px 24px -8px rgba(0, 0, 0, 0.08);
+        }
+        /* Custom oversized toggle */
+        .persona-toggle {
+            position: relative;
+            display: inline-block;
+            width: 64px;
+            height: 36px;
+        }
+        .persona-toggle input { opacity: 0; width: 0; height: 0; }
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-color: #e2e2e2;
+            transition: .4s;
+            border-radius: 34px;
+        }
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 28px;
+            width: 28px;
+            left: 4px;
+            bottom: 4px;
+            background-color: white;
+            transition: .4s;
+            border-radius: 50%;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        input:checked + .slider { background-color: #006e2f; }
+        input:checked + .slider:before { transform: translateX(28px); }
+        input:checked + .slider { box-shadow: 0 0 12px rgba(34, 197, 94, 0.2); }
+        
+        .details-panel {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.3s ease-out;
+        }
+        .details-panel.open {
+            max-height: 100px;
+        }
+    </style>
+</head>
+<body class="bg-background text-on-surface min-h-screen">
+<!-- TopAppBar -->
+<header class="w-full top-0 sticky z-40 bg-background dark:bg-background">
+<div class="flex justify-between items-center h-16 px-gutter max-w-[1100px] mx-auto w-full">
+<div class="text-headline-md font-headline-md text-primary dark:text-primary-fixed-dim">
+                PersonaLayer
+            </div>
+<div class="flex items-center gap-4">
+<button class="hover:opacity-80 transition-opacity scale-95 active:scale-90 transition-transform">
+<span class="material-symbols-outlined text-primary" data-icon="account_circle">account_circle</span>
+</button>
+</div>
+</div>
+</header>
+<main class="max-w-[1100px] mx-auto px-container-padding-mobile md:px-gutter py-stack-md">
+<!-- Page Header -->
+<div class="mb-stack-lg">
+<h1 class="font-headline-lg text-headline-lg mb-2">Your apps</h1>
+<p class="text-on-surface-variant font-body-lg">Control which parts of your digital life PersonaLayer protects and understands.</p>
+</div>
+<!-- Connected Section -->
+<section class="mb-stack-lg">
+<h2 class="font-label-bold text-label-bold text-on-surface-variant uppercase tracking-wider mb-stack-sm">Connected</h2>
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+<!-- GitHub Card -->
+<div class="app-card bg-surface-container-lowest rounded-xl p-6 shadow-[0_4px_20px_0_rgba(0,0,0,0.04)]">
+<div class="flex justify-between items-start mb-4">
+<div class="w-12 h-12 rounded-lg flex items-center justify-center bg-surface-container">
+<span class="material-symbols-outlined text-primary text-3xl" data-icon="code">code</span>
+</div>
+<label class="persona-toggle">
+<input checked="" onchange="handleToggle(this)" type="checkbox"/>
+<span class="slider"></span>
+</label>
+</div>
+<h3 class="font-headline-md text-headline-md mb-1">GitHub</h3>
+<button class="text-primary font-label-bold hover:underline transition-all" onclick="toggleDetails(this)">Details</button>
+<div class="details-panel mt-3">
+<p class="font-body-md text-on-surface-variant">Helps us understand your work projects.</p>
+</div>
+</div>
+<!-- Calendar Card -->
+<div class="app-card bg-surface-container-lowest rounded-xl p-6 shadow-[0_4px_20px_0_rgba(0,0,0,0.04)]">
+<div class="flex justify-between items-start mb-4">
+<div class="w-12 h-12 rounded-lg flex items-center justify-center bg-surface-container">
+<span class="material-symbols-outlined text-primary text-3xl" data-icon="calendar_month">calendar_month</span>
+</div>
+<label class="persona-toggle">
+<input checked="" onchange="handleToggle(this)" type="checkbox"/>
+<span class="slider"></span>
+</label>
+</div>
+<h3 class="font-headline-md text-headline-md mb-1">Calendar</h3>
+<button class="text-primary font-label-bold hover:underline transition-all" onclick="toggleDetails(this)">Details</button>
+<div class="details-panel mt-3">
+<p class="font-body-md text-on-surface-variant">Helps us understand your work projects.</p>
+</div>
+</div>
+<!-- Spotify Card -->
+<div class="app-card bg-surface-container-lowest rounded-xl p-6 shadow-[0_4px_20px_0_rgba(0,0,0,0.04)]">
+<div class="flex justify-between items-start mb-4">
+<div class="w-12 h-12 rounded-lg flex items-center justify-center bg-surface-container">
+<span class="material-symbols-outlined text-primary text-3xl" data-icon="music_note">music_note</span>
+</div>
+<label class="persona-toggle">
+<input checked="" onchange="handleToggle(this)" type="checkbox"/>
+<span class="slider"></span>
+</label>
+</div>
+<h3 class="font-headline-md text-headline-md mb-1">Spotify</h3>
+<button class="text-primary font-label-bold hover:underline transition-all" onclick="toggleDetails(this)">Details</button>
+<div class="details-panel mt-3">
+<p class="font-body-md text-on-surface-variant">Helps us understand your work projects.</p>
+</div>
+</div>
+</div>
+</section>
+<!-- Add More Section -->
+<section class="mb-32">
+<h2 class="font-label-bold text-label-bold text-on-surface-variant uppercase tracking-wider mb-stack-sm">Add more</h2>
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+<!-- Notion -->
+<div class="app-card bg-surface-container-low opacity-80 hover:opacity-100 rounded-xl p-6 transition-all">
+<div class="flex justify-between items-start mb-4">
+<div class="w-12 h-12 rounded-lg flex items-center justify-center bg-surface-container-highest">
+<span class="material-symbols-outlined text-on-surface-variant text-3xl" data-icon="sticky_note_2">sticky_note_2</span>
+</div>
+<label class="persona-toggle">
+<input onchange="handleToggle(this)" type="checkbox"/>
+<span class="slider"></span>
+</label>
+</div>
+<h3 class="font-headline-md text-headline-md mb-1">Notion</h3>
+</div>
+<!-- Slack -->
+<div class="app-card bg-surface-container-low opacity-80 hover:opacity-100 rounded-xl p-6 transition-all">
+<div class="flex justify-between items-start mb-4">
+<div class="w-12 h-12 rounded-lg flex items-center justify-center bg-surface-container-highest">
+<span class="material-symbols-outlined text-on-surface-variant text-3xl" data-icon="chat_bubble">chat_bubble</span>
+</div>
+<label class="persona-toggle">
+<input onchange="handleToggle(this)" type="checkbox"/>
+<span class="slider"></span>
+</label>
+</div>
+<h3 class="font-headline-md text-headline-md mb-1">Slack</h3>
+</div>
+<!-- Discord -->
+<div class="app-card bg-surface-container-low opacity-80 hover:opacity-100 rounded-xl p-6 transition-all">
+<div class="flex justify-between items-start mb-4">
+<div class="w-12 h-12 rounded-lg flex items-center justify-center bg-surface-container-highest">
+<span class="material-symbols-outlined text-on-surface-variant text-3xl" data-icon="groups">groups</span>
+</div>
+<label class="persona-toggle">
+<input onchange="handleToggle(this)" type="checkbox"/>
+<span class="slider"></span>
+</label>
+</div>
+<h3 class="font-headline-md text-headline-md mb-1">Discord</h3>
+</div>
+</div>
+</section>
+</main>
+<!-- Footer with On-Device Status -->
+<footer class="w-full mb-24 flex flex-col items-center gap-2 pb-8 bg-transparent">
+<div class="flex items-center gap-2 px-4 py-2 bg-primary/10 rounded-full mb-4">
+<span class="w-2.5 h-2.5 bg-primary rounded-full pulse-dot"></span>
+<span class="font-label-bold text-label-bold text-primary">Running on your device</span>
+</div>
+<p class="font-label-sm text-label-sm text-on-surface-variant">PersonaLayer • Running on your device</p>
+<div class="flex gap-4">
+<a class="font-label-sm text-label-sm text-on-surface-variant hover:text-primary transition-colors" href="#">Privacy Policy</a>
+<a class="font-label-sm text-label-sm text-on-surface-variant hover:text-primary transition-colors" href="#">Help Center</a>
+</div>
+</footer>
+<!-- BottomNavBar (Mobile & Tablet) -->
+<nav class="fixed bottom-0 left-0 w-full z-50 flex justify-around items-center px-4 py-3 bg-surface-container-lowest shadow-[0_-4px_20px_0_rgba(0,0,0,0.04)] md:max-w-[1100px] md:left-1/2 md:-translate-x-1/2 md:rounded-t-xl">
+<a class="flex flex-col items-center justify-center text-on-surface-variant px-6 py-2 hover:bg-surface-container-low transition-all" href="#">
+<span class="material-symbols-outlined" data-icon="home">home</span>
+<span class="font-label-bold text-label-bold mt-1">Home</span>
+</a>
+<!-- ACTIVE TAB: Apps -->
+<a class="flex flex-col items-center justify-center bg-primary-container text-on-primary-container rounded-full px-6 py-2 scale-105 transition-all" href="#">
+<span class="material-symbols-outlined" data-icon="grid_view" style="font-variation-settings: 'FILL' 1;">grid_view</span>
+<span class="font-label-bold text-label-bold mt-1">Apps</span>
+</a>
+<a class="flex flex-col items-center justify-center text-on-surface-variant px-6 py-2 hover:bg-surface-container-low transition-all" href="#">
+<span class="material-symbols-outlined" data-icon="shield_person">shield_person</span>
+<span class="font-label-bold text-label-bold mt-1">Privacy</span>
+</a>
+</nav>
+<script>
+        function toggleDetails(btn) {
+            const panel = btn.nextElementSibling;
+            panel.classList.toggle('open');
+            btn.innerText = panel.classList.contains('open') ? 'Hide Details' : 'Details';
+        }
+
+        function handleToggle(checkbox) {
+            const card = checkbox.closest('.app-card');
+            if (checkbox.checked) {
+                card.classList.remove('opacity-80');
+            } else {
+                card.classList.add('opacity-80');
+            }
+        }
+    </script>
+</body></html>

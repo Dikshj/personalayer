@@ -121,7 +121,7 @@ def summarize_feed_items(items: list[dict]) -> str:
     # LLM prompts — highest-signal data: exactly what the user is working on
     llm_sources = {"chatgpt", "claude", "perplexity", "opencode", "cursor",
                    "gemini", "grok", "github_copilot", "llm",
-                   "claude_code", "ollama", "aider", "sgpt"}
+                   "claude_code", "aider"}
     llm_items = [i for i in items if i["source"] in llm_sources]
     if llm_items:
         by_llm: dict = defaultdict(list)

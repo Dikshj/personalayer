@@ -11,11 +11,11 @@
     <key>OAuthProviders</key>
     <dict>
         <key>google</key>
-        <string>YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com</string>
+        <string>$(GOOGLE_OAUTH_CLIENT_ID)</string>
         <key>spotify</key>
-        <string>YOUR_SPOTIFY_CLIENT_ID</string>
+        <string>$(SPOTIFY_OAUTH_CLIENT_ID)</string>
         <key>notion</key>
-        <string>YOUR_NOTION_CLIENT_ID</string>
+        <string>$(NOTION_OAUTH_CLIENT_ID)</string>
     </dict>
     <key>UIBackgroundModes</key>
     <array>

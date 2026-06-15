@@ -12,7 +12,7 @@ This appends alias definitions to your ~/.bashrc or ~/.zshrc.
 After install:
   source ~/.bashrc   (or restart terminal)
 
-Wrapped commands: claude, aider, opencode, sgpt, llm, ai
+Wrapped commands: claude, aider, opencode, llm, ai
 """
 
 import sys
@@ -24,7 +24,6 @@ ALIASES = {
     "claude": "claude",
     "aider": "aider",
     "opencode": "opencode",
-    "sgpt": "sgpt",      # shell-gpt
     "llm": "llm",        # Simon Willison's llm CLI
     "ai": "ai",          # generic
 }

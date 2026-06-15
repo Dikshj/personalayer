@@ -372,13 +372,13 @@ test("getBundle can explicitly use localhost fallback", async () => {
     intent: "adapt_ui",
     requestedScopes: ["getFeatureUsage"],
     allowLocalhostFallback: true,
-    localhostBaseUrl: "http://127.0.0.1:7432/",
+    localhostBaseUrl: "http://127.0.0.1:7823/",
     fetchImpl,
     documentRef: {documentElement: {getAttribute: () => null}},
     windowRef: {},
   });
 
-  assert.equal(calls[0].url, "http://127.0.0.1:7432/v1/context/bundle");
+  assert.equal(calls[0].url, "http://127.0.0.1:7823/v1/context/bundle");
   assert.deepEqual(calls[0].body, {
     app_id: "mail.example",
     user_id: "user_1",
@@ -436,13 +436,13 @@ test("track can explicitly use localhost fallback", async () => {
     timestamp: 1700000000000,
     metadata: {subject_category: "email"},
     allowLocalhostFallback: true,
-    localhostBaseUrl: "http://127.0.0.1:7432",
+    localhostBaseUrl: "http://127.0.0.1:7823",
     fetchImpl,
     documentRef: {documentElement: {getAttribute: () => null}},
     windowRef: {},
   });
 
-  assert.equal(calls[0].url, "http://127.0.0.1:7432/v1/ingest/extension");
+  assert.equal(calls[0].url, "http://127.0.0.1:7823/v1/ingest/extension");
   assert.deepEqual(calls[0].body, {
     app_id: "mail.example",
     user_id: "user_1",

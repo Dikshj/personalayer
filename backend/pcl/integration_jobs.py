@@ -10,6 +10,8 @@ from database import (
     update_pcl_integration_sync,
 )
 from pcl.integrations import default_integration
+from pcl.oauth import refresh_oauth_token
+from pcl.persona_diffs import propose_memory_diff
 from pcl.privacy import scrub_pii
 
 
@@ -19,9 +21,21 @@ def sync_integration(source: str, user_id: str = "local_user") -> dict:
     except ValueError:
         return {"status": "error", "error": "unknown_integration"}
 
-    integration = get_pcl_integration(source)
+    integration = get_pcl_integration(source, user_id=user_id)
     if not integration or integration.get("status") != "connected":
         return {"status": "error", "error": "integration_not_connected"}
+    if not _sync_due(integration):
+        return {
+            "status": "skipped",
+            "reason": "next_sync_after_not_reached",
+            "next_sync_after": integration.get("next_sync_after"),
+            "integration": integration,
+        }
+    refresh_result = _refresh_expired_oauth_if_needed(integration, user_id=user_id)
+    if refresh_result.get("status") == "error":
+        return refresh_result
+    if refresh_result.get("status") == "refreshed":
+        integration = get_pcl_integration(source, user_id=user_id) or integration
 
     syncers = {
         "gmail": _sync_gmail,
@@ -31,17 +45,78 @@ def sync_integration(source: str, user_id: str = "local_user") -> dict:
         "spotify": _sync_spotify,
         "youtube": _sync_youtube,
         "apple_health": _sync_apple_health,
+        "google_drive": _sync_google_drive,
+        "linkedin": _sync_social_activity,
+        "x": _sync_social_activity,
+        "instagram": _sync_social_activity,
+        "chatgpt": _sync_ai_activity,
+        "claude": _sync_ai_activity,
+        "perplexity": _sync_ai_activity,
+        "opencode": _sync_dev_activity,
+        "cursor": _sync_dev_activity,
+        "gemini": _sync_ai_activity,
+        "grok": _sync_ai_activity,
+        "github_copilot": _sync_dev_activity,
+        "aider": _sync_dev_activity,
+        "terminal": _sync_terminal_activity,
+        "vscode": _sync_dev_activity,
+        "ide": _sync_dev_activity,
     }
     return syncers[source](integration, user_id=user_id)
 
 
-def sync_connected_integrations(user_id: str = "local_user") -> dict:
+def sync_due_integrations(user_id: str = "local_user") -> dict:
     results = []
-    for integration in list_pcl_integrations():
+    now = _timestamp_ms()
+    for integration in list_pcl_integrations(user_id):
         if integration.get("status") != "connected":
             continue
-        metadata_user_id = str(integration.get("metadata", {}).get("user_id", user_id))
-        if metadata_user_id != user_id:
+        next_sync_after = int(integration.get("next_sync_after") or 0)
+        if next_sync_after and next_sync_after > now:
+            results.append({
+                "status": "skipped",
+                "source": integration["source"],
+                "reason": "next_sync_after_not_reached",
+                "next_sync_after": next_sync_after,
+            })
+            continue
+        results.append(sync_integration(integration["source"], user_id=user_id))
+    return {
+        "attempted": len(results),
+        "synced": sum(1 for result in results if result.get("status") == "ok"),
+        "skipped": sum(1 for result in results if result.get("status") == "skipped"),
+        "results": results,
+    }
+
+
+def _sync_due(integration: dict) -> bool:
+    next_sync_after = int(integration.get("next_sync_after") or 0)
+    return not next_sync_after or next_sync_after <= _timestamp_ms()
+
+
+def _refresh_expired_oauth_if_needed(integration: dict, user_id: str) -> dict:
+    auth_status = str(integration.get("auth_status", ""))
+    expires_at = int(integration.get("auth_expires_at") or 0)
+    if not auth_status.startswith("oauth") or not expires_at:
+        return {"status": "skipped"}
+    if expires_at > _timestamp_ms() + 60_000:
+        return {"status": "fresh"}
+    result = refresh_oauth_token(integration["source"], user_id=user_id)
+    if result.get("status") != "refreshed":
+        update_pcl_integration_sync(
+            source=integration["source"],
+            status="error",
+            items_synced=0,
+            error=f"OAuth refresh required before sync: {result.get('error', 'refresh_failed')}",
+            user_id=user_id,
+        )
+    return result
+
+
+def sync_connected_integrations(user_id: str = "local_user") -> dict:
+    results = []
+    for integration in list_pcl_integrations(user_id):
+        if integration.get("status") != "connected":
             continue
         results.append(sync_integration(integration["source"], user_id=user_id))
     return {
@@ -117,24 +192,23 @@ def _finish_sync(
     status: str = "ok",
     error: str = "",
     sync_cursor: dict | None = None,
+    user_id: str = "local_user",
 ) -> dict:
+    if status == "ok":
+        sync_cursor = {**(sync_cursor or {}), "retry_count": 0}
     updated = update_pcl_integration_sync(
         source=source,
         status=status,
         items_synced=count,
         error=error,
         sync_cursor=sync_cursor,
+        user_id=user_id,
     )
     return {"status": status, "items_synced": count, "integration": updated}
 
 
-def _missing_payload(source: str, expected: str) -> dict:
-    updated = update_pcl_integration_sync(
-        source=source,
-        status="error",
-        items_synced=0,
-        error=f"Import metadata required: {expected}",
-    )
+def _missing_payload(source: str, expected: str, user_id: str = "local_user") -> dict:
+    updated = _schedule_sync_retry(source, f"Import metadata required: {expected}", user_id=user_id)
     return {
         "status": "error",
         "error": "import_metadata_required",
@@ -143,11 +217,28 @@ def _missing_payload(source: str, expected: str) -> dict:
     }
 
 
+def _schedule_sync_retry(source: str, error: str, base_delay_seconds: int = 300, user_id: str = "local_user") -> dict:
+    integration = get_pcl_integration(source, user_id=user_id) or {}
+    cursor = integration.get("sync_cursor") or {}
+    retry_count = min(int(cursor.get("retry_count", 0) or 0) + 1, 8)
+    delay = min(base_delay_seconds * (2 ** (retry_count - 1)), 24 * 60 * 60)
+    next_sync_after = _timestamp_ms() + (delay * 1000)
+    return update_pcl_integration_sync(
+        source=source,
+        status="error",
+        items_synced=0,
+        error=error,
+        sync_cursor={**cursor, "retry_count": retry_count, "last_error": error[:200]},
+        next_sync_after=next_sync_after,
+        user_id=user_id,
+    )
+
+
 def _sync_gmail(integration: dict, user_id: str = "local_user") -> dict:
     metadata = integration.get("metadata", {})
     messages = _metadata_items(metadata, "messages", "emails", "threads", "import_items")
     if not messages:
-        return _missing_payload("gmail", "metadata.messages[]")
+        return _missing_payload("gmail", "metadata.messages[]", user_id=user_id)
 
     selected, cursor = _incremental_items(integration, messages, ("timestamp", "date"))
     saved = 0
@@ -212,6 +303,7 @@ def _sync_gmail(integration: dict, user_id: str = "local_user") -> dict:
                 timestamp=ts,
                 subject_category="email",
             )
+        _remember_gmail_message(user_id, message, labels, sender_domain)
         if content["thread_size"] >= 3:
             _emit_connector_event(
                 user_id=user_id,
@@ -222,14 +314,14 @@ def _sync_gmail(integration: dict, user_id: str = "local_user") -> dict:
             )
         saved += 1
 
-    return _finish_sync("gmail", saved, sync_cursor=cursor)
+    return _finish_sync("gmail", saved, sync_cursor=cursor, user_id=user_id)
 
 
 def _sync_calendar(integration: dict, user_id: str = "local_user") -> dict:
     metadata = integration.get("metadata", {})
     events = _metadata_items(metadata, "events", "meetings", "import_items")
     if not events:
-        return _missing_payload("calendar", "metadata.events[]")
+        return _missing_payload("calendar", "metadata.events[]", user_id=user_id)
 
     selected, cursor = _incremental_items(integration, events, ("start", "timestamp"))
     saved = 0
@@ -285,16 +377,17 @@ def _sync_calendar(integration: dict, user_id: str = "local_user") -> dict:
                 timestamp=ts,
                 subject_category="meeting",
             )
+        _remember_calendar_event(user_id, event, duration, attendees)
         saved += 1
 
-    return _finish_sync("calendar", saved, sync_cursor=cursor)
+    return _finish_sync("calendar", saved, sync_cursor=cursor, user_id=user_id)
 
 
 def _sync_notion(integration: dict, user_id: str = "local_user") -> dict:
     metadata = integration.get("metadata", {})
     pages = _metadata_items(metadata, "pages", "page_activity", "import_items")
     if not pages:
-        return _missing_payload("notion", "metadata.pages[]")
+        return _missing_payload("notion", "metadata.pages[]", user_id=user_id)
 
     selected, cursor = _incremental_items(integration, pages, ("last_edited_time", "timestamp"))
     saved = 0
@@ -350,9 +443,17 @@ def _sync_notion(integration: dict, user_id: str = "local_user") -> dict:
                 timestamp=ts,
                 subject_category="knowledge-work",
             )
+        _remember_note_or_file(
+            user_id=user_id,
+            source="notion",
+            title=str(page.get("title", page.get("name", object_type))).strip(),
+            container=workspace,
+            tags=tags,
+            doc_type=object_type,
+        )
         saved += 1
 
-    return _finish_sync("notion", saved, sync_cursor=cursor)
+    return _finish_sync("notion", saved, sync_cursor=cursor, user_id=user_id)
 
 
 def _sync_github(integration: dict, user_id: str = "local_user") -> dict:
@@ -369,6 +470,7 @@ def _sync_github(integration: dict, user_id: str = "local_user") -> dict:
             status="error",
             items_synced=0,
             error="GitHub username required in integration metadata",
+            user_id=user_id,
         )
         return {"status": "error", "error": "username_required", "integration": updated}
 
@@ -381,14 +483,18 @@ def _sync_github(integration: dict, user_id: str = "local_user") -> dict:
             status="error",
             items_synced=0,
             error=str(exc),
+            user_id=user_id,
         )
         return {"status": "error", "error": str(exc), "integration": updated}
+
+    _remember_github_metadata(user_id, metadata)
 
     updated = update_pcl_integration_sync(
         source="github",
         status="ok",
         items_synced=count,
         error="",
+        user_id=user_id,
     )
     return {"status": "ok", "items_synced": count, "integration": updated}
 
@@ -397,7 +503,7 @@ def _sync_spotify(integration: dict, user_id: str = "local_user") -> dict:
     metadata = integration.get("metadata", {})
     plays = _metadata_items(metadata, "recently_played", "plays", "sessions", "import_items")
     if not plays:
-        return _missing_payload("spotify", "metadata.recently_played[]")
+        return _missing_payload("spotify", "metadata.recently_played[]", user_id=user_id)
 
     selected, cursor = _incremental_items(integration, plays, ("played_at", "timestamp"))
     saved = 0
@@ -445,14 +551,14 @@ def _sync_spotify(integration: dict, user_id: str = "local_user") -> dict:
             )
         saved += 1
 
-    return _finish_sync("spotify", saved, sync_cursor=cursor)
+    return _finish_sync("spotify", saved, sync_cursor=cursor, user_id=user_id)
 
 
 def _sync_youtube(integration: dict, user_id: str = "local_user") -> dict:
     metadata = integration.get("metadata", {})
     videos = _metadata_items(metadata, "watch_history", "videos", "sessions", "import_items")
     if not videos:
-        return _missing_payload("youtube", "metadata.watch_history[]")
+        return _missing_payload("youtube", "metadata.watch_history[]", user_id=user_id)
 
     selected, cursor = _incremental_items(integration, videos, ("watched_at", "timestamp"))
     saved = 0
@@ -499,14 +605,14 @@ def _sync_youtube(integration: dict, user_id: str = "local_user") -> dict:
             )
         saved += 1
 
-    return _finish_sync("youtube", saved, sync_cursor=cursor)
+    return _finish_sync("youtube", saved, sync_cursor=cursor, user_id=user_id)
 
 
 def _sync_apple_health(integration: dict, user_id: str = "local_user") -> dict:
     metadata = integration.get("metadata", {})
     samples = _metadata_items(metadata, "activity", "daily_activity", "samples", "import_items")
     if not samples:
-        return _missing_payload("apple_health", "metadata.activity[]")
+        return _missing_payload("apple_health", "metadata.activity[]", user_id=user_id)
 
     selected, cursor = _incremental_items(integration, samples, ("date", "timestamp"))
     saved = 0
@@ -564,7 +670,532 @@ def _sync_apple_health(integration: dict, user_id: str = "local_user") -> dict:
             )
         saved += 1
 
-    return _finish_sync("apple_health", saved, sync_cursor=cursor)
+    return _finish_sync("apple_health", saved, sync_cursor=cursor, user_id=user_id)
+
+
+def _sync_google_drive(integration: dict, user_id: str = "local_user") -> dict:
+    metadata = integration.get("metadata", {})
+    files = _metadata_items(metadata, "files", "documents", "file_activity", "import_items")
+    if not files:
+        return _missing_payload("google_drive", "metadata.files[]", user_id=user_id)
+
+    selected, cursor = _incremental_items(integration, files, ("last_edited_time", "modified_time", "timestamp"))
+    saved = 0
+    for file_item, ts in selected:
+        mime_type = str(file_item.get("mime_type", file_item.get("type", "file")))[:120]
+        folder = str(file_item.get("folder", file_item.get("folder_name", "")))[:120]
+        owner_domain = str(file_item.get("owner_domain", ""))[:120].lower()
+        doc_type = _drive_doc_type(mime_type)
+        content = {
+            "kind": "google_drive_file_metadata",
+            "doc_type": doc_type,
+            "folder": folder,
+            "owner_domain": owner_domain,
+            "hour_bucket": _hour_bucket(ts),
+        }
+        insert_feed_item(
+            source="google_drive",
+            content_type="file_metadata",
+            content=str(scrub_pii(content)),
+            author=owner_domain,
+            url="",
+            timestamp=ts,
+        )
+        insert_persona_signal(
+            source="google_drive",
+            signal_type="document_work",
+            name=f"drive_doc_type:{doc_type}",
+            weight=1.0,
+            confidence=0.6,
+            evidence="Imported Google Drive metadata",
+            timestamp=ts,
+        )
+        _emit_connector_event(
+            user_id=user_id,
+            app_id="google-drive",
+            feature_id=f"{doc_type}-activity",
+            timestamp=ts,
+            subject_category="document-work",
+        )
+        if folder:
+            _emit_connector_event(
+                user_id=user_id,
+                app_id="google-drive",
+                feature_id=f"folder-{_feature_token(folder)}",
+                timestamp=ts,
+                subject_category="document-work",
+            )
+        _remember_note_or_file(
+            user_id=user_id,
+            source="google_drive",
+            title=str(file_item.get("name", file_item.get("title", doc_type))).strip(),
+            container=folder,
+            tags=[doc_type],
+            doc_type=doc_type,
+        )
+        saved += 1
+
+    return _finish_sync("google_drive", saved, sync_cursor=cursor, user_id=user_id)
+
+
+def _sync_social_activity(integration: dict, user_id: str = "local_user") -> dict:
+    source = integration["source"]
+    metadata = integration.get("metadata", {})
+    items = _metadata_items(metadata, "items", "posts", "feed", "events", "import_items")
+    if not items:
+        return _missing_payload(source, "metadata.items[]", user_id=user_id)
+
+    selected, cursor = _incremental_items(integration, items, ("timestamp", "created_at", "seen_at", "watched_at"))
+    saved = 0
+    for item, ts in selected:
+        topic = _feature_token(item.get("topic", item.get("category", item.get("hashtag", "feed"))))
+        content_type = _feature_token(item.get("content_type", item.get("type", "feed_activity")))
+        author_role = str(item.get("author_role", item.get("creator_category", "")))[:120]
+        engagement = _feature_token(item.get("engagement", item.get("action", "viewed")))
+        content = {
+            "kind": f"{source}_activity_metadata",
+            "content_type": content_type,
+            "topic": topic,
+            "author_role": author_role,
+            "engagement": engagement,
+            "hour_bucket": _hour_bucket(ts),
+        }
+        insert_feed_item(
+            source=source,
+            content_type="feed_activity",
+            content=str(scrub_pii(content)),
+            author=author_role,
+            url="",
+            timestamp=ts,
+        )
+        insert_persona_signal(
+            source=source,
+            signal_type="social_topic",
+            name=f"{source}_topic:{topic}",
+            weight=1.0,
+            confidence=0.5,
+            evidence=f"Imported {source} activity metadata",
+            timestamp=ts,
+        )
+        _emit_connector_event(
+            user_id=user_id,
+            app_id=source,
+            feature_id=f"topic-{topic}",
+            timestamp=ts,
+            subject_category="social",
+        )
+        _emit_connector_event(
+            user_id=user_id,
+            app_id=source,
+            feature_id=f"{content_type}-{engagement}",
+            timestamp=ts,
+            subject_category="social",
+        )
+        saved += 1
+
+    return _finish_sync(source, saved, sync_cursor=cursor, user_id=user_id)
+
+
+def _sync_ai_activity(integration: dict, user_id: str = "local_user") -> dict:
+    source = integration["source"]
+    metadata = integration.get("metadata", {})
+    sessions = _metadata_items(metadata, "sessions", "queries", "prompts", "events", "import_items")
+    if not sessions:
+        return _missing_payload(source, "metadata.sessions[]", user_id=user_id)
+
+    selected, cursor = _incremental_items(integration, sessions, ("timestamp", "created_at", "started_at"))
+    saved = 0
+    for session, ts in selected:
+        task_type = _feature_token(session.get("task_type", session.get("topic", session.get("intent", "assistant"))))
+        model = _feature_token(session.get("model", source))
+        length_bucket = _feature_token(session.get("prompt_length_bucket", session.get("length_bucket", "unknown")))
+        content = {
+            "kind": f"{source}_assistant_session_metadata",
+            "task_type": task_type,
+            "model": model,
+            "prompt_length_bucket": length_bucket,
+            "hour_bucket": _hour_bucket(ts),
+        }
+        insert_feed_item(
+            source=source,
+            content_type="assistant_session_metadata",
+            content=str(scrub_pii(content)),
+            author=source,
+            url="",
+            timestamp=ts,
+        )
+        insert_persona_signal(
+            source=source,
+            signal_type="ai_workflow",
+            name=f"{source}_task:{task_type}",
+            weight=1.0,
+            confidence=0.55,
+            evidence=f"Imported {source} session metadata",
+            timestamp=ts,
+        )
+        _emit_connector_event(
+            user_id=user_id,
+            app_id=source,
+            feature_id=f"task-{task_type}",
+            timestamp=ts,
+            subject_category="ai-workflow",
+        )
+        if model and model != source:
+            _emit_connector_event(
+                user_id=user_id,
+                app_id=source,
+                feature_id=f"model-{model}",
+                timestamp=ts,
+                subject_category="ai-workflow",
+            )
+        saved += 1
+
+    return _finish_sync(source, saved, sync_cursor=cursor, user_id=user_id)
+
+
+def _sync_dev_activity(integration: dict, user_id: str = "local_user") -> dict:
+    source = integration["source"]
+    metadata = integration.get("metadata", {})
+    sessions = _metadata_items(metadata, "sessions", "projects", "events", "import_items")
+    if not sessions:
+        return _missing_payload(source, "metadata.sessions[]", user_id=user_id)
+
+    selected, cursor = _incremental_items(integration, sessions, ("timestamp", "started_at", "ended_at", "last_active_at"))
+    saved = 0
+    for session, ts in selected:
+        project = _feature_token(session.get("project", session.get("repo", "project")))
+        language = _feature_token(session.get("language", session.get("primary_language", "unknown")))
+        task_type = _feature_token(session.get("task_type", session.get("assistant_action", "coding")))
+        active_minutes = int(session.get("active_minutes", session.get("duration_minutes", 0)) or 0)
+        content = {
+            "kind": f"{source}_dev_session_metadata",
+            "project": project,
+            "language": language,
+            "task_type": task_type,
+            "active_minutes": active_minutes,
+            "hour_bucket": _hour_bucket(ts),
+        }
+        insert_feed_item(
+            source=source,
+            content_type="dev_session_metadata",
+            content=str(scrub_pii(content)),
+            author=project,
+            url="",
+            timestamp=ts,
+        )
+        insert_persona_signal(
+            source=source,
+            signal_type="developer_workflow",
+            name=f"{source}_task:{task_type}",
+            weight=1.0,
+            confidence=0.6,
+            evidence=f"Imported {source} development metadata",
+            timestamp=ts,
+        )
+        _emit_connector_event(
+            user_id=user_id,
+            app_id=source,
+            feature_id=f"project-{project}",
+            timestamp=ts,
+            subject_category="development",
+        )
+        _emit_connector_event(
+            user_id=user_id,
+            app_id=source,
+            feature_id=f"language-{language}",
+            timestamp=ts,
+            subject_category="development",
+        )
+        _emit_connector_event(
+            user_id=user_id,
+            app_id=source,
+            feature_id=f"task-{task_type}",
+            timestamp=ts,
+            subject_category="development",
+        )
+        if active_minutes >= 30:
+            _emit_connector_event(
+                user_id=user_id,
+                app_id=source,
+                feature_id="deep-work-session",
+                timestamp=ts,
+                subject_category="development",
+            )
+        saved += 1
+
+    return _finish_sync(source, saved, sync_cursor=cursor, user_id=user_id)
+
+
+def _sync_terminal_activity(integration: dict, user_id: str = "local_user") -> dict:
+    metadata = integration.get("metadata", {})
+    commands = _metadata_items(metadata, "commands", "sessions", "events", "import_items")
+    if not commands:
+        return _missing_payload("terminal", "metadata.commands[]", user_id=user_id)
+
+    selected, cursor = _incremental_items(integration, commands, ("timestamp", "started_at"))
+    saved = 0
+    for command, ts in selected:
+        project = _feature_token(command.get("project", "terminal"))
+        category = _feature_token(command.get("command_category", command.get("category", "command")))
+        shell = _feature_token(command.get("shell", "shell"))
+        content = {
+            "kind": "terminal_command_metadata",
+            "project": project,
+            "command_category": category,
+            "shell": shell,
+            "hour_bucket": _hour_bucket(ts),
+        }
+        insert_feed_item(
+            source="terminal",
+            content_type="command_metadata",
+            content=str(scrub_pii(content)),
+            author=project,
+            url="",
+            timestamp=ts,
+        )
+        insert_persona_signal(
+            source="terminal",
+            signal_type="terminal_workflow",
+            name=f"terminal_command:{category}",
+            weight=1.0,
+            confidence=0.55,
+            evidence="Imported terminal command metadata",
+            timestamp=ts,
+        )
+        _emit_connector_event(
+            user_id=user_id,
+            app_id="terminal",
+            feature_id=f"command-{category}",
+            timestamp=ts,
+            subject_category="development",
+        )
+        _emit_connector_event(
+            user_id=user_id,
+            app_id="terminal",
+            feature_id=f"project-{project}",
+            timestamp=ts,
+            subject_category="development",
+        )
+        saved += 1
+
+    return _finish_sync("terminal", saved, sync_cursor=cursor, user_id=user_id)
+
+
+def _remember_gmail_message(user_id: str, message: dict, labels: list[str], sender_domain: str) -> None:
+    sender = str(message.get("sender", message.get("from", sender_domain))).strip()
+    subject = str(message.get("subject", message.get("topic", ""))).strip()
+    project = str(message.get("project", message.get("account", ""))).strip()
+    people = [
+        str(item).strip()
+        for item in message.get("people", message.get("participants", []))
+        if str(item).strip()
+    ]
+    if sender:
+        _remember_source_fact(
+            user_id,
+            "gmail",
+            "people",
+            f"{sender} appears in Gmail conversations.",
+            "Gmail sender metadata",
+        )
+    for person in people[:8]:
+        _remember_source_fact(
+            user_id,
+            "gmail",
+            "people",
+            f"{person} appears in Gmail conversations.",
+            "Gmail participant metadata",
+        )
+    if project:
+        _remember_source_fact(
+            user_id,
+            "gmail",
+            "projects",
+            f"Gmail mentions active project: {project}.",
+            "Gmail project metadata",
+        )
+    if subject:
+        _remember_source_fact(
+            user_id,
+            "gmail",
+            "daily-log",
+            f"Gmail topic seen: {subject}.",
+            "Gmail subject metadata",
+        )
+    for label in labels[:5]:
+        _remember_source_fact(
+            user_id,
+            "gmail",
+            "preferences",
+            f"Gmail frequently uses label: {label}.",
+            "Gmail label metadata",
+        )
+
+
+def _remember_calendar_event(user_id: str, event: dict, duration: int, attendees: int) -> None:
+    title = str(event.get("title", event.get("summary", event.get("name", "")))).strip()
+    project = str(event.get("project", event.get("calendar", ""))).strip()
+    people = [
+        str(item).strip()
+        for item in event.get("people", event.get("attendees", []))
+        if str(item).strip()
+    ]
+    if title:
+        _remember_source_fact(
+            user_id,
+            "calendar",
+            "daily-log",
+            f"Calendar event observed: {title}.",
+            "Calendar event title",
+        )
+    if project:
+        _remember_source_fact(
+            user_id,
+            "calendar",
+            "projects",
+            f"Calendar activity relates to project: {project}.",
+            "Calendar project metadata",
+        )
+    if duration:
+        _remember_source_fact(
+            user_id,
+            "calendar",
+            "preferences",
+            f"Calendar routine includes {duration}-minute meetings.",
+            "Calendar duration metadata",
+        )
+    if attendees >= 3:
+        _remember_source_fact(
+            user_id,
+            "calendar",
+            "work-style",
+            "Calendar pattern: participates in group meetings.",
+            "Calendar attendee metadata",
+        )
+    for person in people[:8]:
+        _remember_source_fact(
+            user_id,
+            "calendar",
+            "people",
+            f"{person} appears in calendar meetings.",
+            "Calendar attendee metadata",
+        )
+
+
+def _remember_github_metadata(user_id: str, metadata: dict) -> None:
+    repos = _metadata_items(metadata, "repos", "repositories", "projects", "import_items")
+    if not repos and metadata.get("username"):
+        _remember_source_fact(
+            user_id,
+            "github",
+            "profile",
+            f"GitHub account connected: {metadata['username']}.",
+            "GitHub account metadata",
+        )
+        return
+    for repo in repos[:30]:
+        name = str(repo.get("name", repo.get("repo", ""))).strip()
+        language = str(repo.get("language", repo.get("primary_language", ""))).strip()
+        stack = [
+            str(item).strip()
+            for item in repo.get("stack", repo.get("topics", []))
+            if str(item).strip()
+        ]
+        active = bool(repo.get("active", repo.get("recent_activity", True)))
+        if name:
+            _remember_source_fact(
+                user_id,
+                "github",
+                "projects",
+                f"GitHub repo tracked: {name}{' (active)' if active else ''}.",
+                "GitHub repository metadata",
+            )
+        if language:
+            _remember_source_fact(
+                user_id,
+                "github",
+                "work-style",
+                f"Uses {language} in GitHub projects.",
+                "GitHub language metadata",
+            )
+        for item in stack[:8]:
+            _remember_source_fact(
+                user_id,
+                "github",
+                "work-style",
+                f"GitHub stack/topic includes {item}.",
+                "GitHub topic metadata",
+            )
+
+
+def _remember_note_or_file(
+    user_id: str,
+    source: str,
+    title: str,
+    container: str,
+    tags: list[str],
+    doc_type: str,
+) -> None:
+    if title:
+        _remember_source_fact(
+            user_id,
+            source,
+            "projects",
+            f"{source} file/note touched: {title}.",
+            f"{source} file metadata",
+        )
+    if container:
+        _remember_source_fact(
+            user_id,
+            source,
+            "projects",
+            f"{source} workspace/folder in use: {container}.",
+            f"{source} container metadata",
+        )
+    if doc_type:
+        _remember_source_fact(
+            user_id,
+            source,
+            "preferences",
+            f"{source} document type used: {doc_type}.",
+            f"{source} document metadata",
+        )
+    for tag in tags[:8]:
+        _remember_source_fact(
+            user_id,
+            source,
+            "scratchpad",
+            f"{source} knowledge tag/topic: {tag}.",
+            f"{source} tag metadata",
+        )
+
+
+def _remember_source_fact(user_id: str, source: str, scope: str, fact: str, reason: str) -> None:
+    fact = " ".join(str(fact).split()).strip()
+    if not fact:
+        return
+    propose_memory_diff(
+        user_id=user_id,
+        scope=scope,
+        proposed_content=fact,
+        reason=reason,
+        source=source,
+    )
+
+
+def _drive_doc_type(mime_type: str) -> str:
+    value = mime_type.lower()
+    if "spreadsheet" in value:
+        return "spreadsheet"
+    if "presentation" in value:
+        return "presentation"
+    if "folder" in value:
+        return "folder"
+    if "pdf" in value:
+        return "pdf"
+    if "document" in value or "text" in value:
+        return "document"
+    return _feature_token(mime_type.split("/")[-1] if "/" in mime_type else mime_type)
 
 
 def _emit_connector_event(

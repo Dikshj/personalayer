@@ -4,6 +4,7 @@ import json
 import logging
 from pathlib import Path
 from dataclasses import dataclass
+from typing import Any
 
 try:
     from mcp.server import Server
@@ -55,19 +56,25 @@ DEFAULT_PERSONA_FILE = str(Path.home() / ".personalayer" / "persona.json")
 server = Server("personalayer")
 
 
+from pcl.privacy import egress_filter
+
+def _json_with_egress(data: Any) -> str:
+    return json.dumps(egress_filter(data), indent=2, default=str)
+
+
 # ── Pure handler functions (testable without MCP machinery) ──────────────────
 
 def handle_get_persona(persona_file: str = DEFAULT_PERSONA_FILE) -> str:
     path = Path(persona_file)
     if not path.exists():
-        return json.dumps({"error": "No persona data yet. Browse for 24h or run: python persona.py"})
-    return path.read_text()
+        return _json_with_egress({"error": "No persona data yet. Browse for 24h or run: python persona.py"})
+    return _json_with_egress(json.loads(path.read_text()))
 
 
 def handle_get_context(topic: str, persona_file: str = DEFAULT_PERSONA_FILE) -> str:
     path = Path(persona_file)
     if not path.exists():
-        return json.dumps({"error": "No persona data yet."})
+        return _json_with_egress({"error": "No persona data yet."})
 
     persona = json.loads(path.read_text())
     topic_lower = topic.lower()
@@ -84,83 +91,83 @@ def handle_get_context(topic: str, persona_file: str = DEFAULT_PERSONA_FILE) -> 
         if topic_lower in o.lower()
     ]
 
-    return json.dumps({
+    return _json_with_egress({
         "topic": topic,
         "depth": matched_depth,
         "related_obsessions": obsessions,
         "current_project": persona.get("identity", {}).get("current_project", "unknown"),
-    }, indent=2)
+    })
 
 
 def handle_get_current_focus(persona_file: str = DEFAULT_PERSONA_FILE) -> str:
     path = Path(persona_file)
     if not path.exists():
-        return json.dumps({"error": "No persona data yet."})
+        return _json_with_egress({"error": "No persona data yet."})
 
     persona = json.loads(path.read_text())
-    return json.dumps(persona.get("context", {}), indent=2)
+    return _json_with_egress(persona.get("context", {}))
 
 
 def handle_negotiate_context(arguments: dict) -> str:
-    from policy import negotiate_context_contract
-    contract = negotiate_context_contract(
+    from context_packaging import create_context_contract
+    contract = create_context_contract(
         platform_type=arguments.get("platform_type", "unknown"),
         facilities=arguments.get("facilities", []),
         requested_context=arguments.get("requested_context"),
         purpose=arguments.get("purpose", ""),
         retention=arguments.get("retention", "session_only"),
     )
-    return json.dumps(contract, indent=2)
+    return _json_with_egress(contract)
 
 
 def handle_get_scoped_persona(contract_id: str) -> str:
-    from policy import build_scoped_persona
-    return json.dumps(build_scoped_persona(contract_id), indent=2)
+    from context_packaging import build_context_package
+    return _json_with_egress(build_context_package(contract_id))
 
 
 def handle_revoke_context_contract(contract_id: str) -> str:
     from database import revoke_context_contract
     revoked = revoke_context_contract(contract_id)
-    return json.dumps({"status": "revoked" if revoked else "not_found_or_already_revoked"}, indent=2)
+    return _json_with_egress({"status": "revoked" if revoked else "not_found_or_already_revoked"})
 
 
 def handle_list_context_contracts(limit: int = 20) -> str:
     from database import list_context_contracts
-    return json.dumps({"contracts": list_context_contracts(limit=limit)}, indent=2)
+    return _json_with_egress({"contracts": list_context_contracts(limit=limit)})
 
 
 def handle_record_persona_feedback(arguments: dict) -> str:
     from database import insert_persona_feedback
     action = arguments.get("action", "")
     if action not in {"confirm", "reject", "hide", "boost"}:
-        return json.dumps({"status": "error", "error": "unknown feedback action"})
+        return _json_with_egress({"status": "error", "error": "unknown feedback action"})
     feedback = insert_persona_feedback(
         signal_type=arguments.get("signal_type", ""),
         name=arguments.get("name", ""),
         action=action,
         reason=arguments.get("reason", ""),
     )
-    return json.dumps({"status": "ok", "feedback": feedback}, indent=2)
+    return _json_with_egress({"status": "ok", "feedback": feedback})
 
 
 def handle_get_living_persona() -> str:
     from living_persona import build_living_persona
-    return json.dumps(build_living_persona(), indent=2)
+    return _json_with_egress(build_living_persona())
 
 
 def handle_predict_next_context(days: int = 14) -> str:
     from predictions import predict_next_context
-    return json.dumps(predict_next_context(days=days), indent=2)
+    return _json_with_egress(predict_next_context(days=days))
 
 
 def handle_pcl_get_profile(user_id: str = "local_user") -> str:
     from pcl.profile import build_local_user_context_profile
-    return json.dumps(build_local_user_context_profile(user_id).model_dump(), indent=2)
+    return _json_with_egress(build_local_user_context_profile(user_id).model_dump())
 
 
 def handle_pcl_get_feature_usage(arguments: dict) -> str:
     from database import get_pcl_feature_usage
-    return json.dumps({
+    return _json_with_egress({
         "user_id": arguments.get("user_id", "local_user"),
         "app_id": arguments.get("app_id"),
         "features": get_pcl_feature_usage(
@@ -168,7 +175,7 @@ def handle_pcl_get_feature_usage(arguments: dict) -> str:
             app_id=arguments.get("app_id"),
             days=arguments.get("days", 90),
         ),
-    }, indent=2)
+    })
 
 
 def handle_pcl_get_context(arguments: dict) -> str:
@@ -200,7 +207,7 @@ def handle_pcl_get_context(arguments: dict) -> str:
             status="denied",
             reason=denial_reason,
         )
-        return json.dumps({"error": denial_reason, "audit": {"query_logged": True, "log_id": log["id"]}}, indent=2)
+        return _json_with_egress({"error": denial_reason, "audit": {"query_logged": True, "log_id": log["id"]}})
 
     query = ContextQuery(
         app_id=app_id,
@@ -225,20 +232,20 @@ def handle_pcl_get_context(arguments: dict) -> str:
     )
     response = bundle.model_dump()
     response["audit"]["log_id"] = log["id"]
-    return json.dumps(response, indent=2)
+    return _json_with_egress(response)
 
 
 def handle_pcl_get_constraints(user_id: str = "local_user") -> str:
     from pcl.profile import build_local_user_context_profile
     profile = build_local_user_context_profile(user_id)
-    return json.dumps({
+    return _json_with_egress({
         "user_id": user_id,
         "constraints": {
             pref.key: pref.value
             for pref in profile.explicit_preferences
             if pref.hard_rule
         },
-    }, indent=2)
+    })
 
 
 def handle_contextlayer_get_bundle(arguments: dict) -> str:
@@ -255,14 +262,14 @@ def handle_contextlayer_get_bundle(arguments: dict) -> str:
         requested_scopes=requested_scopes,
     )
     if not auth["authorized"]:
-        return json.dumps(auth, indent=2)
-    return json.dumps(build_context_bundle(
+        return _json_with_egress(auth)
+    return _json_with_egress(build_context_bundle(
         user_id=user_id,
         app_id=arguments.get("app_id", "mcp"),
         intent=arguments.get("intent", "full_profile"),
         requested_scopes=requested_scopes,
         source="mcp",
-    ) | {"auth": auth}, indent=2)
+    ) | {"auth": auth})
 
 
 def handle_contextlayer_get_feature_usage(arguments: dict) -> str:
@@ -281,8 +288,8 @@ def handle_contextlayer_get_feature_usage(arguments: dict) -> str:
         requested_scopes=requested_scopes,
     )
     if not auth["authorized"]:
-        return json.dumps(auth, indent=2)
-    return json.dumps({
+        return _json_with_egress(auth)
+    return _json_with_egress({
         "user_id": user_id,
         "app_id": app_id,
         "auth": auth,
@@ -291,7 +298,7 @@ def handle_contextlayer_get_feature_usage(arguments: dict) -> str:
             app_id=app_id,
             active_only=arguments.get("active_only", True),
         ),
-    }, indent=2)
+    })
 
 
 def handle_contextlayer_get_active_context(arguments: dict | str = "local_user") -> str:
@@ -311,13 +318,13 @@ def handle_contextlayer_get_active_context(arguments: dict | str = "local_user")
         requested_scopes=arguments.get("requested_scopes", ["getActiveContext"]),
     )
     if not auth["authorized"]:
-        return json.dumps(auth, indent=2)
-    return json.dumps({
+        return _json_with_egress(auth)
+    return _json_with_egress({
         "user_id": user_id,
         "app_id": app_id,
         "auth": auth,
         "active_context": get_active_context(user_id),
-    }, indent=2)
+    })
 
 
 def handle_contextlayer_get_constraints(arguments: dict | str = "local_user") -> str:
@@ -336,11 +343,11 @@ def handle_contextlayer_get_constraints(arguments: dict | str = "local_user") ->
         requested_scopes=arguments.get("requested_scopes", ["getConstraints"]),
     )
     if not auth["authorized"]:
-        return json.dumps(auth, indent=2)
+        return _json_with_egress(auth)
     data = json.loads(handle_pcl_get_constraints(user_id))
     data["app_id"] = app_id
     data["auth"] = auth
-    return json.dumps(data, indent=2)
+    return _json_with_egress(data)
 
 
 def _mcp_authorization(arguments: dict) -> str:

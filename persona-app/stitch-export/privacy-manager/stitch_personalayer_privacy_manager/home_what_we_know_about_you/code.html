@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>PersonaLayer - What we know about you</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<style>
+        body {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            -webkit-font-smoothing: antialiased;
+        }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .pulse-animation {
+            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: .5; }
+        }
+        .card-expand {
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .expanded-content {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.3s ease-out;
+        }
+        .card-active .expanded-content {
+            max-height: 100px;
+        }
+        .card-active .expand-icon {
+            transform: rotate(180deg);
+        }
+    </style>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "error-container": "#ffdad6",
+                        "primary": "#006e2f",
+                        "tertiary-container": "#a1a3ff",
+                        "on-secondary-fixed": "#2a1700",
+                        "on-surface": "#1a1c1c",
+                        "surface-dim": "#dadada",
+                        "tertiary": "#494bd6",
+                        "on-surface-variant": "#3d4a3d",
+                        "on-primary-fixed-variant": "#005321",
+                        "secondary": "#855300",
+                        "surface-container-highest": "#e2e2e2",
+                        "surface-container": "#eeeeee",
+                        "primary-container": "#22c55e",
+                        "on-secondary": "#ffffff",
+                        "on-secondary-container": "#684000",
+                        "on-error": "#ffffff",
+                        "on-tertiary-fixed-variant": "#2f2ebe",
+                        "on-error-container": "#93000a",
+                        "on-tertiary-container": "#2623b8",
+                        "secondary-fixed-dim": "#ffb95f",
+                        "on-background": "#1a1c1c",
+                        "surface-variant": "#e2e2e2",
+                        "surface-container-low": "#f3f3f3",
+                        "surface-bright": "#f9f9f9",
+                        "primary-fixed-dim": "#4ae176",
+                        "secondary-container": "#fea619",
+                        "on-primary-container": "#004b1e",
+                        "surface-tint": "#006e2f",
+                        "error": "#ba1a1a",
+                        "tertiary-fixed-dim": "#c0c1ff",
+                        "on-primary": "#ffffff",
+                        "tertiary-fixed": "#e1e0ff",
+                        "outline-variant": "#bccbb9",
+                        "secondary-fixed": "#ffddb8",
+                        "surface": "#f9f9f9",
+                        "on-primary-fixed": "#002109",
+                        "primary-fixed": "#6bff8f",
+                        "inverse-primary": "#4ae176",
+                        "on-secondary-fixed-variant": "#653e00",
+                        "background": "#f9f9f9",
+                        "surface-container-high": "#e8e8e8",
+                        "inverse-surface": "#2f3131",
+                        "inverse-on-surface": "#f0f1f1",
+                        "on-tertiary-fixed": "#07006c",
+                        "surface-container-lowest": "#ffffff",
+                        "outline": "#6d7b6c",
+                        "on-tertiary": "#ffffff"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "gutter": "24px",
+                        "container-padding-mobile": "20px",
+                        "stack-md": "24px",
+                        "stack-sm": "12px",
+                        "unit": "8px",
+                        "container-padding-desktop": "40px",
+                        "stack-lg": "48px"
+                    },
+                    "fontFamily": {
+                        "headline-lg": ["Plus Jakarta Sans"],
+                        "headline-md": ["Plus Jakarta Sans"],
+                        "label-sm": ["Plus Jakarta Sans"],
+                        "body-md": ["Plus Jakarta Sans"],
+                        "label-bold": ["Plus Jakarta Sans"],
+                        "body-lg": ["Plus Jakarta Sans"]
+                    },
+                    "fontSize": {
+                        "headline-lg": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                        "headline-md": ["24px", {"lineHeight": "32px", "fontWeight": "600"}],
+                        "label-sm": ["12px", {"lineHeight": "16px", "fontWeight": "500"}],
+                        "body-md": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+                        "label-bold": ["14px", {"lineHeight": "20px", "letterSpacing": "0.01em", "fontWeight": "600"}],
+                        "body-lg": ["18px", {"lineHeight": "28px", "fontWeight": "400"}]
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-background text-on-surface min-h-screen pb-32">
+<!-- Top AppBar (JSON Driven) -->
+<header class="w-full top-0 sticky bg-background z-50">
+<div class="flex justify-between items-center h-16 px-gutter max-w-[1100px] mx-auto w-full">
+<div class="text-headline-md font-headline-md text-primary">PersonaLayer</div>
+<div class="flex items-center gap-4">
+<button class="hover:opacity-80 transition-opacity scale-95 active:scale-90 transition-transform">
+<span class="material-symbols-outlined text-primary" data-icon="account_circle">account_circle</span>
+</button>
+</div>
+</div>
+</header>
+<main class="max-w-[1100px] mx-auto px-gutter py-stack-md">
+<!-- Hero Summary Section -->
+<section class="mb-stack-lg">
+<h1 class="font-headline-lg text-headline-lg text-on-surface mb-stack-sm">Hi there.</h1>
+<div class="bg-surface-container-low rounded-xl p-6 md:p-8">
+<p class="font-body-lg text-body-lg text-on-surface-variant leading-relaxed">
+                    You're a software developer working on a side project. You like short, direct answers and you're based in India.
+                </p>
+</div>
+</section>
+<!-- Facts Bento Grid / List -->
+<section class="mb-stack-lg">
+<h2 class="font-label-bold text-label-bold text-on-surface-variant uppercase tracking-wider mb-stack-sm">What we've noticed</h2>
+<div class="space-y-4">
+<!-- Fact Card 1 -->
+<div class="card-expand bg-surface-container-lowest rounded-xl shadow-[0_4px_20px_0_rgba(0,0,0,0.04)] cursor-pointer overflow-hidden group" onclick="toggleCard(this)">
+<div class="p-5 flex justify-between items-center">
+<div class="flex items-center gap-4">
+<div class="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary">
+<span class="material-symbols-outlined" data-icon="code">code</span>
+</div>
+<span class="font-body-md text-body-md font-medium">You work in software</span>
+</div>
+<span class="material-symbols-outlined text-on-surface-variant expand-icon transition-transform" data-icon="expand_more">expand_more</span>
+</div>
+<div class="expanded-content px-5 pb-5 ml-14">
+<p class="text-label-sm font-label-sm text-on-surface-variant mb-2">We noticed this from your GitHub activity</p>
+<button class="text-error font-label-bold text-label-bold hover:underline">Remove this</button>
+</div>
+</div>
+<!-- Fact Card 2 -->
+<div class="card-expand bg-surface-container-lowest rounded-xl shadow-[0_4px_20px_0_rgba(0,0,0,0.04)] cursor-pointer overflow-hidden group" onclick="toggleCard(this)">
+<div class="p-5 flex justify-between items-center">
+<div class="flex items-center gap-4">
+<div class="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary">
+<span class="material-symbols-outlined" data-icon="terminal">terminal</span>
+</div>
+<span class="font-body-md text-body-md font-medium">You're building a side project</span>
+</div>
+<span class="material-symbols-outlined text-on-surface-variant expand-icon transition-transform" data-icon="expand_more">expand_more</span>
+</div>
+<div class="expanded-content px-5 pb-5 ml-14">
+<p class="text-label-sm font-label-sm text-on-surface-variant mb-2">Based on your recent repository creations</p>
+<button class="text-error font-label-bold text-label-bold hover:underline">Remove this</button>
+</div>
+</div>
+<!-- Fact Card 3 -->
+<div class="card-expand bg-surface-container-lowest rounded-xl shadow-[0_4px_20px_0_rgba(0,0,0,0.04)] cursor-pointer overflow-hidden group" onclick="toggleCard(this)">
+<div class="p-5 flex justify-between items-center">
+<div class="flex items-center gap-4">
+<div class="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary">
+<span class="material-symbols-outlined" data-icon="chat_bubble">chat_bubble</span>
+</div>
+<span class="font-body-md text-body-md font-medium">You prefer direct communication</span>
+</div>
+<span class="material-symbols-outlined text-on-surface-variant expand-icon transition-transform" data-icon="expand_more">expand_more</span>
+</div>
+<div class="expanded-content px-5 pb-5 ml-14">
+<p class="text-label-sm font-label-sm text-on-surface-variant mb-2">Learned from how you interact with AI assistants</p>
+<button class="text-error font-label-bold text-label-bold hover:underline">Remove this</button>
+</div>
+</div>
+<!-- Fact Card 4 -->
+<div class="card-expand bg-surface-container-lowest rounded-xl shadow-[0_4px_20px_0_rgba(0,0,0,0.04)] cursor-pointer overflow-hidden group" onclick="toggleCard(this)">
+<div class="p-5 flex justify-between items-center">
+<div class="flex items-center gap-4">
+<div class="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary">
+<span class="material-symbols-outlined" data-icon="location_on">location_on</span>
+</div>
+<span class="font-body-md text-body-md font-medium">You are based in Mumbai</span>
+</div>
+<span class="material-symbols-outlined text-on-surface-variant expand-icon transition-transform" data-icon="expand_more">expand_more</span>
+</div>
+<div class="expanded-content px-5 pb-5 ml-14">
+<p class="text-label-sm font-label-sm text-on-surface-variant mb-2">We noticed this from your local weather checks</p>
+<button class="text-error font-label-bold text-label-bold hover:underline">Remove this</button>
+</div>
+</div>
+</div>
+</section>
+<!-- Connected Apps Row -->
+<section class="mb-stack-lg">
+<h2 class="font-label-bold text-label-bold text-on-surface-variant uppercase tracking-wider mb-6 text-center">Learning from your apps</h2>
+<div class="flex justify-center items-center gap-8 md:gap-12 opacity-60">
+<div class="flex flex-col items-center gap-2 group cursor-pointer hover:opacity-100 transition-opacity">
+<div class="w-12 h-12 bg-white rounded-full shadow-sm flex items-center justify-center p-2">
+<img alt="GitHub" class="w-8 h-8" data-alt="The GitHub logo, a stylized black silhouette of an octocat on a white circular background. Minimalist branding for a developer-focused software platform. Simple, clean, and professional." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBsRBXsz6LUhP4w08Ci9LFNiXtLFenPN3z-NH-uwNZfAqIyTW_BAxX_sb5sPJUZhpK2MKcKz4Dh6psyGQJ7sN8mbDZn7WR6N_KjEcDuzW6X3Lu_qwM3ENgDOcLmtsPk-63OtjLyKjcLPc6zraVwkFAYvoKfgEfmq6O1jqMTfWEV2NyvwsC0ofTWfbHfZ5zOwD8hlzO1zh_0tSBMJXBotYRykj_xLT7y63VsGivDXxEj6mtWOhqXojhAo1nsAmKLxqyceOvr9BtM4rA-"/>
+</div>
+<span class="text-label-sm font-label-sm">GitHub</span>
+</div>
+<div class="flex flex-col items-center gap-2 group cursor-pointer hover:opacity-100 transition-opacity">
+<div class="w-12 h-12 bg-white rounded-full shadow-sm flex items-center justify-center p-2">
+<img alt="Google Calendar" class="w-8 h-8" data-alt="The colorful Google Calendar icon, featuring modern material design colors of blue, red, yellow, and green. A crisp digital icon representing scheduling and time management. Modern and familiar software aesthetics." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAEAh88IbPHMcB8Q6GDZizI7VT-kl-fKDvF2kdPwE_Z8htaV0cpIVpd7G9nVUXEXpK8fLZdL1hm7V3yvvzFEZT_W_j8RjWHW2tBp_vhDbyJms1h99iph93oNpiehB12tjbD5JTWT4nSk_OO4vXxed81tuWjlhteBIgLNRYCzdp5600EP3JixpeB2TPR_h6o94eAjm1QIFaCuNuVh7LoEeDQdDSNu7XRSTqhL1mBscN17dGWrRWY7oZt8H-wpVoRN7kk_IJOnAc69kRV"/>
+</div>
+<span class="text-label-sm font-label-sm">Calendar</span>
+</div>
+<div class="flex flex-col items-center gap-2 group cursor-pointer hover:opacity-100 transition-opacity">
+<div class="w-12 h-12 bg-white rounded-full shadow-sm flex items-center justify-center p-2">
+<img alt="Spotify" class="w-8 h-8" data-alt="The Spotify logo, a vibrant green circle with three black curved sound waves. Clean, flat design representing digital audio and streaming services. Iconic and easily recognizable consumer brand." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCKM3q5lQzJqM3kr9x2aLbEKr8UzinJKeuNj4Uz22W6SWPuLuPAHfUZpgL0OWX76CXOwY3dcBz6Lee9m6Wh1tfwzDrJX7Y8t8if5djovAr2AcuL4Uv8la58SkDB3cHwVDY9XRo6XtA95S5B0eOUPBh9sBRw2L3CYxpVqiTluN2t6UUbTI1gCbW3hhm6919rhlNMbl2k-Titmnsdq3ZRzsvQ7D_BuAgri1OYOImnF9u_iIDqEv5cwhFgsAaytg9l_H3cdUWepJhg3xZS"/>
+</div>
+<span class="text-label-sm font-label-sm">Spotify</span>
+</div>
+</div>
+</section>
+<!-- CTA Section -->
+<section class="flex flex-col items-center gap-6 mt-12 py-12 border-t border-surface-container">
+<p class="text-center font-body-md text-body-md text-on-surface-variant max-w-md">
+                Want to see how this works in the real world?
+            </p>
+<button class="bg-primary text-on-primary font-label-bold text-label-bold px-10 py-4 rounded-full shadow-lg hover:scale-105 active:scale-95 transition-all flex items-center gap-3">
+                Try it: pretend an app asks to see you
+                <span class="material-symbols-outlined" data-icon="arrow_forward">arrow_forward</span>
+</button>
+</section>
+</main>
+<!-- Footer Area with Status Line (JSON Driven) -->
+<footer class="w-full mb-24 flex flex-col items-center gap-2 pb-8 w-full">
+<!-- Status Indicator Component -->
+<div class="inline-flex items-center gap-3 bg-primary/10 px-4 py-2 rounded-full mb-6">
+<span class="w-2 h-2 rounded-full bg-primary pulse-animation"></span>
+<span class="text-primary font-label-bold text-label-bold">Running on your device</span>
+</div>
+<div class="flex flex-col items-center gap-2">
+<p class="font-label-sm text-label-sm text-on-surface-variant">PersonaLayer • Running on your device</p>
+<div class="flex gap-4">
+<a class="text-on-surface-variant hover:text-primary transition-colors font-label-sm text-label-sm" href="#">Privacy Policy</a>
+<a class="text-on-surface-variant hover:text-primary transition-colors font-label-sm text-label-sm" href="#">Help Center</a>
+</div>
+</div>
+</footer>
+<!-- Bottom Navigation Bar (JSON Driven) -->
+<nav class="fixed bottom-0 left-0 w-full z-50 flex justify-around items-center px-4 py-3 md:max-w-[1100px] md:left-1/2 md:-translate-x-1/2 md:rounded-t-xl bg-surface-container-lowest shadow-[0_-4px_20px_0_rgba(0,0,0,0.04)]">
+<a class="flex flex-col items-center justify-center bg-primary-container text-on-primary-container rounded-full px-6 py-2 scale-105 active:scale-95 transition-all" href="#">
+<span class="material-symbols-outlined" data-icon="home" data-weight="fill" style="font-variation-settings: 'FILL' 1;">home</span>
+<span class="font-label-bold text-label-bold">Home</span>
+</a>
+<a class="flex flex-col items-center justify-center text-on-surface-variant px-6 py-2 hover:bg-surface-container-low transition-colors scale-105 active:scale-95 transition-all" href="#">
+<span class="material-symbols-outlined" data-icon="grid_view">grid_view</span>
+<span class="font-label-bold text-label-bold">Apps</span>
+</a>
+<a class="flex flex-col items-center justify-center text-on-surface-variant px-6 py-2 hover:bg-surface-container-low transition-colors scale-105 active:scale-95 transition-all" href="#">
+<span class="material-symbols-outlined" data-icon="shield_person">shield_person</span>
+<span class="font-label-bold text-label-bold">Privacy</span>
+</a>
+</nav>
+<script>
+        function toggleCard(element) {
+            const allCards = document.querySelectorAll('.card-expand');
+            allCards.forEach(card => {
+                if (card !== element) {
+                    card.classList.remove('card-active');
+                }
+            });
+            element.classList.toggle('card-active');
+        }
+
+        // Ripple / Click effect for buttons
+        document.querySelectorAll('button').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                // Micro-interaction logic can go here
+            });
+        });
+    </script>
+</body></html>

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Interactive OAuth credential setup for iOS/macOS apps.
+# Interactive OAuth credential setup for the iOS app.
 # Reads credentials from environment or prompts interactively.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

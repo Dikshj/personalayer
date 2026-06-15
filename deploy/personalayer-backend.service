@@ -1,0 +1,28 @@
+[Unit]
+Description=Personalayer local backend
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/personalayer/backend
+Environment=PYTHONPATH=/opt/personalayer/backend
+Environment=PERSONALAYER_ENV=production
+Environment=PERSONALAYER_LOCAL_AUTH=1
+Environment=PERSONALAYER_ALLOWED_ORIGINS=http://127.0.0.1:7823,http://localhost:7823
+Environment=PERSONALAYER_COOKIE_SECURE=0
+Environment=PERSONALAYER_RETURN_SESSION_TOKEN=0
+Environment=PERSONALAYER_MAX_REQUEST_BYTES=1048576
+# Set this in a systemd drop-in or EnvironmentFile, not in source control:
+# Environment=PERSONALAYER_LOCAL_AUTH_BOOTSTRAP_TOKEN=replace-with-generated-secret
+# If this service is exposed through HTTPS, set PERSONALAYER_COOKIE_SECURE=1.
+ExecStart=/usr/bin/python3 -m uvicorn interfaces.http_api:app --host 127.0.0.1 --port 7823
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/opt/personalayer /home
+
+[Install]
+WantedBy=multi-user.target

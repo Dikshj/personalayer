@@ -357,7 +357,7 @@ export async function getBundle({
   windowRef = globalThis.window,
   documentRef = globalThis.document,
   allowLocalhostFallback = false,
-  localhostBaseUrl = "http://127.0.0.1:7432",
+  localhostBaseUrl = "http://127.0.0.1:7823",
   fetchImpl = globalThis.fetch,
 } = {}) {
   if (!isAvailable({documentRef}) || !windowRef?.postMessage) {
@@ -398,7 +398,7 @@ export async function track({
   windowRef = globalThis.window,
   documentRef = globalThis.document,
   allowLocalhostFallback = false,
-  localhostBaseUrl = "http://127.0.0.1:7432",
+  localhostBaseUrl = "http://127.0.0.1:7823",
   fetchImpl = globalThis.fetch,
 } = {}) {
   if (!featureId) {

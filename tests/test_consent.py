@@ -68,6 +68,51 @@ def test_developer_registration_app_and_api_key_roundtrip():
     assert keys[0]["app_id"] == "mail_app"
 
 
+def test_developer_api_key_revoke_and_rotate():
+    from database import (
+        create_developer_api_key,
+        list_developer_api_key_audit_logs,
+        revoke_developer_api_key,
+        rotate_developer_api_key,
+        upsert_developer,
+        verify_developer_api_key,
+    )
+
+    developer = upsert_developer("rotate@example.com", "Rotate Dev")
+    key = create_developer_api_key(developer["id"], app_id="rotate_app", env="test")
+
+    assert revoke_developer_api_key(key["id"], developer["id"]) is True
+    assert verify_developer_api_key(key["key"]) is None
+
+    second = create_developer_api_key(developer["id"], app_id="rotate_app", env="live")
+    rotated = rotate_developer_api_key(second["id"], developer["id"])
+
+    assert rotated["status"] == "rotated"
+    assert rotated["api_key"]["key"].startswith("cl_live_")
+    assert verify_developer_api_key(second["key"]) is None
+    assert verify_developer_api_key(rotated["api_key"]["key"])["app_id"] == "rotate_app"
+    actions = [item["action"] for item in list_developer_api_key_audit_logs(developer["id"])]
+    assert "created" in actions
+    assert "revoked" in actions
+    assert "rotated" in actions
+    assert "last_used" in actions
+
+
+def test_developer_rate_limit_blocks_after_limit():
+    from database import check_developer_rate_limit, upsert_developer
+
+    developer = upsert_developer("limit@example.com", "Limit Dev")
+
+    first = check_developer_rate_limit(developer["id"], "api_key_create", limit=2, window_seconds=60)
+    second = check_developer_rate_limit(developer["id"], "api_key_create", limit=2, window_seconds=60)
+    third = check_developer_rate_limit(developer["id"], "api_key_create", limit=2, window_seconds=60)
+
+    assert first["allowed"] is True
+    assert second["allowed"] is True
+    assert third["allowed"] is False
+    assert third["retry_after_seconds"] > 0
+
+
 def test_developer_context_authorization_enforces_consent_and_scopes():
     from database import (
         create_developer_api_key,

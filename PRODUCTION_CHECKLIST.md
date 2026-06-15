@@ -1,74 +1,56 @@
 # Production Checklist
 
-## Immediate (Required Before Release)
+## Immediate Coding Work
+
+### 0. Legal, Privacy, And Security Docs
+- [x] Privacy Policy: `docs/PRIVACY_POLICY.md`
+- [x] Terms of Service: `docs/TERMS_OF_SERVICE.md`
+- [x] Data retention schedule: `docs/DATA_RETENTION.md`
+- [x] Security policy and vulnerability contact: `docs/SECURITY.md`
+- [x] In-app Legal surface exposes privacy, terms, retention, and security contact.
+- [ ] Counsel review before broad commercial launch or regulated use.
+- [ ] Replace placeholder contact domains if production email routing uses a different domain.
 
 ### 1. Core ML Model Asset
-- [ ] Run `python scripts/convert-coreml-model.py` on macOS with:
+- [ ] Run `python scripts/convert-coreml-model.py` with:
   ```bash
   pip install torch transformers sentence-transformers coremltools
   python scripts/convert-coreml-model.py
   ```
-- [ ] Verify output: `native/*/PersonalLayer/Resources/all-MiniLM-L6-v2.mlpackage`
-- [ ] Verify vocab: `native/*/PersonalLayer/Resources/vocab.json`
-- [ ] Add `.mlpackage` to Xcode target membership (both macOS and iOS)
+- [ ] Verify output: `native/ios/PersonalLayer/Resources/all-MiniLM-L6-v2.mlpackage`
+- [ ] Verify vocab: `native/ios/PersonalLayer/Resources/vocab.json`
+- [ ] Add `.mlpackage` to the iOS target membership before release builds.
 
 ### 2. OAuth Credentials
-- [ ] Replace placeholders in `native/ios/PersonalLayer/Resources/Info.plist`:
-  - `YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com`
-  - `YOUR_SPOTIFY_CLIENT_ID`
-  - `YOUR_NOTION_CLIENT_ID`
-- [ ] Add client secrets to Info.plist `OAuthSecrets` dict (if required by provider)
-- [ ] Configure redirect URIs in each provider's developer console
-- [ ] Test OAuth flow on real device: Google → token exchange → Keychain storage
+- [x] Info.plist uses build-time variables: `$(GOOGLE_OAUTH_CLIENT_ID)`, `$(SPOTIFY_OAUTH_CLIENT_ID)`, `$(NOTION_OAUTH_CLIENT_ID)`
+- [ ] Keep provider-specific token exchange code wired to encrypted local token storage.
+- [ ] Test OAuth callback handling with mocked provider responses.
 
 ### 3. APNs Configuration
-- [ ] Generate APNs auth key at https://developer.apple.com/account/resources/authkeys/list
-- [ ] Download `.p8` key file
-- [ ] Set Supabase secrets:
-  ```bash
-  supabase secrets set APNS_KEY_ID=YOUR_KEY_ID
-  supabase secrets set APNS_TEAM_ID=YOUR_TEAM_ID
-  supabase secrets set APNS_BUNDLE_ID=com.personalayer.ios
-  supabase secrets set APNS_PRIVATE_KEY="$(cat AuthKey_XXX.p8)"
-  supabase secrets set APNS_ENV=production
-  ```
-- [ ] Deploy edge functions: `supabase functions deploy apns-router`
-- [ ] Test with a real device token
+- [x] Edge function `apns-router` is implemented and ready for deploy.
+- [ ] Keep notification routes free of behavioral text.
+- [ ] Add tests for token registration, revoke, and route creation.
 
-### 4. Supabase Deployment
-- [ ] Run migrations: `supabase db push`
-- [ ] Verify `verify_api_key` RPC works
-- [ ] Deploy edge functions:
-  ```bash
-  supabase functions deploy verify-api-key
-  supabase functions deploy apns-router
-  supabase functions deploy observability
-  ```
-- [ ] Run integration tests: `pytest tests/integration/ -v`
+### 4. Supabase Thin Cloud
+- [x] Migrations defined in `supabase/migrations/`
+- [x] Edge functions implemented: `verify-api-key`, `apns-router`, `observability`
+- [ ] Add integration tests around RLS and API-key verification.
 
-### 5. Swift Build Verification
-- [ ] macOS daemon: `cd native/macos/PersonalLayer && swift build`
-- [ ] macOS tests: `swift test`
-- [ ] iOS app: `cd native/ios/PersonalLayer && swift package resolve`
-- [ ] Swift SDK: `cd sdk/swift && swift build`
+### 5. iOS Build Verification
+- [ ] iOS package resolve/build checks.
+- [x] GRDB schema parity with Python backend.
+- [x] App Group shared database path implemented.
 
 ### 6. Extension Testing
-- [ ] Build Chrome extension: `bash scripts/package-chrome.sh`
-- [ ] Load unpacked in Chrome: `chrome://extensions` → Developer Mode → Load unpacked → `build/chrome/`
-- [ ] Install native messaging host: `bash scripts/install-native-messaging-host.sh`
-- [ ] Test CL_GET_BUNDLE and CL_TRACK
-- [ ] Test domain approval/denial flow
+- [x] Build script: `bash scripts/build-extensions.sh`
+- [ ] Load unpacked in Chrome: `chrome://extensions` -> Developer Mode -> Load unpacked -> `build/extensions/`
+- [ ] Test `CL_GET_BUNDLE` and `CL_TRACK` against the Python local runtime on `127.0.0.1:7823`.
+- [x] Domain approval checks persisted database.
+- [ ] Test domain approval/denial flow end-to-end.
 
 ### 7. App Store / TestFlight
-- [ ] Update version in `native/ios/PersonalLayer/Resources/Info.plist`
-- [ ] Set `DEVELOPER_TEAM_ID` and `BUNDLE_ID` in environment
-- [ ] Run: `bash scripts/package-ios.sh`
-- [ ] Upload to App Store Connect via `altool`
-
-### 8. macOS Notarization
-- [ ] Set `DEVELOPER_ID` and `KEYCHAIN_PROFILE` in environment
-- [ ] Run: `bash scripts/sign-macos.sh`
-- [ ] Verify stapled ticket: `spctl -a -vv MyApp.app`
+- [ ] Update version in `native/ios/PersonalLayer/Resources/Info.plist`.
+- [x] Build script: `bash scripts/build-ios.sh`
 
 ## Validation Commands
 
@@ -82,12 +64,9 @@ npm run build && npm test
 # Extension package
 bash scripts/package-chrome.sh && unzip -l build/personalayer-chrome.zip
 
-# Swift (macOS)
-cd native/macos/PersonalLayer && swift build && swift test
-
 # Supabase integration
 pytest tests/integration/ -v
 
-# End-to-end extension
-cd scripts && bash test-extension-bridge.sh
+# End-to-end extension against Python runtime
+bash scripts/test-extension-bridge.sh
 ```

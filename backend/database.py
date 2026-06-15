@@ -8,9 +8,10 @@ import os
 import uuid
 from pathlib import Path
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Any, Optional
 
 from storage.migrations import ensure_column, run_migrations
+from pcl.vault import encrypt_raw_payload, decrypt_raw_payload
 
 DATA_DIR = Path.home() / ".personalayer"
 DB_PATH = DATA_DIR / "data.db"
@@ -129,6 +130,162 @@ def create_tables() -> None:
             )
         """)
         conn.execute("""
+            CREATE TABLE IF NOT EXISTS pcl_skills (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                category TEXT DEFAULT 'general',
+                description TEXT DEFAULT '',
+                instructions TEXT DEFAULT '',
+                allowed_layers TEXT DEFAULT '[]',
+                memory_scopes TEXT DEFAULT '[]',
+                required_tools TEXT DEFAULT '[]',
+                privacy_rules TEXT DEFAULT '[]',
+                status TEXT DEFAULT 'active',
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                disabled_at DATETIME
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS persona_memory_diffs (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                scope TEXT NOT NULL,
+                proposed_content TEXT NOT NULL,
+                current_excerpt TEXT DEFAULT '',
+                reason TEXT DEFAULT '',
+                source TEXT DEFAULT 'manual',
+                status TEXT DEFAULT 'pending'
+                    CHECK(status IN ('pending','approved','rejected','applied')),
+                reviewer_note TEXT DEFAULT '',
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                decided_at DATETIME,
+                applied_at DATETIME
+            )
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_persona_memory_diffs_user_status
+            ON persona_memory_diffs(user_id, status, created_at DESC)
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS memory_source_settings (
+                user_id TEXT NOT NULL,
+                source TEXT NOT NULL,
+                enabled INTEGER DEFAULT 1,
+                reason TEXT DEFAULT '',
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY(user_id, source)
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS memory_search_index (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                scope TEXT NOT NULL,
+                line_number INTEGER NOT NULL,
+                text TEXT NOT NULL,
+                tokens TEXT DEFAULT '[]',
+                embedding BLOB,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(user_id, scope, line_number)
+            )
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_memory_search_index_user_scope
+            ON memory_search_index(user_id, scope)
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS memory_quality_scores (
+                user_id TEXT NOT NULL,
+                scope TEXT NOT NULL,
+                confidence REAL DEFAULT 0,
+                freshness REAL DEFAULT 0,
+                source_count INTEGER DEFAULT 0,
+                score REAL DEFAULT 0,
+                computed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY(user_id, scope)
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS sync_devices (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                device_id TEXT NOT NULL,
+                device_name TEXT DEFAULT '',
+                public_key TEXT DEFAULT '',
+                trust_status TEXT DEFAULT 'trusted'
+                    CHECK(trust_status IN ('pending','trusted','revoked')),
+                last_seen_at DATETIME,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                revoked_at DATETIME,
+                UNIQUE(user_id, device_id)
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS encrypted_summary_blobs (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                device_id TEXT NOT NULL,
+                version TEXT NOT NULL,
+                parent_version TEXT DEFAULT '',
+                summary_hash TEXT NOT NULL,
+                encrypted_blob TEXT NOT NULL,
+                merge_status TEXT DEFAULT 'local'
+                    CHECK(merge_status IN ('local','received','merged','conflict')),
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(user_id, device_id, version)
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS sync_conflicts (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                local_version TEXT NOT NULL,
+                remote_version TEXT NOT NULL,
+                reason TEXT NOT NULL,
+                status TEXT DEFAULT 'open'
+                    CHECK(status IN ('open','resolved','ignored')),
+                details TEXT DEFAULT '{}',
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                resolved_at DATETIME
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS sync_audit_logs (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                action TEXT NOT NULL,
+                device_id TEXT DEFAULT '',
+                version TEXT DEFAULT '',
+                details TEXT DEFAULT '{}',
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_sync_audit_logs_user_recent
+            ON sync_audit_logs(user_id, created_at DESC)
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS observability_events (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                source TEXT NOT NULL,
+                event_name TEXT NOT NULL,
+                severity TEXT DEFAULT 'info'
+                    CHECK(severity IN ('debug','info','warning','error')),
+                route TEXT DEFAULT '',
+                status_code INTEGER,
+                duration_ms INTEGER,
+                attributes TEXT DEFAULT '{}',
+                event_hash TEXT NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_observability_events_user_recent
+            ON observability_events(user_id, created_at DESC)
+        """)
+        conn.execute("""
             CREATE TABLE IF NOT EXISTS pcl_query_logs (
                 id TEXT PRIMARY KEY,
                 app_id TEXT NOT NULL,
@@ -167,7 +324,8 @@ def create_tables() -> None:
         """)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS pcl_integrations (
-                source TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL DEFAULT 'local_user',
+                source TEXT NOT NULL,
                 name TEXT NOT NULL,
                 status TEXT DEFAULT 'connected',
                 scopes TEXT DEFAULT '[]',
@@ -182,7 +340,8 @@ def create_tables() -> None:
                 auth_expires_at INTEGER,
                 error TEXT DEFAULT '',
                 connected_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                disconnected_at DATETIME
+                disconnected_at DATETIME,
+                PRIMARY KEY (user_id, source)
             )
         """)
         conn.execute("""
@@ -227,6 +386,7 @@ def create_tables() -> None:
                 source TEXT NOT NULL CHECK(source IN ('sdk','extension','connector','onboarding')),
                 is_synthetic INTEGER DEFAULT 0,
                 metadata TEXT DEFAULT '{}',
+                raw_payload TEXT DEFAULT '{}',
                 timestamp INTEGER NOT NULL,
                 created_at INTEGER NOT NULL
             )
@@ -339,6 +499,32 @@ def create_tables() -> None:
                 is_active INTEGER DEFAULT 1,
                 last_used_at DATETIME,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS developer_api_key_audit_logs (
+                id TEXT PRIMARY KEY,
+                developer_id TEXT NOT NULL,
+                key_id TEXT DEFAULT '',
+                action TEXT NOT NULL,
+                app_id TEXT DEFAULT '',
+                env TEXT DEFAULT '',
+                details TEXT DEFAULT '{}',
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_api_key_audit_developer_recent
+            ON developer_api_key_audit_logs(developer_id, created_at DESC)
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS developer_rate_limits (
+                id TEXT PRIMARY KEY,
+                developer_id TEXT NOT NULL,
+                action TEXT NOT NULL,
+                window_start INTEGER NOT NULL,
+                count INTEGER DEFAULT 0,
+                UNIQUE(developer_id, action, window_start)
             )
         """)
         conn.execute("""
@@ -474,7 +660,89 @@ def create_tables() -> None:
             )
         """)
         run_migrations(conn)
+        create_control_center_tables(conn)
         conn.commit()
+
+
+def create_control_center_tables(conn: sqlite3.Connection) -> None:
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS user_preferences (
+            user_id TEXT PRIMARY KEY,
+            personalization_goals TEXT DEFAULT '[]',
+            privacy_level TEXT DEFAULT 'balanced' CHECK(privacy_level IN ('strict','balanced','permissive')),
+            sharing_default TEXT DEFAULT 'ask' CHECK(sharing_default IN ('ask','allow','deny')),
+            personalization_aggression TEXT DEFAULT 'medium' CHECK(personalization_aggression IN ('low','medium','high')),
+            enabled_integrations TEXT DEFAULT '[]',
+            disabled_signal_sources TEXT DEFAULT '[]',
+            onboarding_completed INTEGER DEFAULT 0,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS user_privacy_boundaries (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            boundary_type TEXT NOT NULL CHECK(boundary_type IN ('never_share_field','never_share_app','never_share_domain','minimum_confidence','data_retention_max')),
+            target TEXT NOT NULL,
+            reason TEXT DEFAULT '',
+            is_active INTEGER DEFAULT 1,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_privacy_boundaries_user
+        ON user_privacy_boundaries(user_id, is_active)
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS context_sharing_previews (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            app_id TEXT NOT NULL,
+            app_name TEXT DEFAULT '',
+            requested_purpose TEXT DEFAULT '',
+            permission_scope TEXT DEFAULT '[]',
+            allowed_fields TEXT DEFAULT '[]',
+            excluded_fields TEXT DEFAULT '[]',
+            confidence_levels TEXT DEFAULT '{}',
+            plain_english_summary TEXT DEFAULT '',
+            preview_json TEXT DEFAULT '{}',
+            status TEXT DEFAULT 'pending' CHECK(status IN ('pending','approved','denied','narrowed')),
+            user_decision TEXT DEFAULT '',
+            narrowed_fields TEXT DEFAULT '[]',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            decided_at DATETIME
+        )
+    """)
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_sharing_previews_user
+        ON context_sharing_previews(user_id, status)
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS control_center_audit (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            action TEXT NOT NULL,
+            target_type TEXT NOT NULL,
+            target_id TEXT DEFAULT '',
+            details TEXT DEFAULT '{}',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_control_center_audit_user
+        ON control_center_audit(user_id, created_at DESC)
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS persona_signal_edits (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            signal_id INTEGER NOT NULL,
+            user_id TEXT NOT NULL,
+            old_value TEXT DEFAULT '{}',
+            new_value TEXT DEFAULT '{}',
+            edit_reason TEXT DEFAULT '',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
 
 
 def _ensure_column(conn: sqlite3.Connection, table: str, column: str, definition: str) -> None:
@@ -953,6 +1221,701 @@ def list_pcl_apps(limit: int = 100) -> list[dict]:
     ]
 
 
+def upsert_pcl_skill(
+    skill_id: str,
+    name: str,
+    category: str = "general",
+    description: str = "",
+    instructions: str = "",
+    allowed_layers: Optional[list[str]] = None,
+    memory_scopes: Optional[list[str]] = None,
+    required_tools: Optional[list[str]] = None,
+    privacy_rules: Optional[list[str]] = None,
+) -> dict:
+    skill_id = skill_id.strip()
+    if not skill_id:
+        raise ValueError("skill_id is required")
+    with get_connection() as conn:
+        conn.execute(
+            """INSERT INTO pcl_skills
+               (id, name, category, description, instructions, allowed_layers,
+                memory_scopes, required_tools, privacy_rules, status, disabled_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', NULL)
+               ON CONFLICT(id) DO UPDATE SET
+                   name = excluded.name,
+                   category = excluded.category,
+                   description = excluded.description,
+                   instructions = excluded.instructions,
+                   allowed_layers = excluded.allowed_layers,
+                   memory_scopes = excluded.memory_scopes,
+                   required_tools = excluded.required_tools,
+                   privacy_rules = excluded.privacy_rules,
+                   status = 'active',
+                   updated_at = CURRENT_TIMESTAMP,
+                   disabled_at = NULL""",
+            (
+                skill_id,
+                name.strip() or skill_id,
+                category.strip() or "general",
+                description.strip(),
+                instructions.strip(),
+                json.dumps(allowed_layers or []),
+                json.dumps(memory_scopes or []),
+                json.dumps(required_tools or []),
+                json.dumps(privacy_rules or []),
+            ),
+        )
+        conn.commit()
+    return get_pcl_skill(skill_id) or {}
+
+
+def _pcl_skill_from_row(row: sqlite3.Row) -> dict:
+    return {
+        "skill_id": row["id"],
+        "name": row["name"],
+        "category": row["category"],
+        "description": row["description"],
+        "instructions": row["instructions"],
+        "allowed_layers": json.loads(row["allowed_layers"] or "[]"),
+        "memory_scopes": json.loads(row["memory_scopes"] or "[]"),
+        "required_tools": json.loads(row["required_tools"] or "[]"),
+        "privacy_rules": json.loads(row["privacy_rules"] or "[]"),
+        "status": row["status"],
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+        "disabled_at": row["disabled_at"],
+    }
+
+
+def get_pcl_skill(skill_id: str) -> Optional[dict]:
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM pcl_skills WHERE id = ?",
+            (skill_id,),
+        ).fetchone()
+    return _pcl_skill_from_row(row) if row else None
+
+
+def list_pcl_skills(
+    category: Optional[str] = None,
+    active_only: bool = True,
+    limit: int = 100,
+) -> list[dict]:
+    clauses = []
+    params: list[object] = []
+    if category:
+        clauses.append("category = ?")
+        params.append(category)
+    if active_only:
+        clauses.append("status = 'active'")
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    params.append(limit)
+    with get_connection() as conn:
+        rows = conn.execute(
+            f"SELECT * FROM pcl_skills {where} ORDER BY category, name LIMIT ?",
+            params,
+        ).fetchall()
+    return [_pcl_skill_from_row(row) for row in rows]
+
+
+def disable_pcl_skill(skill_id: str) -> bool:
+    with get_connection() as conn:
+        cursor = conn.execute(
+            """UPDATE pcl_skills
+               SET status = 'disabled',
+                   updated_at = CURRENT_TIMESTAMP,
+                   disabled_at = CURRENT_TIMESTAMP
+               WHERE id = ? AND status != 'disabled'""",
+            (skill_id,),
+        )
+        conn.commit()
+    return cursor.rowcount > 0
+
+
+def create_persona_memory_diff(
+    user_id: str,
+    scope: str,
+    proposed_content: str,
+    current_excerpt: str = "",
+    reason: str = "",
+    source: str = "manual",
+) -> dict:
+    diff_id = str(uuid.uuid4())
+    with get_connection() as conn:
+        conn.execute(
+            """INSERT INTO persona_memory_diffs
+               (id, user_id, scope, proposed_content, current_excerpt, reason, source)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (
+                diff_id,
+                user_id,
+                scope,
+                proposed_content,
+                current_excerpt,
+                reason,
+                source,
+            ),
+        )
+        conn.commit()
+    return get_persona_memory_diff(diff_id) or {}
+
+
+def get_persona_memory_diff(diff_id: str) -> Optional[dict]:
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM persona_memory_diffs WHERE id = ?",
+            (diff_id,),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def list_persona_memory_diffs(
+    user_id: str,
+    status: Optional[str] = None,
+    limit: int = 100,
+) -> list[dict]:
+    params: list[object] = [user_id]
+    where = "WHERE user_id = ?"
+    if status:
+        where += " AND status = ?"
+        params.append(status)
+    params.append(limit)
+    with get_connection() as conn:
+        rows = conn.execute(
+            f"""SELECT * FROM persona_memory_diffs
+                {where}
+                ORDER BY created_at DESC
+                LIMIT ?""",
+            params,
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def decide_persona_memory_diff(
+    diff_id: str,
+    status: str,
+    reviewer_note: str = "",
+) -> dict:
+    if status not in {"approved", "rejected", "applied"}:
+        raise ValueError("invalid_diff_status")
+    with get_connection() as conn:
+        conn.execute(
+            """UPDATE persona_memory_diffs
+               SET status = ?,
+                   reviewer_note = ?,
+                   decided_at = COALESCE(decided_at, CURRENT_TIMESTAMP),
+                   applied_at = CASE WHEN ? = 'applied' THEN CURRENT_TIMESTAMP ELSE applied_at END
+               WHERE id = ? AND status IN ('pending','approved')""",
+            (status, reviewer_note, status, diff_id),
+        )
+        conn.commit()
+    return get_persona_memory_diff(diff_id) or {}
+
+
+def set_memory_source_enabled(
+    user_id: str,
+    source: str,
+    enabled: bool,
+    reason: str = "",
+) -> dict:
+    source = source.strip() or "unknown"
+    with get_connection() as conn:
+        conn.execute(
+            """INSERT INTO memory_source_settings
+               (user_id, source, enabled, reason, updated_at)
+               VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+               ON CONFLICT(user_id, source) DO UPDATE SET
+                   enabled = excluded.enabled,
+                   reason = excluded.reason,
+                   updated_at = CURRENT_TIMESTAMP""",
+            (user_id, source, 1 if enabled else 0, reason),
+        )
+        conn.commit()
+    return get_memory_source_setting(user_id, source)
+
+
+def get_memory_source_setting(user_id: str, source: str) -> dict:
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM memory_source_settings WHERE user_id = ? AND source = ?",
+            (user_id, source),
+        ).fetchone()
+    if not row:
+        return {
+            "user_id": user_id,
+            "source": source,
+            "enabled": True,
+            "reason": "",
+            "updated_at": None,
+        }
+    return {
+        "user_id": row["user_id"],
+        "source": row["source"],
+        "enabled": bool(row["enabled"]),
+        "reason": row["reason"],
+        "updated_at": row["updated_at"],
+    }
+
+
+def list_memory_source_settings(user_id: str) -> list[dict]:
+    with get_connection() as conn:
+        rows = conn.execute(
+            """SELECT * FROM memory_source_settings
+               WHERE user_id = ?
+               ORDER BY source""",
+            (user_id,),
+        ).fetchall()
+    return [
+        {
+            "user_id": row["user_id"],
+            "source": row["source"],
+            "enabled": bool(row["enabled"]),
+            "reason": row["reason"],
+            "updated_at": row["updated_at"],
+        }
+        for row in rows
+    ]
+
+
+def register_sync_device(
+    user_id: str,
+    device_id: str,
+    device_name: str = "",
+    public_key: str = "",
+    trust_status: str = "trusted",
+) -> dict:
+    if trust_status not in {"pending", "trusted", "revoked"}:
+        raise ValueError("invalid_trust_status")
+    row_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"personalayer:sync-device:{user_id}:{device_id}"))
+    with get_connection() as conn:
+        conn.execute(
+            """INSERT INTO sync_devices
+               (id, user_id, device_id, device_name, public_key, trust_status, last_seen_at, revoked_at)
+               VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, NULL)
+               ON CONFLICT(user_id, device_id) DO UPDATE SET
+                   device_name = excluded.device_name,
+                   public_key = excluded.public_key,
+                   trust_status = excluded.trust_status,
+                   last_seen_at = CURRENT_TIMESTAMP,
+                   revoked_at = CASE WHEN excluded.trust_status = 'revoked' THEN CURRENT_TIMESTAMP ELSE NULL END""",
+            (row_id, user_id, device_id, device_name, public_key, trust_status),
+        )
+        conn.commit()
+    return get_sync_device(user_id, device_id) or {}
+
+
+def get_sync_device(user_id: str, device_id: str) -> Optional[dict]:
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM sync_devices WHERE user_id = ? AND device_id = ?",
+            (user_id, device_id),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def list_sync_devices(user_id: str) -> list[dict]:
+    with get_connection() as conn:
+        rows = conn.execute(
+            """SELECT * FROM sync_devices
+               WHERE user_id = ?
+               ORDER BY created_at DESC""",
+            (user_id,),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def save_encrypted_summary_blob(
+    user_id: str,
+    device_id: str,
+    version: str,
+    parent_version: str,
+    summary_hash: str,
+    encrypted_blob: str,
+    merge_status: str = "local",
+) -> dict:
+    if merge_status not in {"local", "received", "merged", "conflict"}:
+        raise ValueError("invalid_merge_status")
+    blob_id = str(uuid.uuid4())
+    with get_connection() as conn:
+        conn.execute(
+            """INSERT OR REPLACE INTO encrypted_summary_blobs
+               (id, user_id, device_id, version, parent_version, summary_hash, encrypted_blob, merge_status)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (blob_id, user_id, device_id, version, parent_version, summary_hash, encrypted_blob, merge_status),
+        )
+        conn.commit()
+    return get_encrypted_summary_blob(user_id, device_id, version) or {}
+
+
+def get_encrypted_summary_blob(user_id: str, device_id: str, version: str) -> Optional[dict]:
+    with get_connection() as conn:
+        row = conn.execute(
+            """SELECT * FROM encrypted_summary_blobs
+               WHERE user_id = ? AND device_id = ? AND version = ?""",
+            (user_id, device_id, version),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def get_encrypted_summary_blob_by_version(user_id: str, version: str) -> Optional[dict]:
+    with get_connection() as conn:
+        row = conn.execute(
+            """SELECT * FROM encrypted_summary_blobs
+               WHERE user_id = ? AND version = ?
+               ORDER BY created_at DESC
+               LIMIT 1""",
+            (user_id, version),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def update_encrypted_summary_blob_status(user_id: str, version: str, merge_status: str) -> Optional[dict]:
+    if merge_status not in {"local", "received", "merged", "conflict"}:
+        raise ValueError("invalid_merge_status")
+    with get_connection() as conn:
+        conn.execute(
+            """UPDATE encrypted_summary_blobs
+               SET merge_status = ?
+               WHERE user_id = ? AND version = ?""",
+            (merge_status, user_id, version),
+        )
+        conn.commit()
+    return get_encrypted_summary_blob_by_version(user_id, version)
+
+
+def latest_encrypted_summary_blob(user_id: str, device_id: Optional[str] = None) -> Optional[dict]:
+    params: list[object] = [user_id]
+    where = "WHERE user_id = ?"
+    if device_id:
+        where += " AND device_id = ?"
+        params.append(device_id)
+    with get_connection() as conn:
+        row = conn.execute(
+            f"""SELECT * FROM encrypted_summary_blobs
+                {where}
+                ORDER BY created_at DESC
+                LIMIT 1""",
+            params,
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def list_encrypted_summary_blobs(user_id: str, limit: int = 100) -> list[dict]:
+    with get_connection() as conn:
+        rows = conn.execute(
+            """SELECT id, user_id, device_id, version, parent_version, summary_hash,
+                      merge_status, created_at
+               FROM encrypted_summary_blobs
+               WHERE user_id = ?
+               ORDER BY created_at DESC
+               LIMIT ?""",
+            (user_id, limit),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def compact_encrypted_summary_blobs(user_id: str, keep_per_device: int = 5) -> dict:
+    keep_per_device = max(1, min(int(keep_per_device), 50))
+    deleted = 0
+    with get_connection() as conn:
+        devices = conn.execute(
+            "SELECT DISTINCT device_id FROM encrypted_summary_blobs WHERE user_id = ?",
+            (user_id,),
+        ).fetchall()
+        for row in devices:
+            device_id = row["device_id"]
+            old_rows = conn.execute(
+                """SELECT id FROM encrypted_summary_blobs
+                   WHERE user_id = ? AND device_id = ?
+                   ORDER BY created_at DESC
+                   LIMIT -1 OFFSET ?""",
+                (user_id, device_id, keep_per_device),
+            ).fetchall()
+            ids = [item["id"] for item in old_rows]
+            if ids:
+                placeholders = ",".join("?" for _ in ids)
+                deleted += conn.execute(
+                    f"DELETE FROM encrypted_summary_blobs WHERE id IN ({placeholders})",
+                    tuple(ids),
+                ).rowcount
+        conn.commit()
+    insert_sync_audit_log(
+        user_id=user_id,
+        action="summary_blobs_compacted",
+        details={"keep_per_device": keep_per_device, "deleted": deleted},
+    )
+    return {"user_id": user_id, "keep_per_device": keep_per_device, "deleted": deleted}
+
+
+def insert_sync_audit_log(
+    user_id: str,
+    action: str,
+    device_id: str = "",
+    version: str = "",
+    details: Optional[dict] = None,
+) -> dict:
+    audit_id = str(uuid.uuid4())
+    with get_connection() as conn:
+        conn.execute(
+            """INSERT INTO sync_audit_logs
+               (id, user_id, action, device_id, version, details)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (audit_id, user_id, action[:120], device_id[:160], version[:160], json.dumps(details or {})),
+        )
+        conn.commit()
+    return get_sync_audit_log(audit_id) or {}
+
+
+def get_sync_audit_log(audit_id: str) -> Optional[dict]:
+    with get_connection() as conn:
+        row = conn.execute("SELECT * FROM sync_audit_logs WHERE id = ?", (audit_id,)).fetchone()
+    if not row:
+        return None
+    data = dict(row)
+    data["details"] = json.loads(data.get("details") or "{}")
+    return data
+
+
+def list_sync_audit_logs(user_id: str, limit: int = 100) -> list[dict]:
+    with get_connection() as conn:
+        rows = conn.execute(
+            """SELECT * FROM sync_audit_logs
+               WHERE user_id = ?
+               ORDER BY created_at DESC
+               LIMIT ?""",
+            (user_id, max(1, min(int(limit), 500))),
+        ).fetchall()
+    results = []
+    for row in rows:
+        data = dict(row)
+        data["details"] = json.loads(data.get("details") or "{}")
+        results.append(data)
+    return results
+
+
+def create_sync_conflict(
+    user_id: str,
+    local_version: str,
+    remote_version: str,
+    reason: str,
+    details: Optional[dict] = None,
+) -> dict:
+    conflict_id = str(uuid.uuid4())
+    with get_connection() as conn:
+        conn.execute(
+            """INSERT INTO sync_conflicts
+               (id, user_id, local_version, remote_version, reason, details)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (conflict_id, user_id, local_version, remote_version, reason, json.dumps(details or {})),
+        )
+        conn.commit()
+    insert_sync_audit_log(
+        user_id=user_id,
+        action="conflict_created",
+        version=remote_version,
+        details={"local_version": local_version, "remote_version": remote_version, "reason": reason},
+    )
+    return get_sync_conflict(conflict_id) or {}
+
+
+def get_sync_conflict(conflict_id: str) -> Optional[dict]:
+    with get_connection() as conn:
+        row = conn.execute("SELECT * FROM sync_conflicts WHERE id = ?", (conflict_id,)).fetchone()
+    if not row:
+        return None
+    data = dict(row)
+    data["details"] = json.loads(data.get("details") or "{}")
+    return data
+
+
+def list_sync_conflicts(user_id: str, status: Optional[str] = None, limit: int = 100) -> list[dict]:
+    params: list[object] = [user_id]
+    where = "WHERE user_id = ?"
+    if status:
+        where += " AND status = ?"
+        params.append(status)
+    params.append(limit)
+    with get_connection() as conn:
+        rows = conn.execute(
+            f"""SELECT * FROM sync_conflicts
+                {where}
+                ORDER BY created_at DESC
+                LIMIT ?""",
+            params,
+        ).fetchall()
+    conflicts = []
+    for row in rows:
+        data = dict(row)
+        data["details"] = json.loads(data.get("details") or "{}")
+        conflicts.append(data)
+    return conflicts
+
+
+def resolve_sync_conflict(conflict_id: str, status: str = "resolved", details: Optional[dict] = None) -> Optional[dict]:
+    if status not in {"resolved", "ignored"}:
+        raise ValueError("invalid_conflict_status")
+    current = get_sync_conflict(conflict_id)
+    if not current:
+        return None
+    merged_details = {
+        **(current.get("details") or {}),
+        **(details or {}),
+    }
+    with get_connection() as conn:
+        conn.execute(
+            """UPDATE sync_conflicts
+               SET status = ?,
+                   details = ?,
+                   resolved_at = CURRENT_TIMESTAMP
+               WHERE id = ?""",
+            (status, json.dumps(merged_details), conflict_id),
+        )
+        conn.commit()
+    insert_sync_audit_log(
+        user_id=current["user_id"],
+        action=f"conflict_{status}",
+        version=current.get("remote_version", ""),
+        details={"conflict_id": conflict_id, **merged_details},
+    )
+    return get_sync_conflict(conflict_id)
+
+
+def ensure_sync_pairing_tables() -> None:
+    with get_connection() as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS sync_pairing_sessions (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                requester_device_id TEXT NOT NULL,
+                requester_device_name TEXT DEFAULT '',
+                requester_public_key TEXT NOT NULL,
+                approver_device_id TEXT DEFAULT '',
+                approver_public_key TEXT DEFAULT '',
+                pairing_code TEXT NOT NULL UNIQUE,
+                qr_payload TEXT NOT NULL,
+                requested_scopes TEXT DEFAULT '[]',
+                status TEXT DEFAULT 'pending'
+                    CHECK(status IN ('pending','approved','denied','expired','claimed','revoked')),
+                transfer_envelope TEXT DEFAULT '',
+                recovery_token_hash TEXT DEFAULT '',
+                expires_at INTEGER NOT NULL,
+                approved_at DATETIME,
+                claimed_at DATETIME,
+                revoked_at DATETIME,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+
+def create_sync_pairing_session(
+    user_id: str,
+    requester_device_id: str,
+    requester_device_name: str,
+    requester_public_key: str,
+    pairing_code: str,
+    qr_payload: dict,
+    requested_scopes: list[str],
+    expires_at: int,
+) -> dict:
+    ensure_sync_pairing_tables()
+    session_id = str(uuid.uuid4())
+    with get_connection() as conn:
+        conn.execute(
+            """INSERT INTO sync_pairing_sessions
+               (id, user_id, requester_device_id, requester_device_name,
+                requester_public_key, pairing_code, qr_payload, requested_scopes, expires_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                session_id,
+                user_id,
+                requester_device_id,
+                requester_device_name,
+                requester_public_key,
+                pairing_code,
+                json.dumps(qr_payload, sort_keys=True),
+                json.dumps(requested_scopes or []),
+                expires_at,
+            ),
+        )
+    return get_sync_pairing_session(session_id=session_id) or {}
+
+
+def get_sync_pairing_session(
+    session_id: str = "",
+    pairing_code: str = "",
+    include_transfer: bool = True,
+) -> Optional[dict]:
+    ensure_sync_pairing_tables()
+    if not session_id and not pairing_code:
+        return None
+    where = "id = ?" if session_id else "pairing_code = ?"
+    value = session_id or pairing_code
+    with get_connection() as conn:
+        row = conn.execute(f"SELECT * FROM sync_pairing_sessions WHERE {where}", (value,)).fetchone()
+    if not row:
+        return None
+    data = dict(row)
+    data["qr_payload"] = json.loads(data.get("qr_payload") or "{}")
+    data["requested_scopes"] = json.loads(data.get("requested_scopes") or "[]")
+    if not include_transfer:
+        data.pop("transfer_envelope", None)
+    return data
+
+
+def list_sync_pairing_sessions(user_id: str, status: Optional[str] = None, limit: int = 100) -> list[dict]:
+    ensure_sync_pairing_tables()
+    params: list[Any] = [user_id]
+    where = "WHERE user_id = ?"
+    if status:
+        where += " AND status = ?"
+        params.append(status)
+    params.append(limit)
+    with get_connection() as conn:
+        rows = conn.execute(
+            f"""SELECT * FROM sync_pairing_sessions
+                {where}
+                ORDER BY created_at DESC
+                LIMIT ?""",
+            params,
+        ).fetchall()
+    sessions = []
+    for row in rows:
+        data = dict(row)
+        data["qr_payload"] = json.loads(data.get("qr_payload") or "{}")
+        data["requested_scopes"] = json.loads(data.get("requested_scopes") or "[]")
+        data.pop("transfer_envelope", None)
+        sessions.append(data)
+    return sessions
+
+
+def update_sync_pairing_session(session_id: str, **updates: Any) -> Optional[dict]:
+    ensure_sync_pairing_tables()
+    allowed = {
+        "status",
+        "approver_device_id",
+        "approver_public_key",
+        "transfer_envelope",
+        "recovery_token_hash",
+        "approved_at",
+        "claimed_at",
+        "revoked_at",
+    }
+    clean = {key: value for key, value in updates.items() if key in allowed}
+    if not clean:
+        return get_sync_pairing_session(session_id=session_id)
+    assignments = [f"{key} = ?" for key in clean]
+    assignments.append("updated_at = CURRENT_TIMESTAMP")
+    values = list(clean.values())
+    values.append(session_id)
+    with get_connection() as conn:
+        conn.execute(
+            f"UPDATE sync_pairing_sessions SET {', '.join(assignments)} WHERE id = ?",
+            values,
+        )
+    return get_sync_pairing_session(session_id=session_id)
+
+
 def revoke_pcl_app(app_id: str) -> bool:
     with get_connection() as conn:
         cursor = conn.execute(
@@ -1237,14 +2200,16 @@ def connect_pcl_integration(
     account_hint: str = "",
     auth_status: str = "local_metadata",
     auth_expires_at: Optional[int] = None,
+    user_id: str = "local_user",
 ) -> dict:
     with get_connection() as conn:
         conn.execute(
             """INSERT OR REPLACE INTO pcl_integrations
-               (source, name, status, scopes, metadata, account_hint, auth_status,
+               (user_id, source, name, status, scopes, metadata, account_hint, auth_status,
                 auth_expires_at, disconnected_at)
-               VALUES (?, ?, 'connected', ?, ?, ?, ?, ?, NULL)""",
+               VALUES (?, ?, ?, 'connected', ?, ?, ?, ?, ?, NULL)""",
             (
+                user_id,
                 source,
                 name,
                 json.dumps(scopes),
@@ -1255,45 +2220,46 @@ def connect_pcl_integration(
             ),
         )
         conn.commit()
-    return get_pcl_integration(source) or {}
+    return get_pcl_integration(source, user_id=user_id) or {}
 
 
-def get_pcl_integration(source: str) -> Optional[dict]:
+def get_pcl_integration(source: str, user_id: str = "local_user") -> Optional[dict]:
     with get_connection() as conn:
         row = conn.execute(
-            "SELECT * FROM pcl_integrations WHERE source = ?",
-            (source,),
+            "SELECT * FROM pcl_integrations WHERE source = ? AND user_id = ?",
+            (source, user_id),
         ).fetchone()
     if not row:
         return None
     return _pcl_integration_row(row)
 
 
-def list_pcl_integrations() -> list[dict]:
+def list_pcl_integrations(user_id: str = "local_user") -> list[dict]:
     with get_connection() as conn:
         rows = conn.execute(
-            "SELECT * FROM pcl_integrations ORDER BY connected_at DESC"
+            "SELECT * FROM pcl_integrations WHERE user_id = ? ORDER BY connected_at DESC",
+            (user_id,),
         ).fetchall()
     return [_pcl_integration_row(row) for row in rows]
 
 
-def disconnect_pcl_integration(source: str) -> bool:
+def disconnect_pcl_integration(source: str, user_id: str = "local_user") -> bool:
     with get_connection() as conn:
         cursor = conn.execute(
             """UPDATE pcl_integrations
                SET status = 'disconnected', disconnected_at = CURRENT_TIMESTAMP
-               WHERE source = ? AND status != 'disconnected'""",
-            (source,),
+               WHERE source = ? AND user_id = ? AND status != 'disconnected'""",
+            (source, user_id),
         )
         conn.commit()
     return cursor.rowcount > 0
 
 
-def delete_pcl_integration_data(source: str) -> dict:
+def delete_pcl_integration_data(source: str, user_id: str = "local_user") -> dict:
     with get_connection() as conn:
         integrations = conn.execute(
-            "DELETE FROM pcl_integrations WHERE source = ?",
-            (source,),
+            "DELETE FROM pcl_integrations WHERE source = ? AND user_id = ?",
+            (source, user_id),
         ).rowcount
         feed_items = conn.execute(
             "DELETE FROM feed_items WHERE source = ?",
@@ -1304,16 +2270,17 @@ def delete_pcl_integration_data(source: str) -> dict:
             (source,),
         ).rowcount
         oauth_states = conn.execute(
-            "DELETE FROM pcl_integration_oauth_states WHERE source = ?",
-            (source,),
+            "DELETE FROM pcl_integration_oauth_states WHERE source = ? AND user_id = ?",
+            (source, user_id),
         ).rowcount
         oauth_tokens = conn.execute(
-            "DELETE FROM pcl_integration_oauth_tokens WHERE source = ?",
-            (source,),
+            "DELETE FROM pcl_integration_oauth_tokens WHERE source = ? AND user_id = ?",
+            (source, user_id),
         ).rowcount
         conn.commit()
     return {
         "source": source,
+        "user_id": user_id,
         "integrations": integrations,
         "feed_items": feed_items,
         "persona_signals": persona_signals,
@@ -1485,6 +2452,7 @@ def update_pcl_integration_sync(
     error: str = "",
     sync_cursor: Optional[dict] = None,
     next_sync_after: Optional[int] = None,
+    user_id: str = "local_user",
 ) -> dict:
     cursor_json = json.dumps(sync_cursor or {})
     with get_connection() as conn:
@@ -1495,8 +2463,8 @@ def update_pcl_integration_sync(
                        last_sync_status = ?,
                        items_synced = ?,
                        error = ?
-                   WHERE source = ?""",
-                (status, int(items_synced), error[:500], source),
+                   WHERE source = ? AND user_id = ?""",
+                (status, int(items_synced), error[:500], source, user_id),
             )
         elif next_sync_after is None:
             conn.execute(
@@ -1506,8 +2474,8 @@ def update_pcl_integration_sync(
                        items_synced = ?,
                        sync_cursor = ?,
                        error = ?
-                   WHERE source = ?""",
-                (status, int(items_synced), cursor_json, error[:500], source),
+                   WHERE source = ? AND user_id = ?""",
+                (status, int(items_synced), cursor_json, error[:500], source, user_id),
             )
         else:
             conn.execute(
@@ -1518,15 +2486,16 @@ def update_pcl_integration_sync(
                        sync_cursor = ?,
                        next_sync_after = ?,
                        error = ?
-                   WHERE source = ?""",
-                (status, int(items_synced), cursor_json, int(next_sync_after), error[:500], source),
+                   WHERE source = ? AND user_id = ?""",
+                (status, int(items_synced), cursor_json, int(next_sync_after), error[:500], source, user_id),
             )
         conn.commit()
-    return get_pcl_integration(source) or {}
+    return get_pcl_integration(source, user_id=user_id) or {}
 
 
 def _pcl_integration_row(row: sqlite3.Row) -> dict:
     return {
+        "user_id": row["user_id"],
         "source": row["source"],
         "name": row["name"],
         "status": row["status"],
@@ -1581,38 +2550,25 @@ def _local_secret_key() -> bytes:
 
 
 def _encrypt_local_secret_blob(payload: dict) -> str:
-    plaintext = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
-    key = _local_secret_key()
-    cipher = bytes(byte ^ key[index % len(key)] for index, byte in enumerate(plaintext))
-    mac = hmac.new(key, cipher, hashlib.sha256).hexdigest()
-    return json.dumps({
-        "version": 1,
-        "ciphertext": base64.b64encode(cipher).decode("ascii"),
-        "mac": mac,
-    }, separators=(",", ":"))
+    return encrypt_raw_payload(payload)
 
 
 def _decrypt_local_secret_blob(envelope_json: str) -> dict:
-    envelope = json.loads(envelope_json)
-    key = _local_secret_key()
-    cipher = base64.b64decode(envelope["ciphertext"])
-    expected = hmac.new(key, cipher, hashlib.sha256).hexdigest()
-    if not hmac.compare_digest(expected, envelope.get("mac", "")):
-        raise ValueError("local secret blob failed integrity check")
-    plaintext = bytes(byte ^ key[index % len(key)] for index, byte in enumerate(cipher))
-    return json.loads(plaintext.decode("utf-8"))
+    return decrypt_raw_payload(envelope_json)
 
 
 def insert_raw_context_event(event: dict) -> dict:
     event_id = str(uuid.uuid4())
     now_ms = int(datetime.now().timestamp() * 1000)
     timestamp = int(event.get("timestamp") or now_ms)
+    raw_payload = event.get("raw_payload", {})
+    encrypted_payload = encrypt_raw_payload(raw_payload) if raw_payload else "{}"
     with get_connection() as conn:
         conn.execute(
             """INSERT INTO raw_events
                (id, user_id, app_id, feature_id, action, session_id, source,
-                is_synthetic, metadata, timestamp, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                is_synthetic, metadata, raw_payload, timestamp, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 event_id,
                 event["user_id"],
@@ -1623,6 +2579,7 @@ def insert_raw_context_event(event: dict) -> dict:
                 event.get("source", "sdk"),
                 1 if event.get("is_synthetic") else 0,
                 json.dumps(event.get("metadata", {})),
+                encrypted_payload,
                 timestamp,
                 now_ms,
             ),
@@ -2392,7 +3349,7 @@ def list_contextlayer_activity(user_id: str, limit: int = 100) -> dict:
     limit = max(1, min(int(limit), 500))
     with get_connection() as conn:
         raw = conn.execute(
-            """SELECT app_id, feature_id, action, source, timestamp, created_at
+            """SELECT app_id, feature_id, action, source, metadata, raw_payload, timestamp, created_at
                FROM raw_events
                WHERE user_id = ?
                ORDER BY created_at DESC
@@ -2568,10 +3525,18 @@ def create_developer_api_key(
             (key_id, developer_id, app_id, key_hash, key_prefix, env if env in {"test", "live"} else "test"),
         )
         conn.commit()
-    return {
+    key = {
         **(get_developer_api_key(key_id) or {}),
         "key": raw_key,
     }
+    insert_developer_api_key_audit_log(
+        developer_id=developer_id,
+        key_id=key_id,
+        action="created",
+        app_id=app_id,
+        env=env if env in {"test", "live"} else "test",
+    )
+    return key
 
 
 def verify_developer_api_key(raw_key: str) -> Optional[dict]:
@@ -2589,7 +3554,7 @@ def verify_developer_api_key(raw_key: str) -> Optional[dict]:
             (row["id"],),
         )
         conn.commit()
-    return {
+    result = {
         "id": row["id"],
         "developer_id": row["developer_id"],
         "app_id": row["app_id"],
@@ -2599,6 +3564,14 @@ def verify_developer_api_key(raw_key: str) -> Optional[dict]:
         "last_used_at": row["last_used_at"],
         "created_at": row["created_at"],
     }
+    insert_developer_api_key_audit_log(
+        developer_id=row["developer_id"],
+        key_id=row["id"],
+        action="last_used",
+        app_id=row["app_id"],
+        env=row["env"],
+    )
+    return result
 
 
 def get_developer_api_key(key_id: str) -> Optional[dict]:
@@ -2642,6 +3615,279 @@ def list_developer_api_keys(developer_id: str) -> list[dict]:
         }
         for row in rows
     ]
+
+
+def revoke_developer_api_key(key_id: str, developer_id: str) -> bool:
+    existing = get_developer_api_key(key_id)
+    with get_connection() as conn:
+        revoked = conn.execute(
+            """UPDATE api_keys
+               SET is_active = 0
+               WHERE id = ? AND developer_id = ? AND is_active = 1""",
+            (key_id, developer_id),
+        ).rowcount
+        conn.commit()
+    if revoked:
+        insert_developer_api_key_audit_log(
+            developer_id=developer_id,
+            key_id=key_id,
+            action="revoked",
+            app_id=(existing or {}).get("app_id", ""),
+            env=(existing or {}).get("env", ""),
+        )
+    return revoked > 0
+
+
+def rotate_developer_api_key(key_id: str, developer_id: str) -> dict:
+    existing = get_developer_api_key(key_id)
+    if not existing or existing["developer_id"] != developer_id:
+        return {"status": "error", "error": "key_not_found"}
+    revoked = revoke_developer_api_key(key_id, developer_id)
+    replacement = create_developer_api_key(
+        developer_id=developer_id,
+        app_id=existing.get("app_id", ""),
+        env=existing.get("env", "test"),
+    )
+    insert_developer_api_key_audit_log(
+        developer_id=developer_id,
+        key_id=key_id,
+        action="rotated",
+        app_id=existing.get("app_id", ""),
+        env=existing.get("env", "test"),
+        details={"new_key_id": replacement.get("id", "")},
+    )
+    return {
+        "status": "rotated",
+        "revoked": revoked,
+        "old_key_id": key_id,
+        "api_key": replacement,
+    }
+
+
+def insert_developer_api_key_audit_log(
+    developer_id: str,
+    key_id: str,
+    action: str,
+    app_id: str = "",
+    env: str = "",
+    details: Optional[dict] = None,
+) -> dict:
+    audit_id = str(uuid.uuid4())
+    with get_connection() as conn:
+        conn.execute(
+            """INSERT INTO developer_api_key_audit_logs
+               (id, developer_id, key_id, action, app_id, env, details)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (audit_id, developer_id, key_id, action[:80], app_id[:120], env[:20], json.dumps(details or {})),
+        )
+        conn.commit()
+    return get_developer_api_key_audit_log(audit_id) or {}
+
+
+def get_developer_api_key_audit_log(audit_id: str) -> Optional[dict]:
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM developer_api_key_audit_logs WHERE id = ?",
+            (audit_id,),
+        ).fetchone()
+    if not row:
+        return None
+    data = dict(row)
+    data["details"] = json.loads(data.get("details") or "{}")
+    return data
+
+
+def list_developer_api_key_audit_logs(developer_id: str, limit: int = 100) -> list[dict]:
+    with get_connection() as conn:
+        rows = conn.execute(
+            """SELECT * FROM developer_api_key_audit_logs
+               WHERE developer_id = ?
+               ORDER BY created_at DESC
+               LIMIT ?""",
+            (developer_id, max(1, min(int(limit), 500))),
+        ).fetchall()
+    results = []
+    for row in rows:
+        data = dict(row)
+        data["details"] = json.loads(data.get("details") or "{}")
+        results.append(data)
+    return results
+
+
+def check_developer_rate_limit(
+    developer_id: str,
+    action: str,
+    limit: int = 60,
+    window_seconds: int = 60,
+) -> dict:
+    now = int(datetime.now().timestamp())
+    window_start = now - (now % max(1, int(window_seconds)))
+    row_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"rate:{developer_id}:{action}:{window_start}"))
+    with get_connection() as conn:
+        conn.execute(
+            """INSERT INTO developer_rate_limits
+               (id, developer_id, action, window_start, count)
+               VALUES (?, ?, ?, ?, 0)
+               ON CONFLICT(developer_id, action, window_start) DO NOTHING""",
+            (row_id, developer_id, action, window_start),
+        )
+        conn.execute(
+            """UPDATE developer_rate_limits
+               SET count = count + 1
+               WHERE developer_id = ? AND action = ? AND window_start = ?""",
+            (developer_id, action, window_start),
+        )
+        row = conn.execute(
+            """SELECT count FROM developer_rate_limits
+               WHERE developer_id = ? AND action = ? AND window_start = ?""",
+            (developer_id, action, window_start),
+        ).fetchone()
+        conn.commit()
+    count = int(row["count"] if row else 0)
+    allowed = count <= int(limit)
+    return {
+        "allowed": allowed,
+        "developer_id": developer_id,
+        "action": action,
+        "count": count,
+        "limit": int(limit),
+        "window_seconds": int(window_seconds),
+        "retry_after_seconds": 0 if allowed else max(1, window_seconds - (now - window_start)),
+    }
+
+
+def upsert_memory_quality_score(
+    user_id: str,
+    scope: str,
+    confidence: float,
+    freshness: float,
+    source_count: int,
+    score: float,
+) -> dict:
+    with get_connection() as conn:
+        conn.execute(
+            """INSERT INTO memory_quality_scores
+               (user_id, scope, confidence, freshness, source_count, score, computed_at)
+               VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+               ON CONFLICT(user_id, scope) DO UPDATE SET
+                 confidence = excluded.confidence,
+                 freshness = excluded.freshness,
+                 source_count = excluded.source_count,
+                 score = excluded.score,
+                 computed_at = CURRENT_TIMESTAMP""",
+            (user_id, scope, float(confidence), float(freshness), int(source_count), float(score)),
+        )
+        conn.commit()
+    return get_memory_quality_score(user_id, scope) or {}
+
+
+def get_memory_quality_score(user_id: str, scope: str) -> Optional[dict]:
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM memory_quality_scores WHERE user_id = ? AND scope = ?",
+            (user_id, scope),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def list_memory_quality_scores(user_id: str) -> list[dict]:
+    with get_connection() as conn:
+        rows = conn.execute(
+            """SELECT * FROM memory_quality_scores
+               WHERE user_id = ?
+               ORDER BY score DESC, scope""",
+            (user_id,),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def insert_observability_event(
+    user_id: str,
+    source: str,
+    event_name: str,
+    severity: str = "info",
+    route: str = "",
+    status_code: int | None = None,
+    duration_ms: int | None = None,
+    attributes: dict | None = None,
+    event_hash: str = "",
+) -> dict:
+    event_id = str(uuid.uuid4())
+    safe_severity = severity if severity in {"debug", "info", "warning", "error"} else "info"
+    with get_connection() as conn:
+        conn.execute(
+            """INSERT INTO observability_events
+               (id, user_id, source, event_name, severity, route, status_code,
+                duration_ms, attributes, event_hash)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                event_id,
+                user_id,
+                source[:80],
+                event_name[:120],
+                safe_severity,
+                route[:200],
+                status_code,
+                duration_ms,
+                json.dumps(attributes or {}, sort_keys=True),
+                event_hash,
+            ),
+        )
+        conn.commit()
+    return get_observability_event(event_id) or {}
+
+
+def get_observability_event(event_id: str) -> Optional[dict]:
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM observability_events WHERE id = ?",
+            (event_id,),
+        ).fetchone()
+    if not row:
+        return None
+    return _observability_event_row(row)
+
+
+def list_observability_events(
+    user_id: str,
+    source: str | None = None,
+    severity: str | None = None,
+    limit: int = 100,
+) -> list[dict]:
+    clauses = ["user_id = ?"]
+    params: list = [user_id]
+    if source:
+        clauses.append("source = ?")
+        params.append(source)
+    if severity:
+        clauses.append("severity = ?")
+        params.append(severity)
+    params.append(max(1, min(int(limit), 500)))
+    with get_connection() as conn:
+        rows = conn.execute(
+            f"""SELECT * FROM observability_events
+                WHERE {' AND '.join(clauses)}
+                ORDER BY created_at DESC
+                LIMIT ?""",
+            tuple(params),
+        ).fetchall()
+    return [_observability_event_row(row) for row in rows]
+
+
+def _observability_event_row(row) -> dict:
+    return {
+        "id": row["id"],
+        "user_id": row["user_id"],
+        "source": row["source"],
+        "event_name": row["event_name"],
+        "severity": row["severity"],
+        "route": row["route"],
+        "status_code": row["status_code"],
+        "duration_ms": row["duration_ms"],
+        "attributes": json.loads(row["attributes"] or "{}"),
+        "event_hash": row["event_hash"],
+        "created_at": row["created_at"],
+    }
 
 
 def grant_app_consent(
@@ -3217,5 +4463,542 @@ def _feature_signal_row(row: sqlite3.Row) -> dict:
 def _raw_context_event_row(row: sqlite3.Row) -> dict:
     data = dict(row)
     data["metadata"] = json.loads(data.get("metadata") or "{}")
+    raw_payload = data.get("raw_payload") or "{}"
+    try:
+        data["raw_payload"] = decrypt_raw_payload(raw_payload)
+    except Exception:
+        # Legacy fallback: unencrypted JSON
+        try:
+            data["raw_payload"] = json.loads(raw_payload)
+        except Exception:
+            data["raw_payload"] = {}
     data["is_synthetic"] = bool(data.get("is_synthetic"))
     return data
+
+
+def get_user_preferences(user_id: str) -> dict:
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM user_preferences WHERE user_id = ?",
+            (user_id,),
+        ).fetchone()
+    if not row:
+        return {
+            "user_id": user_id,
+            "personalization_goals": [],
+            "privacy_level": "balanced",
+            "sharing_default": "ask",
+            "personalization_aggression": "medium",
+            "enabled_integrations": [],
+            "disabled_signal_sources": [],
+            "onboarding_completed": False,
+            "updated_at": None,
+        }
+    return {
+        "user_id": row["user_id"],
+        "personalization_goals": json.loads(row["personalization_goals"]),
+        "privacy_level": row["privacy_level"],
+        "sharing_default": row["sharing_default"],
+        "personalization_aggression": row["personalization_aggression"],
+        "enabled_integrations": json.loads(row["enabled_integrations"]),
+        "disabled_signal_sources": json.loads(row["disabled_signal_sources"]),
+        "onboarding_completed": bool(row["onboarding_completed"]),
+        "updated_at": row["updated_at"],
+    }
+
+
+def upsert_user_preferences(
+    user_id: str,
+    personalization_goals: list[str] | None = None,
+    privacy_level: str | None = None,
+    sharing_default: str | None = None,
+    personalization_aggression: str | None = None,
+    enabled_integrations: list[str] | None = None,
+    disabled_signal_sources: list[str] | None = None,
+    onboarding_completed: bool | None = None,
+) -> dict:
+    existing = get_user_preferences(user_id)
+    goals = json.dumps(personalization_goals if personalization_goals is not None else existing["personalization_goals"])
+    level = privacy_level if privacy_level is not None else existing["privacy_level"]
+    default = sharing_default if sharing_default is not None else existing["sharing_default"]
+    aggression = personalization_aggression if personalization_aggression is not None else existing["personalization_aggression"]
+    integrations = json.dumps(enabled_integrations if enabled_integrations is not None else existing["enabled_integrations"])
+    sources = json.dumps(disabled_signal_sources if disabled_signal_sources is not None else existing["disabled_signal_sources"])
+    completed = 1 if (onboarding_completed if onboarding_completed is not None else existing["onboarding_completed"]) else 0
+    with get_connection() as conn:
+        conn.execute(
+            """INSERT OR REPLACE INTO user_preferences
+               (user_id, personalization_goals, privacy_level, sharing_default,
+                personalization_aggression, enabled_integrations, disabled_signal_sources,
+                onboarding_completed, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)""",
+            (user_id, goals, level, default, aggression, integrations, sources, completed),
+        )
+        conn.commit()
+    return get_user_preferences(user_id)
+
+
+def insert_privacy_boundary(
+    user_id: str,
+    boundary_type: str,
+    target: str,
+    reason: str = "",
+) -> dict:
+    boundary_id = str(uuid.uuid4())
+    with get_connection() as conn:
+        conn.execute(
+            """INSERT INTO user_privacy_boundaries
+               (id, user_id, boundary_type, target, reason)
+               VALUES (?, ?, ?, ?, ?)""",
+            (boundary_id, user_id, boundary_type, target, reason[:500]),
+        )
+        conn.commit()
+    return {
+        "id": boundary_id,
+        "user_id": user_id,
+        "boundary_type": boundary_type,
+        "target": target,
+        "reason": reason[:500],
+        "is_active": True,
+        "created_at": datetime.now().isoformat(),
+    }
+
+
+def list_privacy_boundaries(user_id: str, active_only: bool = True) -> list[dict]:
+    with get_connection() as conn:
+        if active_only:
+            rows = conn.execute(
+                """SELECT * FROM user_privacy_boundaries
+                   WHERE user_id = ? AND is_active = 1
+                   ORDER BY created_at DESC""",
+                (user_id,),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """SELECT * FROM user_privacy_boundaries
+                   WHERE user_id = ?
+                   ORDER BY created_at DESC""",
+                (user_id,),
+            ).fetchall()
+    return [
+        {
+            "id": row["id"],
+            "user_id": row["user_id"],
+            "boundary_type": row["boundary_type"],
+            "target": row["target"],
+            "reason": row["reason"],
+            "is_active": bool(row["is_active"]),
+            "created_at": row["created_at"],
+        }
+        for row in rows
+    ]
+
+
+def revoke_privacy_boundary(boundary_id: str) -> bool:
+    with get_connection() as conn:
+        cursor = conn.execute(
+            "UPDATE user_privacy_boundaries SET is_active = 0 WHERE id = ?",
+            (boundary_id,),
+        )
+        conn.commit()
+    return cursor.rowcount > 0
+
+
+def delete_privacy_boundary(boundary_id: str) -> bool:
+    with get_connection() as conn:
+        cursor = conn.execute(
+            "DELETE FROM user_privacy_boundaries WHERE id = ?",
+            (boundary_id,),
+        )
+        conn.commit()
+    return cursor.rowcount > 0
+
+
+def insert_context_sharing_preview(
+    user_id: str,
+    app_id: str,
+    app_name: str,
+    requested_purpose: str,
+    permission_scope: list[str],
+    allowed_fields: list[str],
+    excluded_fields: list[str],
+    confidence_levels: dict,
+    plain_english_summary: str,
+    preview_json: dict,
+) -> dict:
+    preview_id = str(uuid.uuid4())
+    with get_connection() as conn:
+        conn.execute(
+            """INSERT INTO context_sharing_previews
+               (id, user_id, app_id, app_name, requested_purpose, permission_scope,
+                allowed_fields, excluded_fields, confidence_levels, plain_english_summary,
+                preview_json, status)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')""",
+            (
+                preview_id,
+                user_id,
+                app_id,
+                app_name,
+                requested_purpose,
+                json.dumps(permission_scope),
+                json.dumps(allowed_fields),
+                json.dumps(excluded_fields),
+                json.dumps(confidence_levels),
+                plain_english_summary,
+                json.dumps(preview_json),
+            ),
+        )
+        conn.commit()
+    return get_context_sharing_preview(preview_id) or {}
+
+
+def get_context_sharing_preview(preview_id: str) -> Optional[dict]:
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM context_sharing_previews WHERE id = ?",
+            (preview_id,),
+        ).fetchone()
+    if not row:
+        return None
+    return _sharing_preview_row(row)
+
+
+def _sharing_preview_row(row) -> dict:
+    return {
+        "id": row["id"],
+        "user_id": row["user_id"],
+        "app_id": row["app_id"],
+        "app_name": row["app_name"],
+        "requested_purpose": row["requested_purpose"],
+        "permission_scope": json.loads(row["permission_scope"]),
+        "allowed_fields": json.loads(row["allowed_fields"]),
+        "excluded_fields": json.loads(row["excluded_fields"]),
+        "confidence_levels": json.loads(row["confidence_levels"]),
+        "plain_english_summary": row["plain_english_summary"],
+        "preview_json": json.loads(row["preview_json"]),
+        "status": row["status"],
+        "user_decision": row["user_decision"],
+        "narrowed_fields": json.loads(row["narrowed_fields"]),
+        "created_at": row["created_at"],
+        "decided_at": row["decided_at"],
+    }
+
+
+def list_context_sharing_previews(user_id: str, status: Optional[str] = None, limit: int = 50) -> list[dict]:
+    with get_connection() as conn:
+        if status:
+            rows = conn.execute(
+                """SELECT * FROM context_sharing_previews
+                   WHERE user_id = ? AND status = ?
+                   ORDER BY created_at DESC
+                   LIMIT ?""",
+                (user_id, status, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """SELECT * FROM context_sharing_previews
+                   WHERE user_id = ?
+                   ORDER BY created_at DESC
+                   LIMIT ?""",
+                (user_id, limit),
+            ).fetchall()
+    return [_sharing_preview_row(row) for row in rows]
+
+
+def decide_context_sharing_preview(
+    preview_id: str,
+    decision: str,
+    narrowed_fields: list[str] | None = None,
+    user_decision: str = "",
+) -> dict:
+    if decision not in {"approved", "denied", "narrowed"}:
+        raise ValueError("decision must be approved, denied, or narrowed")
+    with get_connection() as conn:
+        conn.execute(
+            """UPDATE context_sharing_previews
+               SET status = ?, user_decision = ?, narrowed_fields = ?, decided_at = CURRENT_TIMESTAMP
+               WHERE id = ?""",
+            (decision, user_decision, json.dumps(narrowed_fields or []), preview_id),
+        )
+        conn.commit()
+    return get_context_sharing_preview(preview_id) or {}
+
+
+def insert_control_center_audit(
+    user_id: str,
+    action: str,
+    target_type: str,
+    target_id: str = "",
+    details: dict | None = None,
+) -> dict:
+    audit_id = str(uuid.uuid4())
+    with get_connection() as conn:
+        conn.execute(
+            """INSERT INTO control_center_audit
+               (id, user_id, action, target_type, target_id, details)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (audit_id, user_id, action, target_type, target_id, json.dumps(details or {})),
+        )
+        conn.commit()
+    return {
+        "id": audit_id,
+        "user_id": user_id,
+        "action": action,
+        "target_type": target_type,
+        "target_id": target_id,
+        "details": details or {},
+        "created_at": datetime.now().isoformat(),
+    }
+
+
+def list_control_center_audit(user_id: str, limit: int = 100) -> list[dict]:
+    with get_connection() as conn:
+        rows = conn.execute(
+            """SELECT * FROM control_center_audit
+               WHERE user_id = ?
+               ORDER BY created_at DESC
+               LIMIT ?""",
+            (user_id, limit),
+        ).fetchall()
+    return [
+        {
+            "id": row["id"],
+            "user_id": row["user_id"],
+            "action": row["action"],
+            "target_type": row["target_type"],
+            "target_id": row["target_id"],
+            "details": json.loads(row["details"]),
+            "created_at": row["created_at"],
+        }
+        for row in rows
+    ]
+
+
+def search_persona_signals(
+    query: str = "",
+    source: Optional[str] = None,
+    signal_type: Optional[str] = None,
+    shareable_only: bool = False,
+    limit: int = 100,
+    offset: int = 0,
+) -> list[dict]:
+    clauses = []
+    params = []
+    if query:
+        clauses.append("(name LIKE ? OR evidence LIKE ?)")
+        like = f"%{query}%"
+        params.extend([like, like])
+    if source:
+        clauses.append("source = ?")
+        params.append(source)
+    if signal_type:
+        clauses.append("signal_type = ?")
+        params.append(signal_type)
+    if shareable_only:
+        clauses.append("shareable = 1")
+    where_sql = "WHERE " + " AND ".join(clauses) if clauses else ""
+    sql = f"SELECT * FROM persona_signals {where_sql} ORDER BY timestamp DESC LIMIT ? OFFSET ?"
+    params.extend([limit, offset])
+    with get_connection() as conn:
+        rows = conn.execute(sql, tuple(params)).fetchall()
+    return [
+        {
+            "id": row["id"],
+            "source": row["source"],
+            "signal_type": row["signal_type"],
+            "name": row["name"],
+            "weight": row["weight"],
+            "confidence": row["confidence"],
+            "evidence": row["evidence"],
+            "shareable": bool(row["shareable"]),
+            "timestamp": row["timestamp"],
+            "created_at": row["created_at"],
+        }
+        for row in rows
+    ]
+
+
+def update_persona_signal(
+    signal_id: int,
+    user_id: str,
+    name: Optional[str] = None,
+    weight: Optional[float] = None,
+    confidence: Optional[float] = None,
+    evidence: Optional[str] = None,
+    shareable: Optional[bool] = None,
+    edit_reason: str = "",
+) -> dict:
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM persona_signals WHERE id = ?",
+            (signal_id,),
+        ).fetchone()
+        if not row:
+            raise ValueError("signal_not_found")
+        old_value = {
+            "name": row["name"],
+            "weight": row["weight"],
+            "confidence": row["confidence"],
+            "evidence": row["evidence"],
+            "shareable": bool(row["shareable"]),
+        }
+        updates = {}
+        if name is not None:
+            updates["name"] = name.strip()[:160]
+        if weight is not None:
+            updates["weight"] = float(weight)
+        if confidence is not None:
+            updates["confidence"] = float(confidence)
+        if evidence is not None:
+            updates["evidence"] = evidence[:500]
+        if shareable is not None:
+            updates["shareable"] = 1 if shareable else 0
+        if updates:
+            sets = ", ".join(f"{k} = ?" for k in updates)
+            conn.execute(
+                f"UPDATE persona_signals SET {sets} WHERE id = ?",
+                tuple(updates.values()) + (signal_id,),
+            )
+            conn.execute(
+                """INSERT INTO persona_signal_edits
+                   (signal_id, user_id, old_value, new_value, edit_reason)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (signal_id, user_id, json.dumps(old_value), json.dumps(updates), edit_reason[:500]),
+            )
+            conn.commit()
+    return get_persona_signal_by_id(signal_id) or {}
+
+
+def get_persona_signal_by_id(signal_id: int) -> Optional[dict]:
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM persona_signals WHERE id = ?",
+            (signal_id,),
+        ).fetchone()
+    if not row:
+        return None
+    return {
+        "id": row["id"],
+        "source": row["source"],
+        "signal_type": row["signal_type"],
+        "name": row["name"],
+        "weight": row["weight"],
+        "confidence": row["confidence"],
+        "evidence": row["evidence"],
+        "shareable": bool(row["shareable"]),
+        "timestamp": row["timestamp"],
+        "created_at": row["created_at"],
+    }
+
+
+def delete_persona_signal(signal_id: int, user_id: str) -> bool:
+    with get_connection() as conn:
+        conn.execute(
+            """INSERT INTO persona_signal_edits
+               (signal_id, user_id, old_value, new_value, edit_reason)
+               VALUES (?, ?, ?, ?, ?)""",
+            (signal_id, user_id, "{}", "{}", "deleted_by_user"),
+        )
+        cursor = conn.execute(
+            "DELETE FROM persona_signals WHERE id = ?",
+            (signal_id,),
+        )
+        conn.commit()
+    return cursor.rowcount > 0
+
+
+def export_user_context_data(user_id: str) -> dict:
+    with get_connection() as conn:
+        signals = conn.execute(
+            "SELECT * FROM persona_signals ORDER BY timestamp DESC"
+        ).fetchall()
+        contracts = conn.execute(
+            "SELECT * FROM context_contracts ORDER BY created_at DESC"
+        ).fetchall()
+        logs = conn.execute(
+            "SELECT * FROM context_access_logs ORDER BY created_at DESC"
+        ).fetchall()
+        apps = conn.execute(
+            "SELECT * FROM pcl_apps ORDER BY created_at DESC"
+        ).fetchall()
+        query_logs = conn.execute(
+            "SELECT * FROM pcl_query_logs ORDER BY created_at DESC"
+        ).fetchall()
+        events = conn.execute(
+            "SELECT * FROM events ORDER BY timestamp DESC LIMIT 10000"
+        ).fetchall()
+        feedback = conn.execute(
+            "SELECT * FROM persona_feedback ORDER BY created_at DESC"
+        ).fetchall()
+        preferences = conn.execute(
+            "SELECT * FROM user_preferences WHERE user_id = ?",
+            (user_id,),
+        ).fetchone()
+        boundaries = conn.execute(
+            "SELECT * FROM user_privacy_boundaries WHERE user_id = ? AND is_active = 1",
+            (user_id,),
+        ).fetchall()
+    return {
+        "user_id": user_id,
+        "exported_at": datetime.now().isoformat(),
+        "signals": [dict(r) for r in signals],
+        "contracts": [dict(r) for r in contracts],
+        "access_logs": [dict(r) for r in logs],
+        "apps": [dict(r) for r in apps],
+        "query_logs": [dict(r) for r in query_logs],
+        "events": [dict(r) for r in events],
+        "feedback": [dict(r) for r in feedback],
+        "preferences": dict(preferences) if preferences else None,
+        "privacy_boundaries": [dict(r) for r in boundaries],
+    }
+
+
+def get_unified_permissions(user_id: str) -> list[dict]:
+    results = []
+    with get_connection() as conn:
+        app_rows = conn.execute(
+            """SELECT id, app_id, scopes, is_active, granted_at, revoked_at, 'app' as permission_type
+               FROM app_permissions WHERE user_id = ? ORDER BY granted_at DESC""",
+            (user_id,),
+        ).fetchall()
+        web_rows = conn.execute(
+            """SELECT id, domain as app_id, scopes, is_active, granted_at, revoked_at, 'domain' as permission_type
+               FROM web_domain_permissions WHERE user_id = ? ORDER BY granted_at DESC""",
+            (user_id,),
+        ).fetchall()
+        contract_rows = conn.execute(
+            """SELECT id, platform_type as app_id, granted_context as scopes, status as is_active,
+                      created_at as granted_at, revoked_at, 'contract' as permission_type
+               FROM context_contracts ORDER BY created_at DESC""",
+        ).fetchall()
+    for row in app_rows:
+        results.append({
+            "id": row["id"],
+            "target": row["app_id"],
+            "type": "app",
+            "scopes": json.loads(row["scopes"]),
+            "status": "active" if row["is_active"] else "revoked",
+            "granted_at": row["granted_at"],
+            "revoked_at": row["revoked_at"],
+        })
+    for row in web_rows:
+        results.append({
+            "id": row["id"],
+            "target": row["app_id"],
+            "type": "domain",
+            "scopes": json.loads(row["scopes"]),
+            "status": "active" if row["is_active"] else "revoked",
+            "granted_at": row["granted_at"],
+            "revoked_at": row["revoked_at"],
+        })
+    for row in contract_rows:
+        results.append({
+            "id": row["id"],
+            "target": row["app_id"],
+            "type": "contract",
+            "scopes": row["scopes"] if isinstance(row["scopes"], list) else json.loads(row["scopes"]),
+            "status": row["is_active"],
+            "granted_at": row["granted_at"],
+            "revoked_at": row["revoked_at"],
+        })
+    return results

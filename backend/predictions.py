@@ -15,7 +15,7 @@ from living_persona import build_living_persona
 LLM_SOURCES = {
     "chatgpt", "claude", "perplexity", "opencode", "cursor",
     "gemini", "grok", "github_copilot", "llm", "claude_code",
-    "ollama", "aider", "sgpt",
+    "aider",
 }
 
 TASK_TO_CONTEXT = {

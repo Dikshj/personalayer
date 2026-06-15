@@ -9,7 +9,7 @@ from pcl.models import (
     RankedFeature,
     UserContextProfile,
 )
-from pcl.privacy import scrub_pii
+from pcl.privacy import egress_filter
 
 
 DEFAULT_ALLOWED_LAYERS: list[ContextLayer] = [
@@ -74,7 +74,7 @@ def rank_features(features: list[AppFeature], profile: UserContextProfile) -> li
 
         ranked.append(RankedFeature(
             feature_id=feature.feature_id,
-            name=feature.name,
+            name=egress_filter(feature.name),
             rank=0,
             score=round(score, 3),
             reason_codes=reasons or ["no_signal"],
@@ -94,7 +94,7 @@ def _constraints(profile: UserContextProfile) -> dict[str, Any]:
         for pref in profile.explicit_preferences
         if pref.hard_rule
     }
-    return scrub_pii(constraints)
+    return egress_filter(constraints)
 
 
 def _context_for_layers(profile: UserContextProfile, layers: list[ContextLayer]) -> dict[str, Any]:
@@ -111,4 +111,4 @@ def _context_for_layers(profile: UserContextProfile, layers: list[ContextLayer])
         context["explicit_preferences"] = [
             item.model_dump() for item in profile.explicit_preferences
         ]
-    return scrub_pii(context)
+    return egress_filter(context)

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone as dt_timezone
+from datetime import datetime, timedelta, timezone as dt_timezone
 from typing import Callable
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -11,6 +11,7 @@ from database import (
     delete_old_raw_context_events,
     delete_old_temporal_chains,
     get_daily_refresh_job,
+    get_active_context,
     get_user_profile_record,
     insert_daily_refresh_step_log,
     list_daily_refresh_step_logs,
@@ -29,6 +30,8 @@ from pcl.contextlayer import (
     run_decay_engine,
     run_profile_synthesizer_for_user,
 )
+from pcl.memory import list_memory_files, prune_memory_file, rebuild_memory_index
+from pcl.persona_diffs import propose_memory_diff
 
 
 DAILY_INSIGHT_PROMPT = """Given these changes to the user's context layer today:
@@ -164,10 +167,10 @@ def _steps(today: datetime) -> list[RefreshStep]:
         RefreshStep(5, "decay_engine", decay_engine),
         RefreshStep(6, "bi_mem_inductive", bi_mem_inductive),
         RefreshStep(7, "bi_mem_reflective", bi_mem_reflective),
-        RefreshStep(8, "tier_maintenance", tier_maintenance),
+        RefreshStep(8, "tier_maintenance", lambda user_id: tier_maintenance(user_id, today=today)),
         RefreshStep(9, "shared_context_file", shared_context_file),
         RefreshStep(10, "daily_insight_generation", daily_insight_generation),
-        RefreshStep(11, "raw_event_cleanup", raw_event_cleanup),
+        RefreshStep(11, "raw_event_cleanup", lambda user_id: raw_event_cleanup(user_id, today=today)),
     ]
 
 
@@ -178,9 +181,9 @@ def connector_sync(user_id: str) -> dict:
 
 
 def privacy_filter_batch(user_id: str) -> dict:
-    # The blocking privacy gate runs synchronously in ingest_context_event before
-    # raw_events is written, so the daily step verifies the invariant only.
-    return {"status": "already_applied_at_ingest"}
+    # Full privacy filtering is an egress concern. Ingest only blocks secrets
+    # that are not useful persona material, such as credentials and card values.
+    return {"status": "egress_filter_active", "local_raw_vault_enabled": True}
 
 
 def signal_classifier_route(user_id: str) -> dict:
@@ -207,8 +210,9 @@ def bi_mem_reflective(user_id: str) -> dict:
     return {"demoted": demote_stale_core_feature_signals(user_id=user_id)}
 
 
-def tier_maintenance(user_id: str) -> dict:
-    return maintain_knowledge_graph_tiers(user_id=user_id)
+def tier_maintenance(user_id: str, today: datetime | None = None) -> dict:
+    now_ms = int((today or datetime.now()).timestamp() * 1000)
+    return maintain_knowledge_graph_tiers(user_id=user_id, now_ms=now_ms)
 
 
 def tsubasa_distillation(user_id: str) -> dict:
@@ -275,6 +279,7 @@ def daily_insight_generation(user_id: str) -> dict:
     )
     return {
         "daily_insight": insight,
+        "memory_updates": nightly_markdown_memory_update(user_id, insight, signals),
         "prompt_template": DAILY_INSIGHT_PROMPT,
         "notification_routing": {
             "queued": delivery["queued"],
@@ -284,10 +289,79 @@ def daily_insight_generation(user_id: str) -> dict:
     }
 
 
-def raw_event_cleanup(user_id: str) -> dict:
+def nightly_markdown_memory_update(user_id: str, insight: str, signals: list[dict] | None = None) -> dict:
+    signals = signals if signals is not None else list_feature_signals(user_id=user_id)[:5]
+    active = get_active_context(user_id) or {}
+    updates = []
+
+    signal_text = ", ".join(
+        f"{signal['app_id']}:{signal['feature_id']} ({signal['tier']})"
+        for signal in signals[:5]
+    ) or "No strong feature signals yet."
+    daily = propose_memory_diff(
+        user_id=user_id,
+        scope="daily-log",
+        proposed_content=(
+            f"Daily insight: {insight}\n"
+            f"Strongest current signals: {signal_text}"
+        ),
+        reason="Nightly refresh summarized current useful context.",
+        source="daily_refresh",
+    )
+    updates.append(_memory_update_summary(daily))
+
+    project = active.get("project") or active.get("current_project") or ""
+    if project:
+        project_update = propose_memory_diff(
+            user_id=user_id,
+            scope="projects",
+            proposed_content=(
+                f"Active project: {project}. "
+                f"Relevant current signals: {signal_text}"
+            ),
+            reason="Nightly refresh detected active project context.",
+            source="daily_refresh",
+        )
+        updates.append(_memory_update_summary(project_update))
+
+    pruning = [
+        prune_memory_file(user_id, item["scope"])
+        for item in list_memory_files(user_id)
+    ]
+    index = rebuild_memory_index(user_id)
+
     return {
-        "raw_events_deleted": delete_old_raw_context_events(user_id=user_id),
-        "temporal_chains_deleted": delete_old_temporal_chains(user_id=user_id),
+        "updates": updates,
+        "signals_used": len(signals),
+        "active_project": project,
+        "pruning": pruning,
+        "index": index,
+    }
+
+
+def _memory_update_summary(result: dict) -> dict:
+    if result.get("status") == "applied":
+        diff = result.get("diff") or {}
+        return {
+            "status": "applied",
+            "scope": diff.get("scope"),
+            "source": diff.get("source"),
+            "diff_id": diff.get("id"),
+        }
+    return {
+        "status": result.get("status", "unknown"),
+        "scope": result.get("scope"),
+        "source": result.get("source"),
+    }
+
+
+def raw_event_cleanup(user_id: str, today: datetime | None = None) -> dict:
+    today = _as_utc(today or datetime.now(dt_timezone.utc))
+    older_than_ms = int((today - timedelta(days=7)).timestamp() * 1000)
+    return {
+        "raw_events_deleted": delete_old_raw_context_events(user_id=user_id, older_than_ms=older_than_ms),
+        "temporal_chains_deleted": delete_old_temporal_chains(user_id=user_id, older_than_ms=older_than_ms),
+        "older_than_ms": older_than_ms,
     }
 
 

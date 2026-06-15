@@ -45,3 +45,20 @@ def test_supabase_deploy_scaffold_has_no_secrets_or_processing_paths():
     assert "apns_" in env_example
     for term in FORBIDDEN_CLOUD_TERMS:
         assert term not in config
+
+
+def test_supabase_sync_and_observability_migrations_are_rls_protected():
+    sync = Path("supabase/migrations/003_encrypted_summary_sync.sql").read_text(encoding="utf-8").lower()
+    observability = Path("supabase/migrations/004_cloud_observability.sql").read_text(encoding="utf-8").lower()
+
+    for table in ["sync_devices", "encrypted_summary_blobs", "sync_conflicts"]:
+        assert f"create table if not exists public.{table}" in sync
+        assert f"alter table public.{table} enable row level security" in sync
+    assert "encrypted_blob jsonb not null" in sync
+    assert "raw_events" not in sync
+    assert "persona_signals" not in sync
+
+    assert "create table if not exists public.observability_events" in observability
+    assert "alter table public.observability_events enable row level security" in observability
+    assert "attributes jsonb" in observability
+    assert "must not contain personal content" in observability

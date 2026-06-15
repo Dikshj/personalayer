@@ -21,7 +21,7 @@ import { PersonalLayerSDK } from '@personalayer/sdk';
 
 const sdk = new PersonalLayerSDK();
 
-// Check if Personal Layer is available (extension or localhost daemon)
+// Check if Personal Layer is available (extension or local runtime)
 const available = await sdk.isAvailable();
 
 // Get context bundle
@@ -33,8 +33,8 @@ await sdk.track({ event_type: 'page_view', url: window.location.href });
 
 ## Architecture
 
-The SDK tries the browser extension first (via `chrome.runtime.sendMessage`),
-then falls back to localhost:7432 only if `fallbackEnabled: true` is set.
+The SDK tries the browser extension first, then falls back to the local Python
+runtime on `localhost:7823` only if `fallbackEnabled: true` is set.
 
 ```typescript
 const sdk = new PersonalLayerSDK({ fallbackEnabled: true });

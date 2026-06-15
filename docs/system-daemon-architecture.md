@@ -1,31 +1,32 @@
-# PersonaLayer System Daemon Architecture
+# Personal Layer System Daemon Architecture
 
-PersonaLayer is a local context daemon. The browser extension is one collector, not the product center.
+Personal Layer is a local-first personal context daemon. The browser extension is one collector, not the product center. Sensitive data stays on your device; only developer registry, consent metadata, and push routing touch the thin cloud.
 
 ## Runtime Shape
 
 ```text
-Local daemon on 127.0.0.1:7823
-  owns storage, event ingestion, signal extraction, policy, audit
+Local Python runtime on 127.0.0.1:7823
+  owns encrypted storage, event ingestion, signal extraction, policy, audit
 
 Collectors
-  browser extension
+  browser extension (Chrome MV3)
   shell wrappers
   IDE and coding-agent watchers
   local LLM proxy
   GitHub sync
-  future app connectors
+  Gmail, Calendar, Notion, Spotify, YouTube, Apple Health connectors
 
 Interfaces
   HTTP API for local collectors and dashboard
   MCP server for AI tools
-  CLI later
+  SDK (Python, JavaScript, Swift)
 
 Policy
-  apps negotiate context contracts
+  apps negotiate context contracts (scopes)
   daemon returns scoped context only
-  raw data stays local
+  raw data stays local (encrypted vault)
   every scoped context read is auditable
+  egress filter scrubs all outbound data
 ```
 
 ## Core Rule

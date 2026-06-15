@@ -1,26 +1,29 @@
-import { createClient } from '@supabase/supabase-js'
 
-const supabase = createClient(
-  Deno.env.get('SUPABASE_URL')!,
-  Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-)
+import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
-Deno.serve(async (req) => {
-  if (req.method !== 'POST') {
-    return new Response('Method not allowed', { status: 405 })
+serve(async (req) => {
+  const { userId, appId, action, status } = await req.json().catch(() => ({}))
+  if (!userId || !appId || !action) {
+    return new Response(JSON.stringify({ logged: false, error: 'missing_params' }), { status: 400 })
   }
 
-  const { event_type, app_id, metadata } = await req.json()
+  const supabase = createClient(
+    Deno.env.get('SUPABASE_URL')!,
+    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+  )
 
-  // Only log cloud metadata — no raw events, no insight text, no PII
-  const log = {
-    event_type,
-    app_id,
-    metadata_keys: Object.keys(metadata || {}),
-    timestamp: new Date().toISOString()
+  const { error } = await supabase.rpc('log_access_audit', {
+    p_user_id: userId,
+    p_app_id: appId,
+    p_action: action,
+    p_status: status || 'ok',
+    p_ip_hash: req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || null,
+  })
+
+  if (error) {
+    return new Response(JSON.stringify({ logged: false, error: error.message }), { status: 500 })
   }
-
-  console.log(JSON.stringify(log))
 
   return new Response(JSON.stringify({ logged: true }), { status: 200 })
 })

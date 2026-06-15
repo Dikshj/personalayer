@@ -4,6 +4,7 @@ from typing import Any
 import httpx
 
 from pcl.contextlayer import authorize_developer_context_request, build_context_bundle
+from pcl.privacy import egress_filter
 
 
 CONTEXT_TOKEN = "{cl_context}"
@@ -59,6 +60,7 @@ def inject_context_steering(
 
 
 def build_context_steering_prefix(bundle: dict[str, Any]) -> str:
+    bundle = egress_filter(bundle)
     active_context = bundle.get("active_context") or {}
     abstract = bundle.get("abstract_attributes") or []
     abstract_labels = []
@@ -100,6 +102,12 @@ async def proxy_chat_completion(
     upstream_base = os.getenv("CONTEXTLAYER_UPSTREAM_BASE_URL", "https://api.openai.com/v1").rstrip("/")
 
     if not upstream_key:
+        if os.getenv("PERSONALAYER_DEV_MODE") != "1":
+            return {
+                "status": "error",
+                "error": "upstream_not_configured",
+                "detail": "Set OPENAI_API_KEY or enable PERSONALAYER_DEV_MODE=1",
+            }
         return {
             "status": "dry_run",
             "context_injected": bundle is not None,

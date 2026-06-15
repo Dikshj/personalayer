@@ -232,6 +232,320 @@ async def test_pcl_query_denies_unknown_or_revoked_app(client):
 
 
 @pytest.mark.asyncio
+async def test_pcl_skill_registry_lifecycle(client):
+    async with client as c:
+        created = await c.post("/pcl/skills", json={
+            "skill_id": "personal-writing-style",
+            "name": "Personal Writing Style",
+            "category": "writing",
+            "description": "Drafts text in the user's confirmed tone.",
+            "instructions": "Use voice.md and approved examples before drafting.",
+            "allowed_layers": ["explicit_preferences", "active_context"],
+            "memory_scopes": ["voice", "preferences"],
+            "required_tools": ["memory.search"],
+            "privacy_rules": ["never include raw private notes"],
+        })
+        listed = await c.get("/pcl/skills", params={"category": "writing"})
+        fetched = await c.get("/pcl/skills/personal-writing-style")
+        disabled = await c.post("/pcl/skills/personal-writing-style/disable")
+        active = await c.get("/pcl/skills")
+        all_skills = await c.get("/pcl/skills", params={"active_only": False})
+
+    assert created.status_code == 200
+    assert created.json()["skill_id"] == "personal-writing-style"
+    assert created.json()["allowed_layers"] == ["explicit_preferences", "active_context"]
+    assert listed.json()["skills"][0]["name"] == "Personal Writing Style"
+    assert fetched.json()["memory_scopes"] == ["voice", "preferences"]
+    assert disabled.json()["status"] == "disabled"
+    assert active.json()["skills"] == []
+    assert all_skills.json()["skills"][0]["status"] == "disabled"
+
+
+@pytest.mark.asyncio
+async def test_pcl_skill_router_selects_relevant_skills(client):
+    async with client as c:
+        await c.post("/pcl/skills", json={
+            "skill_id": "personal-writing-style",
+            "name": "Personal Writing Style",
+            "category": "writing",
+            "description": "Drafts email replies and messages in the user's tone.",
+            "instructions": "Use voice.md, preferences.md, and approved writing examples.",
+            "allowed_layers": ["explicit_preferences", "active_context"],
+            "memory_scopes": ["voice", "preferences"],
+            "required_tools": ["memory.search"],
+            "privacy_rules": ["never include raw private notes"],
+        })
+        await c.post("/pcl/skills", json={
+            "skill_id": "code-review",
+            "name": "Code Review",
+            "category": "coding",
+            "description": "Reviews code changes, bugs, tests, and API design.",
+            "allowed_layers": ["capability_signals", "active_context"],
+            "memory_scopes": ["projects", "work-style"],
+            "required_tools": ["repo.inspect"],
+        })
+        await c.put("/v1/memory/voice", json={
+            "user_id": "user_1",
+            "content": "# Voice\n\nKeep writing concise and direct.\n",
+        })
+        routed = await c.post("/pcl/skills/route", json={
+            "user_id": "user_1",
+            "message": "Write this email reply like me and keep my tone concise.",
+            "max_skills": 2,
+            "include_memory": True,
+        })
+
+    data = routed.json()
+    assert routed.status_code == 200
+    assert data["selected_skill_ids"][0] == "personal-writing-style"
+    assert "voice" in data["memory_scopes"]
+    assert "memory.search" in data["required_tools"]
+    assert "never include raw private notes" in data["privacy_rules"]
+    assert data["memory"][0]["scope"] == "voice"
+    assert "concise and direct" in data["memory"][0]["content"]
+
+
+@pytest.mark.asyncio
+async def test_markdown_memory_lifecycle_endpoints(client):
+    async with client as c:
+        initialized = await c.post("/v1/memory/init", params={"user_id": "user_1"})
+        files = await c.get("/v1/memory/files", params={"user_id": "user_1"})
+        written = await c.put("/v1/memory/voice", json={
+            "user_id": "user_1",
+            "content": "# Voice\n\nPrefers concise, direct technical writing.\n",
+        })
+        appended = await c.post("/v1/memory/projects/append", json={
+            "user_id": "user_1",
+            "heading": "PersonaLayer",
+            "entry": "Building a local-first persona layer with skills and memory.",
+        })
+        search = await c.post("/v1/memory/search", json={
+            "user_id": "user_1",
+            "query": "concise technical writing",
+            "scopes": ["voice", "projects"],
+        })
+        decay = await c.post("/v1/memory/quality/decay", json={
+            "user_id": "user_1",
+            "scopes": ["voice", "projects"],
+        })
+
+    assert initialized.status_code == 200
+    assert initialized.json()["total"] >= 10
+    assert any(item["scope"] == "voice" for item in files.json()["files"])
+    assert written.json()["scope"] == "voice"
+    assert "concise, direct technical writing" in written.json()["content"]
+    assert "PersonaLayer" in appended.json()["content"]
+    assert search.json()["mode"] in {"hybrid", "indexed_hybrid"}
+    assert search.json()["results"][0]["scope"] == "voice"
+    assert "semantic_score" in search.json()["results"][0]
+    assert search.json()["results"][0]["quality"]["confidence"] > 0
+    assert len(decay.json()["scores"]) == 2
+    assert decay.json()["scores"][0]["score"] >= 0
+
+
+@pytest.mark.asyncio
+async def test_markdown_memory_dedupes_prunes_and_indexes(client):
+    async with client as c:
+        first = await c.post("/v1/memory/projects/append", json={
+            "user_id": "user_1",
+            "heading": "PersonaLayer",
+            "entry": "Building PersonaLayer with source-specific ingestion.",
+            "source": "test",
+        })
+        duplicate = await c.post("/v1/memory/projects/append", json={
+            "user_id": "user_1",
+            "heading": "PersonaLayer",
+            "entry": "Building PersonaLayer with source-specific ingestion.",
+            "source": "test",
+        })
+        await c.post("/v1/memory/projects/append", json={
+            "user_id": "user_1",
+            "entry": "This old thing is not relevant anymore.",
+            "source": "test",
+        })
+        search = await c.post("/v1/memory/search", json={
+            "user_id": "user_1",
+            "query": "source specific ingestion",
+            "scopes": ["projects"],
+        })
+        memory = await c.get("/v1/memory/projects", params={"user_id": "user_1"})
+
+    assert first.json()["content"].count("source-specific ingestion") == 1
+    assert duplicate.json()["content"].count("source-specific ingestion") == 1
+    assert search.json()["mode"] == "indexed_hybrid"
+    assert search.json()["results"][0]["scope"] == "projects"
+    assert search.json()["results"][0]["quality"]["source_count"] >= 1
+    assert "not relevant anymore" not in memory.json()["content"]
+
+
+def test_markdown_memory_rejects_unsafe_scope(tmp_path, monkeypatch):
+    import database
+    from pcl.memory import memory_file_path
+
+    monkeypatch.setattr(database, "DATA_DIR", tmp_path)
+
+    with pytest.raises(ValueError):
+        memory_file_path("user_1", "../secrets")
+
+
+@pytest.mark.asyncio
+async def test_persona_memory_diff_approval_flow(client):
+    async with client as c:
+        await c.put("/v1/memory/voice", json={
+            "user_id": "user_1",
+            "content": "# Voice\n\nExisting memory.\n",
+        })
+        proposed = await c.post("/v1/memory/diffs", json={
+            "user_id": "user_1",
+            "scope": "voice",
+            "proposed_content": "Prefers short, direct implementation notes.",
+            "reason": "User corrected assistant verbosity.",
+            "source": "reflection",
+            "auto_apply": False,
+        })
+        diff_id = proposed.json()["id"]
+        pending = await c.get("/v1/memory/diffs", params={"user_id": "user_1", "status": "pending"})
+        approved = await c.post(f"/v1/memory/diffs/{diff_id}/approve", json={
+            "reviewer_note": "accurate",
+        })
+        applied = await c.post(f"/v1/memory/diffs/{diff_id}/apply", json={
+            "reviewer_note": "write to voice memory",
+        })
+        memory = await c.get("/v1/memory/voice", params={"user_id": "user_1"})
+
+    assert proposed.status_code == 200
+    assert proposed.json()["status"] == "pending"
+    assert proposed.json()["current_excerpt"].endswith("Existing memory.\n")
+    assert pending.json()["diffs"][0]["id"] == diff_id
+    assert approved.json()["status"] == "approved"
+    assert applied.json()["status"] == "applied"
+    assert "Prefers short, direct implementation notes." in memory.json()["content"]
+
+
+@pytest.mark.asyncio
+async def test_persona_memory_diff_reject_does_not_write_memory(client):
+    async with client as c:
+        await c.put("/v1/memory/preferences", json={
+            "user_id": "user_1",
+            "content": "# Preferences\n\nExisting preferences.\n",
+        })
+        proposed = await c.post("/v1/memory/diffs", json={
+            "user_id": "user_1",
+            "scope": "preferences",
+            "proposed_content": "Incorrect inferred preference.",
+            "reason": "Low confidence.",
+            "source": "reflection",
+            "auto_apply": False,
+        })
+        diff_id = proposed.json()["id"]
+        rejected = await c.post(f"/v1/memory/diffs/{diff_id}/reject", json={
+            "reviewer_note": "wrong inference",
+        })
+        apply_after_reject = await c.post(f"/v1/memory/diffs/{diff_id}/apply", json={})
+        memory = await c.get("/v1/memory/preferences", params={"user_id": "user_1"})
+
+    assert rejected.json()["status"] == "rejected"
+    assert apply_after_reject.json()["error"] == "not_found_or_not_applicable"
+    assert "Incorrect inferred preference." not in memory.json()["content"]
+
+
+@pytest.mark.asyncio
+async def test_persona_memory_diff_auto_applies_by_default(client):
+    async with client as c:
+        proposed = await c.post("/v1/memory/diffs", json={
+            "user_id": "user_1",
+            "scope": "projects",
+            "proposed_content": "Building PersonaLayer with automatic memory ingestion.",
+            "reason": "Relevant active project.",
+            "source": "reflection",
+        })
+        memory = await c.get("/v1/memory/projects", params={"user_id": "user_1"})
+        diffs = await c.get("/v1/memory/diffs", params={"user_id": "user_1", "status": "applied"})
+
+    assert proposed.json()["status"] == "applied"
+    assert "automatic memory ingestion" in memory.json()["content"]
+    assert diffs.json()["diffs"][0]["status"] == "applied"
+
+
+@pytest.mark.asyncio
+async def test_memory_forget_and_source_toggle_controls(client):
+    async with client as c:
+        await c.put("/v1/memory/projects", json={
+            "user_id": "user_1",
+            "content": "# Projects\n\nBad memory.\n",
+            "source": "manual",
+            "reason": "setup",
+        })
+        deleted = await c.request("DELETE", "/v1/memory/projects", json={
+            "user_id": "user_1",
+            "reason": "not relevant anymore",
+        })
+        disabled = await c.put("/v1/memory/sources/calendar", json={
+            "user_id": "user_1",
+            "enabled": False,
+            "reason": "do not learn from calendar",
+        })
+        skipped = await c.post("/v1/memory/diffs", json={
+            "user_id": "user_1",
+            "scope": "daily-log",
+            "proposed_content": "Calendar memory that should not be saved.",
+            "source": "calendar",
+            "reason": "source disabled",
+        })
+        sources = await c.get("/v1/memory/sources", params={"user_id": "user_1"})
+        audit = await c.get("/v1/control-center/audit", params={"user_id": "user_1"})
+
+    assert deleted.json()["deleted"] is True
+    assert disabled.json()["enabled"] is False
+    assert skipped.json()["status"] == "skipped_source_disabled"
+    assert sources.json()["sources"][0]["source"] == "calendar"
+    actions = {item["action"] for item in audit.json()["logs"]}
+    assert "memory_forgotten" in actions
+    assert "memory_source_toggled" in actions
+
+
+@pytest.mark.asyncio
+async def test_messaging_bridge_ingests_to_memory(client):
+    async with client as c:
+        ingested = await c.post("/v1/messaging/whatsapp/messages", json={
+            "user_id": "user_1",
+            "sender": "Alex",
+            "thread_id": "yc-prep",
+            "text": "Let's prep the YC application tomorrow.",
+        })
+        daily = await c.get("/v1/memory/daily-log", params={"user_id": "user_1"})
+        people = await c.get("/v1/memory/people", params={"user_id": "user_1"})
+
+    assert ingested.json()["status"] == "ingested"
+    assert "whatsapp message from Alex" in daily.json()["content"]
+    assert "YC application" in daily.json()["content"]
+    assert "Alex appeared in whatsapp thread yc-prep." in people.json()["content"]
+
+
+@pytest.mark.asyncio
+async def test_messaging_bridge_respects_source_toggle(client):
+    async with client as c:
+        await c.put("/v1/memory/sources/whatsapp", json={
+            "user_id": "user_1",
+            "enabled": False,
+            "reason": "pause chat learning",
+        })
+        ingested = await c.post("/v1/messaging/whatsapp/messages", json={
+            "user_id": "user_1",
+            "sender": "Alex",
+            "text": "Do not remember this chat.",
+        })
+        daily = await c.get("/v1/memory/daily-log", params={"user_id": "user_1"})
+
+    assert ingested.json()["status"] == "ingested"
+    assert all(
+        update["status"] == "skipped_source_disabled"
+        for update in ingested.json()["memory_updates"]
+    )
+    assert "Do not remember this chat" not in daily.json()["content"]
+
+
+@pytest.mark.asyncio
 async def test_pcl_onboarding_seed_feeds_query_profile(client):
     async with client as c:
         questions = await c.get("/pcl/onboarding/questions")
@@ -305,7 +619,7 @@ async def test_pcl_feature_event_feeds_capability_ranking(client):
 
     data = query.json()
     assert event.json()["status"] == "ok"
-    assert event.json()["event"]["metadata"] == {}
+    assert event.json()["event"]["metadata"] == {"raw_note": "email user@example.com"}
     assert data["ranked_features"][0]["feature_id"] == "kanban"
     assert "feature_usage" in data["ranked_features"][0]["reason_codes"]
     assert usage.json()["features"][0]["feature_id"] == "kanban"
