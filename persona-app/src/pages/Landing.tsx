@@ -335,9 +335,8 @@ export default function Landing() {
         <div className="fade-up delay-3 relative z-10 mt-10 flex flex-wrap items-center justify-center gap-4">
           <Link to="/app/session" className="pl-btn-primary">
             <Download size={16} />
-            Add to Browser - Free
+            Get Started - Free
           </Link>
-          <a href="#how" className="pl-btn-ghost">See how it works</a>
         </div>
         <div className="fade-up delay-4 pl-ticker-wrap">
           <div className="pl-ticker">
@@ -558,10 +557,7 @@ export default function Landing() {
           <div className="mt-10 flex flex-wrap justify-center gap-4">
             <Link to="/app/session" className="pl-btn-primary">
               <Download size={16} />
-              Start Free
-            </Link>
-            <Link to="/request-access" className="pl-btn-ghost">
-              Request API Access <ArrowRight size={16} />
+              Get Started - Free
             </Link>
           </div>
           <p className="mt-8 font-mono text-xs tracking-[0.12em] text-[#6e6d67]">LOCAL-FIRST / NO ADS / YOUR DATA, YOUR CALL</p>
