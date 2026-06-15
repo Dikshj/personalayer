@@ -1,30 +1,154 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import {
   ArrowRight,
-  Calendar,
-  Eye,
-  Github,
+  BarChart3,
+  Brain,
+  BriefcaseBusiness,
+  Check,
+  Download,
+  FlaskConical,
+  HeartPulse,
   Lock,
-  type LucideIcon,
-  MapPin,
-  ServerCog,
+  MessageSquare,
+  Plug,
+  Search,
   ShieldCheck,
-  SlidersHorizontal,
+  ShoppingBag,
   Sparkles,
-  Trash2,
+  Target,
+  UserRound,
+  Zap,
+  type LucideIcon,
 } from "lucide-react";
 import { getStoredSessionToken } from "../api";
 import { useReveal } from "../lib/useReveal";
 
-const FEATURES: { icon: LucideIcon; title: string; body: string }[] = [
-  { icon: Eye, title: "See what’s known", body: "A clear view of every signal, its confidence, and where it came from — no hidden profile." },
-  { icon: SlidersHorizontal, title: "Control every signal", body: "Hide, edit, or delete any signal. Set sharing defaults and per-app permissions." },
-  { icon: ShieldCheck, title: "Privacy by default", body: "Always-private categories never leave your layer. Sensitive data is dropped, not shared." },
-  { icon: Lock, title: "Local-first", body: "Your context stays close to you. Apps request access; you decide what they receive." },
+const TICKER = [
+  ["TASTE", "coffee preference mapped"],
+  ["BEHAVIOR", "3am researcher detected"],
+  ["BUDGET", "mid-range buyer signal active"],
+  ["CONTEXT", "parent of 2 inferred"],
+  ["VALUES", "sustainability weight: high"],
+  ["PREDICT", "89% product fit score"],
 ];
 
-// Reveal-on-scroll wrapper.
+const STATS = [
+  { value: "~90%", label: "Predictive accuracy vs real consumers" },
+  { value: "Hours", unit: "not weeks", label: "Research timeline for product validation" },
+  { value: "0", unit: "breaches", label: "Local-first, you hold the keys" },
+  { value: "Always-on", label: "Concept tests without participant fatigue" },
+];
+
+const STEPS: { icon: LucideIcon; num: string; title: string; body: string }[] = [
+  {
+    icon: Brain,
+    num: "01 / CAPTURE",
+    title: "You build your persona",
+    body: "Answer onboarding prompts or let connectors learn from your behavior. Preferences, values, habits, and life context become a structured profile stored under your control.",
+  },
+  {
+    icon: Lock,
+    num: "02 / CONTROL",
+    title: "You own what's shared",
+    body: "Granular permissions decide which apps can access which persona dimensions. Revoke access at any time. No silent resale and no hidden ad targeting.",
+  },
+  {
+    icon: Zap,
+    num: "03 / CONNECT",
+    title: "AI agents read context instantly",
+    body: "Products integrating PersonaLayer query context through secure APIs. The AI starts personalized on day one with no repeated forms or cold starts.",
+  },
+  {
+    icon: Sparkles,
+    num: "04 / CONTRIBUTE",
+    title: "Opt in to research",
+    body: "Share anonymized persona archetypes with the research layer only when you choose. Builders test against real context while users stay in charge.",
+  },
+];
+
+const PROVIDES: { icon: LucideIcon; title: string; body: string }[] = [
+  {
+    icon: UserRound,
+    title: "Persona Engine",
+    body: "A living profile of preferences, values, behavior, and life context. Richer than a cookie, more honest than a survey, and owned by the user.",
+  },
+  {
+    icon: Plug,
+    title: "MCP Context API",
+    body: "A standardized interface for AI agents to request relevant context. Products integrate once and avoid building their own sensitive profile databases.",
+  },
+  {
+    icon: FlaskConical,
+    title: "Synthetic Research Panel",
+    body: "A consented pool of anonymized persona archetypes for concept, pricing, message, and market validation in hours.",
+  },
+  {
+    icon: BarChart3,
+    title: "Persona Analytics Dashboard",
+    body: "For builders: see which archetypes resonate, where fit breaks down, and what product-market signals look like before launch.",
+  },
+];
+
+const USE_CASES: { icon: LucideIcon; title: string; body: string; tag: string; tone: "user" | "biz" | "both" | "risk" }[] = [
+  {
+    icon: ShoppingBag,
+    title: "Personalized Shopping Agents",
+    body: "Shopping assistants know size, budget, style, and ethical filters before the first product page loads.",
+    tag: "for users",
+    tone: "user",
+  },
+  {
+    icon: FlaskConical,
+    title: "Product-Market Fit Testing",
+    body: "Test concepts against real-persona archetypes and get predicted conversion, objections, and segment-level resonance.",
+    tag: "for builders",
+    tone: "biz",
+  },
+  {
+    icon: HeartPulse,
+    title: "Health & Wellness Apps",
+    body: "Fitness, nutrition, and wellness products start with goals, restrictions, patterns, and preferences already available.",
+    tag: "for users",
+    tone: "both",
+  },
+  {
+    icon: Target,
+    title: "Creative & Ad Testing",
+    body: "Evaluate tone, format, hooks, and creative against psychographic segments before campaign launch.",
+    tag: "for builders",
+    tone: "biz",
+  },
+  {
+    icon: Search,
+    title: "Learning Platforms",
+    body: "Education tools adapt to prior knowledge, preferred format, pace, and available time instead of generic defaults.",
+    tag: "for users",
+    tone: "user",
+  },
+  {
+    icon: BriefcaseBusiness,
+    title: "Pricing & Packaging Research",
+    body: "Find price-sensitivity curves for customer archetypes before your pricing page or sales motion goes live.",
+    tag: "for builders",
+    tone: "risk",
+  },
+  {
+    icon: MessageSquare,
+    title: "Contextual AI Assistants",
+    body: "Assistants in the browser, IDE, inbox, or workflow inherit work style, communication preferences, and constraints.",
+    tag: "for everyone",
+    tone: "both",
+  },
+  {
+    icon: BarChart3,
+    title: "Market Expansion Validation",
+    body: "Query segment-level persona pools to understand cultural fit, adoption barriers, and localization priorities.",
+    tag: "for builders",
+    tone: "biz",
+  },
+];
+
 function Reveal({ children, className = "", delay = 0 }: { children: ReactNode; className?: string; delay?: number }) {
   const { ref, shown } = useReveal<HTMLDivElement>();
   return (
@@ -34,55 +158,138 @@ function Reveal({ children, className = "", delay = 0 }: { children: ReactNode; 
   );
 }
 
-// A floating signal node inside the 3D stage. `z` sets its depth.
-function Node({
-  icon: Icon,
-  label,
-  className,
-  z,
-  float,
-  locked = false,
-}: {
-  icon: LucideIcon;
-  label: string;
-  className: string;
-  z: number;
-  float: string;
-  locked?: boolean;
-}) {
+function Label({ children, center = false }: { children: ReactNode; center?: boolean }) {
   return (
-    <div className={`absolute ${className}`} style={{ transform: `translateZ(${z}px)` }}>
-      <div className={float}>
-        <span
-          className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold shadow-lg backdrop-blur ${
-            locked
-              ? "border-warn/40 bg-[#1a1305]/80 text-warn"
-              : "border-white/15 bg-white/10 text-white"
-          }`}
-        >
-          <Icon size={13} /> {label}
-        </span>
-      </div>
+    <div className={`pl-label ${center ? "justify-center" : ""}`}>
+      <span className="h-px w-5 bg-current" />
+      {children}
     </div>
   );
 }
 
-// Mock persona signal row shown inside the floating glass card.
-function SignalRow({ name, source, pct, shared }: { name: string; source: string; pct: number; shared: boolean }) {
+function FingerprintCanvas() {
+  const ref = useRef<HTMLCanvasElement | null>(null);
+
+  useEffect(() => {
+    const canvas = ref.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const width = 900;
+    const height = 900;
+    const cx = width / 2;
+    const cy = height / 2;
+    const rings = 6;
+    const spokes = 72;
+    const dims = [
+      { color: "#6C47FF", speed: 0.0007, amp: 0.28 },
+      { color: "#00C8F0", speed: 0.0005, amp: 0.22 },
+      { color: "#6C47FF", speed: 0.0009, amp: 0.19 },
+      { color: "#00E5A0", speed: 0.0006, amp: 0.31 },
+      { color: "#6C47FF", speed: 0.0008, amp: 0.17 },
+      { color: "#00C8F0", speed: 0.0004, amp: 0.25 },
+    ];
+
+    let frame = 0;
+    const draw = (timestamp: number) => {
+      const t = timestamp * 0.001;
+      ctx.clearRect(0, 0, width, height);
+
+      for (let r = 0; r < rings; r += 1) {
+        const baseR = 80 + r * 60;
+        const dim = dims[r % dims.length];
+        const pts: { x: number; y: number }[] = [];
+
+        for (let i = 0; i <= spokes; i += 1) {
+          const angle = (i / spokes) * Math.PI * 2;
+          const wave = Math.sin(angle * (r + 3) + t * dim.speed * 1000 + r) * dim.amp;
+          const wave2 = Math.cos(angle * (r * 2 + 1) + t * dim.speed * 700) * (dim.amp * 0.4);
+          const rad = baseR * (1 + wave + wave2);
+          pts.push({ x: cx + Math.cos(angle) * rad, y: cy + Math.sin(angle) * rad });
+        }
+
+        ctx.beginPath();
+        ctx.moveTo(pts[0].x, pts[0].y);
+        for (let i = 1; i < pts.length; i += 1) ctx.lineTo(pts[i].x, pts[i].y);
+        ctx.closePath();
+        ctx.strokeStyle = dim.color;
+        ctx.lineWidth = 1;
+        ctx.globalAlpha = 0.5 - r * 0.04;
+        ctx.stroke();
+      }
+
+      ctx.beginPath();
+      ctx.arc(cx, cy, 4 + Math.sin(t * 2) * 1.5, 0, Math.PI * 2);
+      ctx.fillStyle = "#6C47FF";
+      ctx.globalAlpha = 0.9;
+      ctx.fill();
+
+      for (let i = 0; i < 16; i += 1) {
+        const angle = (i / 16) * Math.PI * 2;
+        ctx.beginPath();
+        ctx.moveTo(cx, cy);
+        ctx.lineTo(cx + Math.cos(angle) * 380, cy + Math.sin(angle) * 380);
+        ctx.strokeStyle = "rgba(108,71,255,0.08)";
+        ctx.lineWidth = 0.5;
+        ctx.globalAlpha = 1;
+        ctx.stroke();
+      }
+
+      ctx.globalAlpha = 1;
+      frame = window.requestAnimationFrame(draw);
+    };
+
+    frame = window.requestAnimationFrame(draw);
+    return () => window.cancelAnimationFrame(frame);
+  }, []);
+
+  return <canvas ref={ref} className="pl-fingerprint" width={900} height={900} aria-hidden />;
+}
+
+function PersonaDemo() {
+  const rows = [
+    ["Price sensitivity", "62%", "62%", "bg-[#6C47FF]"],
+    ["Feature curiosity", "88%", "88%", "bg-[#00C8F0]"],
+    ["Churn risk", "24%", "24%", "bg-[#FF5E6C]"],
+  ];
+
   return (
-    <div className="flex items-center justify-between gap-3 rounded-lg bg-white/[0.04] px-3 py-2">
-      <div className="min-w-0">
-        <div className="truncate text-sm font-semibold text-white">{name}</div>
-        <div className="text-[11px] text-white/50">{source}</div>
+    <div className="pl-persona-demo">
+      <div className="mb-6 flex items-center gap-4">
+        <div className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-gradient-to-br from-[#6C47FF] to-[#00C8F0] font-bold text-white">
+          DJ
+        </div>
+        <div>
+          <div className="font-display text-sm font-semibold text-[#F0EEFF]">Digital Persona #4,421</div>
+          <div className="text-xs text-[#8A85AA]">Urban / 28-34 / Mid-income / Tech-adjacent</div>
+        </div>
       </div>
-      <div className="flex shrink-0 items-center gap-2">
-        <span className="h-1.5 w-14 overflow-hidden rounded-full bg-white/10">
-          <span
-            className="block h-full rounded-full bg-gradient-to-r from-[#bd5d3f] to-[#e0b48f]"
-            style={{ width: `${pct}%` }}
-          />
-        </span>
-        <span className={`h-3.5 w-3.5 rounded-full ${shared ? "bg-[#e0b48f]" : "bg-warn"}`} />
+      <div className="mb-5 flex flex-wrap gap-2">
+        {["early adopter", "sustainability-first", "subscription averse", "research-heavy buyer", "night owl"].map((tag, i) => (
+          <span key={tag} className={`pl-persona-tag ${i % 3 === 0 ? "tag-indigo" : i % 3 === 1 ? "tag-cyan" : "tag-green"}`}>
+            {tag}
+          </span>
+        ))}
+      </div>
+      <div className="mb-5 text-xs text-[#8A85AA]">Purchase likelihood signals</div>
+      <div className="space-y-3">
+        {rows.map(([name, label, width, color]) => (
+          <div key={name} className="grid grid-cols-[96px_1fr_34px] items-center gap-3 text-xs">
+            <span className="text-[#F0EEFF]/80">{name}</span>
+            <span className="h-1 overflow-hidden rounded-full bg-white/10">
+              <span className={`block h-full rounded-full ${color}`} style={{ width }} />
+            </span>
+            <span className="font-mono text-[#8A85AA]">{label}</span>
+          </div>
+        ))}
+      </div>
+      <div className="mt-6 flex items-center justify-between rounded-xl border border-[#00E5A0]/20 bg-[#00E5A0]/10 px-4 py-3">
+        <div>
+          <div className="text-xs text-[#8A85AA]">Overall fit score for your product</div>
+          <div className="mt-0.5 text-[11px] text-[#8A85AA]">Based on persona context + product brief</div>
+        </div>
+        <div className="font-display text-xl font-bold text-[#00E5A0]">87%</div>
       </div>
     </div>
   );
@@ -90,200 +297,279 @@ function SignalRow({ name, source, pct, shared }: { name: string; source: string
 
 export default function Landing() {
   const entered = Boolean(getStoredSessionToken());
-  const [tilt, setTilt] = useState({ x: 0, y: 0 });
-
-  const onMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    const r = e.currentTarget.getBoundingClientRect();
-    const dx = (e.clientX - (r.left + r.width / 2)) / r.width;
-    const dy = (e.clientY - (r.top + r.height / 2)) / r.height;
-    setTilt({ x: dy * -12, y: dx * 16 });
-  };
-  const reset = () => setTilt({ x: 0, y: 0 });
+  const tickerItems = [...TICKER, ...TICKER];
 
   return (
-    <div className="min-h-dvh bg-surface text-on-surface">
-      {/* ---- Hero: dark, animated, 3D --------------------------------------- */}
-      <div className="relative overflow-hidden bg-[#1f1b17] text-white">
-        {/* Aurora glow blobs */}
-        <div className="pointer-events-none absolute inset-0" aria-hidden>
-          <div className="aurora absolute -left-24 top-[-10%] h-[420px] w-[420px] rounded-full bg-[#bd5d3f]/50" />
-          <div className="aurora aurora-2 absolute right-[-10%] top-[20%] h-[460px] w-[460px] rounded-full bg-[#e0b48f]/25" />
-          <div className="aurora absolute bottom-[-20%] left-1/3 h-[380px] w-[380px] rounded-full bg-[#b8543a]/30" />
-        </div>
-        {/* Depth grid */}
-        <div
-          className="grid-pan pointer-events-none absolute inset-0 opacity-[0.18]"
-          aria-hidden
-          style={{
-            backgroundImage:
-              "linear-gradient(rgba(255,255,255,0.5) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.5) 1px, transparent 1px)",
-            backgroundSize: "56px 56px",
-            maskImage: "radial-gradient(ellipse 70% 60% at 50% 40%, #000 40%, transparent 100%)",
-            WebkitMaskImage: "radial-gradient(ellipse 70% 60% at 50% 40%, #000 40%, transparent 100%)",
-          }}
-        />
-
-        <header className="relative mx-auto flex max-w-6xl items-center justify-between px-5 py-5 md:px-8">
-          <span className="flex items-center gap-2">
-            <span className="grid h-9 w-9 place-items-center rounded-lg bg-white/10 text-white backdrop-blur">
-              <ShieldCheck size={22} />
-            </span>
-            <span className="text-lg font-bold">PersonaLayer</span>
-          </span>
-          <nav className="flex items-center gap-5 text-sm font-semibold text-white/70">
-            <a href="#how" className="hidden hover:text-white sm:inline">How it works</a>
-            <a href="#privacy" className="hidden hover:text-white sm:inline">Privacy</a>
-            <Link
-              to="/app/persona"
-              className="inline-flex items-center gap-2 rounded-lg bg-white px-4 py-2 text-sm font-bold text-[#1f1b17] transition hover:bg-white/90 active:scale-[0.98]"
-            >
-              {entered ? "Open app" : "Open control center"} <ArrowRight size={15} />
-            </Link>
+    <main className="pl-landing min-h-dvh bg-[#07070E] text-[#F0EEFF]">
+      <header className="fixed inset-x-0 top-0 z-50 border-b border-white/[0.06] bg-[#07070E]/85 px-5 py-4 backdrop-blur md:px-12">
+        <div className="mx-auto flex max-w-6xl items-center justify-between">
+          <Link to="/" className="font-display flex items-center gap-2 text-lg font-bold text-[#F0EEFF]">
+            <span className="pl-dot" />
+            PersonaLayer
+          </Link>
+          <nav className="hidden items-center gap-8 text-sm text-[#8A85AA] md:flex">
+            <a href="#for-you" className="hover:text-[#F0EEFF]">For You</a>
+            <a href="#for-business" className="hover:text-[#F0EEFF]">For Business</a>
+            <a href="#how" className="hover:text-[#F0EEFF]">How It Works</a>
+            <a href="#usecases" className="hover:text-[#F0EEFF]">Use Cases</a>
           </nav>
-        </header>
-
-        <section
-          className="relative mx-auto grid max-w-6xl items-center gap-10 px-5 py-14 md:grid-cols-2 md:gap-6 md:px-8 md:py-24"
-          onPointerMove={onMove}
-          onPointerLeave={reset}
-        >
-          {/* Left: copy */}
-          <div className="flex flex-col items-start gap-5 text-left">
-            <span className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3.5 py-1.5 text-xs font-semibold text-white/80 backdrop-blur">
-              <Sparkles size={14} className="text-[#e0b48f]" /> Local-first personal context layer
-            </span>
-            <h1 className="text-4xl font-bold leading-[1.05] tracking-tight md:text-6xl">
-              See, edit, and control what apps can{" "}
-              <span className="bg-gradient-to-r from-[#e8b48f] via-white to-[#e0b48f] bg-clip-text text-transparent shimmer">
-                know about you.
-              </span>
-            </h1>
-            <p className="max-w-xl text-base leading-7 text-white/70 md:text-lg">
-              PersonaLayer is your private control center for personal context. It builds a living picture of your work and
-              preferences from your own activity — and puts you in charge of every signal apps can use.
-            </p>
-            <div className="mt-1 flex flex-wrap items-center gap-3">
-              <Link
-                to="/app/persona"
-                className="inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-[#bd5d3f] to-[#cc785c] px-5 py-3 font-bold text-white shadow-lg shadow-[#bd5d3f]/30 transition hover:brightness-110 active:scale-[0.98]"
-              >
-                Open control center <ArrowRight size={16} />
-              </Link>
-              <Link
-                to="/app/session"
-                className="inline-flex items-center gap-2 rounded-lg border border-white/20 px-5 py-3 font-semibold text-white transition hover:bg-white/10 active:scale-[0.98]"
-              >
-                Connect a session
-              </Link>
-            </div>
-            <p className="text-xs text-white/45">No marketing tracking. No selling data. You hold the keys.</p>
-          </div>
-
-          {/* Right: 3D scene */}
-          <div className="scene-3d relative flex h-[380px] items-center justify-center md:h-[460px]">
-            <div
-              className="stage-3d relative h-full w-full max-w-[420px]"
-              style={{ transform: `rotateX(${tilt.x}deg) rotateY(${tilt.y}deg)` }}
-            >
-              {/* Spinning halo behind the card */}
-              <div
-                className="absolute inset-0 m-auto h-[300px] w-[300px] rounded-full border border-dashed border-white/10 spin-slow"
-                style={{ transform: "translateZ(-70px)" }}
-                aria-hidden
-              />
-              <div
-                className="absolute inset-0 m-auto h-[210px] w-[210px] rounded-full bg-[#bd5d3f]/20 blur-2xl"
-                style={{ transform: "translateZ(-90px)" }}
-                aria-hidden
-              />
-
-              {/* Floating glass control-center card */}
-              <div
-                className="float-a absolute inset-x-0 top-1/2 mx-auto w-[clamp(240px,82vw,300px)] -translate-y-1/2"
-                style={{ transform: "translateZ(40px)" }}
-              >
-                <div className="rounded-2xl border border-white/15 bg-white/[0.07] p-4 shadow-2xl backdrop-blur-xl">
-                  <div className="mb-3 flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span className="grid h-7 w-7 place-items-center rounded-lg bg-[#e0b48f]/20 text-[#e0b48f]">
-                        <ShieldCheck size={15} />
-                      </span>
-                      <span className="text-sm font-bold text-white">What we know</span>
-                    </div>
-                    <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-semibold text-white/70">
-                      Live
-                    </span>
-                  </div>
-                  <div className="flex flex-col gap-2">
-                    <SignalRow name="Works in software" source="GitHub · 92%" pct={92} shared />
-                    <SignalRow name="Prefers direct tone" source="Inferred · 78%" pct={78} shared />
-                    <SignalRow name="Based in India" source="Onboarding · 60%" pct={60} shared={false} />
-                  </div>
-                  <div className="mt-3 flex items-center justify-between rounded-lg bg-white/[0.04] px-3 py-2">
-                    <span className="text-[11px] text-white/60">3 signals · 2 apps · 2 rules</span>
-                    <span className="flex items-center gap-1 text-[11px] font-semibold text-[#e0b48f]">
-                      <Lock size={11} /> Private
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Orbiting signal nodes at varied depths */}
-              <Node icon={Github} label="GitHub" className="left-0 top-6" z={90} float="float-b" />
-              <Node icon={Calendar} label="Calendar" className="right-0 top-16" z={120} float="float-c" />
-              <Node icon={Sparkles} label="TypeScript" className="bottom-10 left-2" z={60} float="float-c" />
-              <Node icon={MapPin} label="Location · private" className="bottom-2 right-2" z={140} float="float-b" locked />
-            </div>
-          </div>
-        </section>
-      </div>
-
-      {/* ---- Features ------------------------------------------------------- */}
-      <section id="how" className="mx-auto grid max-w-6xl gap-4 px-5 py-14 sm:grid-cols-2 lg:grid-cols-4 md:px-8">
-        {FEATURES.map(({ icon: Icon, title, body }, i) => (
-          <Reveal key={title} delay={i * 90}>
-            <article className="tilt-3d h-full rounded-2xl border border-outline-variant bg-white p-6 shadow-ambient">
-              <span className="tilt-pop mb-3 inline-grid h-11 w-11 place-items-center rounded-xl bg-primary/10 text-primary">
-                <Icon size={20} />
-              </span>
-              <h3 className="text-base font-bold">{title}</h3>
-              <p className="mt-1.5 text-sm leading-6 text-on-surface-variant">{body}</p>
-            </article>
-          </Reveal>
-        ))}
-      </section>
-
-      {/* ---- Privacy strip -------------------------------------------------- */}
-      <section id="privacy" className="mx-auto grid max-w-6xl gap-4 px-5 py-10 sm:grid-cols-2 md:px-8">
-        <Reveal>
-          <div className="flex h-full items-start gap-3 rounded-2xl border border-outline-variant bg-white p-6 shadow-ambient">
-            <ServerCog size={20} className="mt-0.5 text-primary" />
-            <div>
-              <strong className="block">Your data stays yours.</strong>
-              <span className="text-sm text-on-surface-variant">Apps negotiate scoped access. Every request is logged and revocable.</span>
-            </div>
-          </div>
-        </Reveal>
-        <Reveal delay={120}>
-          <div className="flex h-full items-start gap-3 rounded-2xl border border-outline-variant bg-white p-6 shadow-ambient">
-            <Trash2 size={20} className="mt-0.5 text-primary" />
-            <div>
-              <strong className="block">Delete anytime.</strong>
-              <span className="text-sm text-on-surface-variant">Export or wipe your entire context layer in one action.</span>
-            </div>
-          </div>
-        </Reveal>
-      </section>
-
-      <footer className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 border-t border-outline-variant px-5 py-8 text-sm text-on-surface-variant md:px-8">
-        <span className="font-bold text-primary">PersonaLayer</span>
-        <div className="flex gap-5">
-          <Link to="/app/persona" className="hover:text-on-surface">App</Link>
-          <Link to="/app/privacy" className="hover:text-on-surface">Privacy controls</Link>
-          <Link to="/app/settings" className="hover:text-on-surface">Legal &amp; data</Link>
+          <Link to={entered ? "/app/persona" : "/app/session"} className="pl-nav-cta">
+            {entered ? "Open App" : "Get Started"}
+          </Link>
         </div>
-        <span className="text-outline">© {new Date().getFullYear()} PersonaLayer</span>
+      </header>
+
+      <section className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden px-5 pb-16 pt-32 text-center">
+        <FingerprintCanvas />
+        <div className="pl-hero-eyebrow fade-up">Your Digital Persona Layer</div>
+        <h1 className="fade-up delay-1 font-display relative z-10 max-w-5xl text-[clamp(2.35rem,7vw,5.5rem)] font-bold leading-[1.05]">
+          The AI agents that know you.
+          <br />
+          <span className="text-[#6C47FF]">Everything, personalized.</span>
+          <br />
+          <span className="text-[#00C8F0]">Nothing, exploited.</span>
+        </h1>
+        <p className="fade-up delay-2 relative z-10 mt-7 max-w-2xl text-base leading-8 text-[#8A85AA] md:text-lg">
+          Build your digital persona once. Every AI product you touch, from shopping to health apps to productivity tools,
+          can understand who you are without making you repeat yourself.
+        </p>
+        <div className="fade-up delay-3 relative z-10 mt-10 flex flex-wrap items-center justify-center gap-4">
+          <Link to="/app/session" className="pl-btn-primary">
+            <Download size={16} />
+            Add to Browser - Free
+          </Link>
+          <a href="#how" className="pl-btn-ghost">See how it works</a>
+        </div>
+        <div className="fade-up delay-4 pl-ticker-wrap">
+          <div className="pl-ticker">
+            {tickerItems.map(([tag, text], i) => (
+              <span key={`${tag}-${i}`} className="pl-ticker-item">
+                <span className="pl-ticker-tag">{tag}</span>
+                {text}
+                <span className="text-[#8A85AA]/50">/</span>
+              </span>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="border-y border-white/[0.06] bg-[#0F0F1A] px-5 py-12">
+        <div className="mx-auto grid max-w-6xl gap-8 text-center sm:grid-cols-2 lg:grid-cols-4">
+          {STATS.map((stat, i) => (
+            <Reveal key={stat.label} delay={i * 70}>
+              <div>
+                <div className="font-display mb-2 text-4xl font-bold tracking-tight text-[#F0EEFF]">
+                  {stat.value}
+                  {stat.unit && <span className="ml-1 text-base text-[#6C47FF]">{stat.unit}</span>}
+                </div>
+                <div className="text-sm text-[#8A85AA]">{stat.label}</div>
+              </div>
+            </Reveal>
+          ))}
+        </div>
+      </section>
+
+      <section id="for-you" className="px-5 py-24">
+        <div className="mx-auto max-w-6xl">
+          <Label>Who it's for</Label>
+          <h2 className="font-display max-w-2xl text-3xl font-bold leading-tight tracking-tight md:text-5xl">
+            Built for both sides of the screen.
+          </h2>
+          <p className="mt-4 max-w-2xl text-[#8A85AA]">
+            One persona layer. Two different superpowers, depending on which side you are on.
+          </p>
+
+          <div className="mt-12 grid overflow-hidden rounded-3xl border border-white/[0.06] bg-white/[0.06] lg:grid-cols-2">
+            <Reveal>
+              <article className="pl-audience-panel border-b border-white/[0.06] lg:border-b-0 lg:border-r">
+                <div className="pl-badge-user">For You, the Person</div>
+                <h3 className="font-display text-2xl font-bold">Stop re-explaining yourself to every app you open.</h3>
+                <p className="mt-4 leading-8 text-[#8A85AA]">
+                  Your preferences, context, life stage, values, and habits are built once, owned by you, and shared only
+                  on your terms.
+                </p>
+                <ul className="mt-8 space-y-4 text-sm leading-7 text-[#8A85AA]">
+                  {[
+                    "Shopping recommendations know your size, budget, and sustainability threshold.",
+                    "Health apps start with diet, goals, and allergies on day one.",
+                    "Productivity tools adapt to work style, hours, and communication preferences.",
+                    "Your persona stays local until you choose what to share.",
+                  ].map((item) => (
+                    <li key={item} className="flex gap-3">
+                      <span className="pl-check-indigo"><Check size={13} /></span>
+                      {item}
+                    </li>
+                  ))}
+                </ul>
+              </article>
+            </Reveal>
+            <Reveal delay={100}>
+              <article id="for-business" className="pl-audience-panel">
+                <div className="pl-badge-biz">For Builders & Researchers</div>
+                <h3 className="font-display text-2xl font-bold">A consented pre-market validation layer.</h3>
+                <p className="mt-4 leading-8 text-[#8A85AA]">
+                  Test product concepts, pricing, messaging, and features against living persona archetypes and get answers
+                  in hours, not months.
+                </p>
+                <ul className="mt-8 space-y-4 text-sm leading-7 text-[#8A85AA]">
+                  {[
+                    "Run concept tests across persona types before writing code.",
+                    "Predict how demographic and psychographic segments will react.",
+                    "Replace slow focus groups with always-on synthetic consumer panels.",
+                    "Use consented data with user-controlled participation.",
+                  ].map((item) => (
+                    <li key={item} className="flex gap-3">
+                      <span className="pl-check-cyan"><Check size={13} /></span>
+                      {item}
+                    </li>
+                  ))}
+                </ul>
+              </article>
+            </Reveal>
+          </div>
+        </div>
+      </section>
+
+      <section className="px-5 pb-24">
+        <div className="mx-auto max-w-6xl">
+          <div className="pl-validation">
+            <div>
+              <Label>Pre-Market Research</Label>
+              <h2 className="font-display text-3xl font-bold leading-tight tracking-tight md:text-5xl">
+                The validation engine nobody built. Until now.
+              </h2>
+              <p className="mt-5 max-w-xl leading-8 text-[#8A85AA]">
+                Instead of surveying static panels, query living digital personas enriched with behavior, preferences, and
+                context signals. It is not generic synthetic guesswork. It is a simulation of actual future customers.
+              </p>
+              <div className="mt-10 space-y-5">
+                {[
+                  ["Predictive accuracy", "90%", "bg-[#6C47FF]"],
+                  ["Speed vs traditional research", "96%", "bg-[#00C8F0]"],
+                  ["Cost reduction", "80%", "bg-[#00E5A0]"],
+                ].map(([label, width, color]) => (
+                  <div key={label} className="grid grid-cols-[170px_1fr_44px] items-center gap-4 text-xs md:text-sm">
+                    <span className="font-mono text-[#8A85AA]">{label}</span>
+                    <span className="h-1 overflow-hidden rounded-full bg-white/10">
+                      <span className={`block h-full rounded-full ${color}`} style={{ width }} />
+                    </span>
+                    <span className="font-display font-bold text-[#F0EEFF]">{width}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <Reveal>
+              <PersonaDemo />
+            </Reveal>
+          </div>
+        </div>
+      </section>
+
+      <section id="how" className="bg-[#0F0F1A] px-5 py-24">
+        <div className="mx-auto max-w-6xl">
+          <Label>How It Works</Label>
+          <h2 className="font-display text-3xl font-bold tracking-tight md:text-5xl">Three layers. One persona.</h2>
+          <p className="mt-4 max-w-2xl text-[#8A85AA]">
+            From raw context to embedded intelligence in every product you use or build.
+          </p>
+          <div className="mt-12 grid overflow-hidden rounded-2xl border border-white/[0.06] bg-white/[0.06] sm:grid-cols-2 lg:grid-cols-4">
+            {STEPS.map(({ icon: Icon, num, title, body }, i) => (
+              <Reveal key={title} delay={i * 80}>
+                <article className="pl-step h-full">
+                  <div className="mb-5 font-mono text-xs tracking-[0.14em] text-[#6C47FF]/80">{num}</div>
+                  <div className="mb-5 grid h-11 w-11 place-items-center rounded-xl border border-[#6C47FF]/25 bg-[#6C47FF]/10 text-[#F0EEFF]">
+                    <Icon size={20} />
+                  </div>
+                  <h3 className="font-display font-semibold">{title}</h3>
+                  <p className="mt-3 text-sm leading-7 text-[#8A85AA]">{body}</p>
+                </article>
+              </Reveal>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="px-5 py-24">
+        <div className="mx-auto max-w-6xl">
+          <Label>What We Provide</Label>
+          <h2 className="font-display text-3xl font-bold tracking-tight md:text-5xl">
+            The full stack, from identity to intelligence.
+          </h2>
+          <div className="mt-12 grid overflow-hidden rounded-3xl border border-white/[0.06] bg-white/[0.06] md:grid-cols-2">
+            {PROVIDES.map(({ icon: Icon, title, body }, i) => (
+              <Reveal key={title} delay={i * 80}>
+                <article className="pl-provide-card h-full">
+                  <div className="mb-5 flex items-center gap-3">
+                    <span className="grid h-10 w-10 place-items-center rounded-xl border border-[#6C47FF]/25 bg-[#6C47FF]/10">
+                      <Icon size={18} />
+                    </span>
+                    <h3 className="font-display font-semibold">{title}</h3>
+                  </div>
+                  <p className="text-sm leading-7 text-[#8A85AA]">{body}</p>
+                </article>
+              </Reveal>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section id="usecases" className="bg-[#0F0F1A] px-5 py-24">
+        <div className="mx-auto max-w-6xl">
+          <Label>Use Cases</Label>
+          <h2 className="font-display text-3xl font-bold tracking-tight md:text-5xl">
+            Built for how people actually use AI today.
+          </h2>
+          <p className="mt-4 max-w-2xl leading-8 text-[#8A85AA]">
+            Whether you are tired of repeating yourself or validating before building, PersonaLayer fits directly into the workflow.
+          </p>
+          <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {USE_CASES.map(({ icon: Icon, title, body, tag, tone }, i) => (
+              <Reveal key={title} delay={i * 55}>
+                <article className="pl-usecase-card h-full">
+                  <div className={`mb-5 grid h-10 w-10 place-items-center rounded-xl ${tone === "biz" ? "bg-[#00C8F0]/10 text-[#00C8F0]" : tone === "both" ? "bg-[#00E5A0]/10 text-[#00E5A0]" : tone === "risk" ? "bg-[#FF5E6C]/10 text-[#FF5E6C]" : "bg-[#6C47FF]/10 text-[#8B70FF]"}`}>
+                    <Icon size={18} />
+                  </div>
+                  <h3 className="font-display font-semibold">{title}</h3>
+                  <p className="mt-3 text-sm leading-7 text-[#8A85AA]">{body}</p>
+                  <span className={`mt-5 inline-flex rounded px-2.5 py-1 font-mono text-[11px] uppercase tracking-[0.08em] ${tone === "biz" ? "bg-[#00C8F0]/10 text-[#00C8F0]" : tone === "both" ? "bg-[#00E5A0]/10 text-[#00E5A0]" : tone === "risk" ? "bg-[#FF5E6C]/10 text-[#FF5E6C]" : "bg-[#6C47FF]/15 text-[#8B70FF]"}`}>
+                    {tag}
+                  </span>
+                </article>
+              </Reveal>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section id="download" className="relative overflow-hidden px-5 py-28 text-center">
+        <div className="absolute left-1/2 top-1/2 h-72 w-[640px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#6C47FF]/10 blur-3xl" aria-hidden />
+        <div className="relative z-10">
+          <Label center>Get Started</Label>
+          <h2 className="font-display text-4xl font-bold leading-tight tracking-tight md:text-6xl">
+            Your persona.
+            <br />
+            <span className="text-[#6C47FF]">Your rules.</span>
+          </h2>
+          <p className="mx-auto mt-5 max-w-2xl leading-8 text-[#8A85AA]">
+            Connect a session, build your digital persona in minutes, and start experiencing AI that actually knows you.
+          </p>
+          <div className="mt-10 flex flex-wrap justify-center gap-4">
+            <Link to="/app/session" className="pl-btn-primary">
+              <Download size={16} />
+              Start Free
+            </Link>
+            <Link to="/app/apps" className="pl-btn-ghost">
+              Request API Access <ArrowRight size={16} />
+            </Link>
+          </div>
+          <p className="mt-8 font-mono text-xs tracking-[0.12em] text-[#8A85AA]">LOCAL-FIRST / NO ADS / YOUR DATA, YOUR CALL</p>
+        </div>
+      </section>
+
+      <footer className="flex flex-wrap items-center justify-between gap-4 border-t border-white/[0.06] px-5 py-10 text-sm text-[#8A85AA] md:px-12">
+        <div className="font-display font-bold">PersonaLayer</div>
+        <div className="font-mono text-xs opacity-70">Built local-first. Opt-in everywhere. Copyright 2026 PersonaLayer</div>
       </footer>
-    </div>
+    </main>
   );
 }
