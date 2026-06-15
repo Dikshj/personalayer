@@ -63,9 +63,7 @@ const NAV: NavItem[] = [
 function Brand({ compact = false }: { compact?: boolean }) {
   return (
     <span className="flex items-center gap-2">
-      <span className="grid h-8 w-8 place-items-center rounded-lg bg-primary/10 text-primary">
-        <ShieldCheck size={20} />
-      </span>
+      <img src="/personalayer-mark.svg" alt="" className="h-8 w-8" />
       {!compact && <span className="text-lg font-bold text-primary">PersonaLayer</span>}
     </span>
   );

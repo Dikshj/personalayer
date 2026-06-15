@@ -71,9 +71,7 @@ export default function Session() {
     <div className="grid min-h-dvh place-items-center bg-surface px-4 py-10 text-on-surface">
       <div className="w-full max-w-md rounded-2xl border border-outline-variant bg-white p-7 shadow-ambient">
         <span className="mb-4 flex items-center gap-2">
-          <span className="grid h-8 w-8 place-items-center rounded-lg bg-primary/10 text-primary">
-            <ShieldCheck size={20} />
-          </span>
+          <img src="/personalayer-mark.svg" alt="" className="h-8 w-8" />
           <span className="text-lg font-bold text-primary">PersonaLayer</span>
         </span>
 

@@ -13,7 +13,6 @@ import {
   MessageSquare,
   Plug,
   Search,
-  ShieldCheck,
   ShoppingBag,
   Sparkles,
   Target,
@@ -304,7 +303,7 @@ export default function Landing() {
       <header className="fixed inset-x-0 top-0 z-50 border-b border-white/[0.06] bg-[#07070E]/85 px-5 py-4 backdrop-blur md:px-12">
         <div className="mx-auto flex max-w-6xl items-center justify-between">
           <Link to="/" className="font-display flex items-center gap-2 text-lg font-bold text-[#F0EEFF]">
-            <span className="pl-dot" />
+            <img src="/personalayer-mark.svg" alt="" className="h-8 w-8" />
             PersonaLayer
           </Link>
           <nav className="hidden items-center gap-8 text-sm text-[#8A85AA] md:flex">
@@ -567,7 +566,10 @@ export default function Landing() {
       </section>
 
       <footer className="flex flex-wrap items-center justify-between gap-4 border-t border-white/[0.06] px-5 py-10 text-sm text-[#8A85AA] md:px-12">
-        <div className="font-display font-bold">PersonaLayer</div>
+        <div className="font-display flex items-center gap-2 font-bold">
+          <img src="/personalayer-mark.svg" alt="" className="h-7 w-7" />
+          PersonaLayer
+        </div>
         <div className="font-mono text-xs opacity-70">Built local-first. Opt-in everywhere. Copyright 2026 PersonaLayer</div>
       </footer>
     </main>
