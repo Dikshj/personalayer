@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import AppShell from "./components/AppShell";
 import RequireSession from "./components/RequireSession";
 import Landing from "./pages/Landing";
+import RequestAccess from "./pages/RequestAccess";
 import Session from "./pages/Session";
 import Onboarding from "./pages/Onboarding";
 import Consent from "./pages/Consent";
@@ -19,6 +20,9 @@ export default function App() {
     <Routes>
       {/* Public landing page at the root. */}
       <Route path="/" element={<Landing />} />
+
+      {/* Public business/builder inquiry form — not part of the consumer auth flow. */}
+      <Route path="/request-access" element={<RequestAccess />} />
 
       {/* Session connection screen (outside the guarded shell). */}
       <Route path="/app/session" element={<Session />} />

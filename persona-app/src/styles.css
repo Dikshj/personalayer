@@ -113,18 +113,18 @@
   width: 8px;
   height: 8px;
   border-radius: 9999px;
-  background: #6c47ff;
-  box-shadow: 0 0 8px #6c47ff;
+  background: #c97f62;
+  box-shadow: 0 0 8px #c97f62;
   animation: pl-pulse-dot 2s ease-in-out infinite;
 }
 
 .pl-nav-cta {
   display: inline-flex;
   align-items: center;
-  border: 1px solid #6c47ff;
+  border: 1px solid #c97f62;
   border-radius: 9999px;
   padding: 0.5rem 1.25rem;
-  color: #f0eeff;
+  color: #1f1e1c;
   font-family: "Space Grotesk", Inter, ui-sans-serif, system-ui, sans-serif;
   font-size: 0.85rem;
   font-weight: 600;
@@ -132,8 +132,8 @@
 }
 
 .pl-nav-cta:hover {
-  background: rgba(108, 71, 255, 0.15);
-  box-shadow: 0 0 20px rgba(108, 71, 255, 0.3);
+  background: rgba(201, 127, 98, 0.15);
+  box-shadow: 0 0 20px rgba(201, 127, 98, 0.3);
 }
 
 .pl-fingerprint {
@@ -154,7 +154,7 @@
   align-items: center;
   gap: 0.75rem;
   margin-bottom: 1.5rem;
-  color: #6c47ff;
+  color: #c97f62;
   font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
   font-size: 0.7rem;
   letter-spacing: 0.2em;
@@ -186,23 +186,23 @@
 }
 
 .pl-btn-primary {
-  background: #6c47ff;
+  background: #c97f62;
   color: #fff;
 }
 
 .pl-btn-primary:hover {
   transform: translateY(-2px);
-  box-shadow: 0 8px 32px rgba(108, 71, 255, 0.45);
+  box-shadow: 0 8px 32px rgba(201, 127, 98, 0.45);
 }
 
 .pl-btn-ghost {
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  color: #8a85aa;
+  border: 1px solid rgba(31, 30, 28, 0.06);
+  color: #6e6d67;
 }
 
 .pl-btn-ghost:hover {
-  border-color: rgba(255, 255, 255, 0.22);
-  color: #f0eeff;
+  border-color: rgba(31, 30, 28, 0.22);
+  color: #1f1e1c;
 }
 
 .pl-ticker-wrap {
@@ -228,18 +228,18 @@
   flex-shrink: 0;
   align-items: center;
   gap: 0.55rem;
-  color: #8a85aa;
+  color: #6e6d67;
   font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
   font-size: 0.7rem;
   letter-spacing: 0.08em;
 }
 
 .pl-ticker-tag {
-  border: 1px solid rgba(108, 71, 255, 0.25);
+  border: 1px solid rgba(201, 127, 98, 0.25);
   border-radius: 4px;
-  background: rgba(108, 71, 255, 0.12);
+  background: rgba(201, 127, 98, 0.12);
   padding: 0.2rem 0.6rem;
-  color: #8b70ff;
+  color: #c97f62;
   font-size: 0.65rem;
 }
 
@@ -248,7 +248,7 @@
   align-items: center;
   gap: 0.5rem;
   margin-bottom: 1rem;
-  color: #8b70ff;
+  color: #c97f62;
   font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
   font-size: 0.7rem;
   letter-spacing: 0.16em;
@@ -259,7 +259,7 @@
   position: relative;
   min-height: 100%;
   overflow: hidden;
-  background: #13131f;
+  background: #ffffff;
   padding: 3rem;
   transition: background 0.25s ease;
 }
@@ -268,7 +268,7 @@
 .pl-step:hover,
 .pl-provide-card:hover,
 .pl-usecase-card:hover {
-  background: #1a1a2e;
+  background: #efefec;
 }
 
 .pl-badge-user,
@@ -285,15 +285,15 @@
 }
 
 .pl-badge-user {
-  border: 1px solid rgba(108, 71, 255, 0.3);
-  background: rgba(108, 71, 255, 0.15);
-  color: #8b70ff;
+  border: 1px solid rgba(201, 127, 98, 0.3);
+  background: rgba(201, 127, 98, 0.15);
+  color: #c97f62;
 }
 
 .pl-badge-biz {
-  border: 1px solid rgba(0, 200, 240, 0.25);
-  background: rgba(0, 200, 240, 0.1);
-  color: #00c8f0;
+  border: 1px solid rgba(95, 132, 102, 0.25);
+  background: rgba(95, 132, 102, 0.1);
+  color: #5f8466;
 }
 
 .pl-check-indigo,
@@ -308,13 +308,13 @@
 }
 
 .pl-check-indigo {
-  background: rgba(108, 71, 255, 0.15);
-  color: #8b70ff;
+  background: rgba(201, 127, 98, 0.15);
+  color: #c97f62;
 }
 
 .pl-check-cyan {
-  background: rgba(0, 200, 240, 0.1);
-  color: #00c8f0;
+  background: rgba(95, 132, 102, 0.1);
+  color: #5f8466;
 }
 
 .pl-validation {
@@ -324,9 +324,9 @@
   gap: 4rem;
   align-items: center;
   overflow: hidden;
-  border: 1px solid rgba(108, 71, 255, 0.18);
+  border: 1px solid rgba(201, 127, 98, 0.18);
   border-radius: 24px;
-  background: linear-gradient(135deg, rgba(108, 71, 255, 0.06), rgba(0, 200, 240, 0.04));
+  background: linear-gradient(135deg, rgba(201, 127, 98, 0.06), rgba(95, 132, 102, 0.04));
   padding: 4rem 3.5rem;
 }
 
@@ -336,7 +336,7 @@
   position: absolute;
   right: -22px;
   top: -12px;
-  color: rgba(108, 71, 255, 0.05);
+  color: rgba(201, 127, 98, 0.05);
   font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
   font-size: clamp(2.5rem, 6vw, 4rem);
   font-weight: 700;
@@ -349,9 +349,9 @@
   z-index: 1;
   max-width: 360px;
   margin: 0 auto;
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(31, 30, 28, 0.06);
   border-radius: 20px;
-  background: #13131f;
+  background: #ffffff;
   padding: 2rem;
 }
 
@@ -364,28 +364,28 @@
 }
 
 .tag-indigo {
-  border: 1px solid rgba(108, 71, 255, 0.25);
-  background: rgba(108, 71, 255, 0.15);
-  color: #8b70ff;
+  border: 1px solid rgba(201, 127, 98, 0.25);
+  background: rgba(201, 127, 98, 0.15);
+  color: #c97f62;
 }
 
 .tag-cyan {
-  border: 1px solid rgba(0, 200, 240, 0.2);
-  background: rgba(0, 200, 240, 0.08);
-  color: #00c8f0;
+  border: 1px solid rgba(95, 132, 102, 0.2);
+  background: rgba(95, 132, 102, 0.08);
+  color: #5f8466;
 }
 
 .tag-green {
-  border: 1px solid rgba(0, 229, 160, 0.2);
-  background: rgba(0, 229, 160, 0.08);
-  color: #00e5a0;
+  border: 1px solid rgba(95, 132, 102, 0.2);
+  background: rgba(95, 132, 102, 0.08);
+  color: #5f8466;
 }
 
 .pl-step,
 .pl-provide-card {
   min-height: 100%;
-  border-color: rgba(255, 255, 255, 0.06);
-  background: #13131f;
+  border-color: rgba(31, 30, 28, 0.06);
+  background: #ffffff;
   padding: 2rem;
   transition: background 0.25s ease;
 }
@@ -393,9 +393,9 @@
 .pl-usecase-card {
   position: relative;
   overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(31, 30, 28, 0.06);
   border-radius: 16px;
-  background: #13131f;
+  background: #ffffff;
   padding: 1.75rem;
   transition: transform 0.2s ease, border-color 0.2s ease, background 0.2s ease;
 }
@@ -405,12 +405,12 @@
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  background: radial-gradient(circle at 60% 0%, rgba(108, 71, 255, 0.06), transparent 60%);
+  background: radial-gradient(circle at 60% 0%, rgba(201, 127, 98, 0.06), transparent 60%);
   pointer-events: none;
 }
 
 .pl-usecase-card:hover {
-  border-color: rgba(108, 71, 255, 0.35);
+  border-color: rgba(201, 127, 98, 0.35);
   transform: translateY(-2px);
 }
 
