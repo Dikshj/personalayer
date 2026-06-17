@@ -35,6 +35,12 @@ from database import (
     list_developer_api_keys,
     list_developer_api_key_audit_logs,
     list_push_tokens,
+    list_agent_reach_channels,
+    set_agent_reach_channel,
+    report_device_permissions,
+    list_device_permissions,
+    create_capture_enroll_token,
+    redeem_capture_enroll_token,
     list_sync_devices,
     list_sync_conflicts,
     list_sync_audit_logs,
@@ -195,6 +201,7 @@ from pcl.egress import enforce_egress_policy
 from pcl.auth import (
     require_local_auth,
     create_bootstrap_session,
+    create_local_session,
     install_secret_log_redaction,
     local_auth_enabled,
     AuthError,
@@ -232,6 +239,7 @@ _PUBLIC_PATHS = {
     "/pcl/onboarding/questions",
     "/pcl/integrations/catalog",
     "/v1/auth/local/session",
+    "/v1/capture/enroll",
 }
 _PUBLIC_PREFIXES = ("/landing", "/dashboard")
 _EXTENSION_INGEST_PATHS = {"/v1/ingest/extension", "/event"}
@@ -823,6 +831,21 @@ class DevicePushTokenRequest(BaseModel):
     apns_token: str
     platform: str = "ios"
     environment: str = "development"
+
+
+class AgentReachToggleRequest(BaseModel):
+    user_id: str = "local_user"
+    enabled: bool = False
+
+
+class DevicePermissionsReportRequest(BaseModel):
+    user_id: str = "local_user"
+    device_id: str
+    permissions: dict = {}
+
+
+class CaptureEnrollRedeemRequest(BaseModel):
+    code: str
 
 
 class DeveloperRegistrationRequest(BaseModel):
@@ -1436,6 +1459,65 @@ async def sync_pcl_integration_endpoint(source: str, request: Request):
 @app.post("/pcl/integrations/sync-due")
 async def sync_due_pcl_integrations_endpoint(request: Request, user_id: str = "local_user"):
     return sync_due_integrations(user_id=_request_user_id(request, user_id))
+
+
+# ---- Capture controls (Agent Reach, device permissions, daemon enrollment) --
+
+
+@app.get("/v1/capture/status")
+async def capture_status_endpoint(request: Request):
+    uid = _request_user_id(request)
+    sources = [
+        {
+            "source": integration["source"],
+            "state": "connected" if integration.get("status") == "connected" else "disconnected",
+            "last_sync_at": integration.get("last_sync_at"),
+            "items_synced": integration.get("items_synced", 0),
+            "error": integration.get("error", ""),
+        }
+        for integration in list_pcl_integrations(uid)
+    ]
+    return {"user_id": uid, "sources": sources}
+
+
+@app.get("/v1/agent-reach/channels")
+async def get_agent_reach_channels_endpoint(request: Request):
+    uid = _request_user_id(request)
+    return {"user_id": uid, "channels": list_agent_reach_channels(uid)}
+
+
+@app.put("/v1/agent-reach/channels/{channel}")
+async def set_agent_reach_channel_endpoint(channel: str, payload: AgentReachToggleRequest, request: Request):
+    uid = _request_user_id(request, payload.user_id)
+    result = set_agent_reach_channel(uid, channel, payload.enabled)
+    return {"status": "error" if "error" in result else "ok", **result}
+
+
+@app.post("/v1/devices/{device_id}/permissions")
+async def report_device_permissions_endpoint(device_id: str, payload: DevicePermissionsReportRequest, request: Request):
+    uid = _request_user_id(request, payload.user_id)
+    perms = report_device_permissions(uid, device_id, payload.permissions)
+    return {"status": "ok", "device_id": device_id, "permissions": perms}
+
+
+@app.get("/v1/devices/permissions")
+async def list_device_permissions_endpoint(request: Request):
+    uid = _request_user_id(request)
+    return {"user_id": uid, "permissions": list_device_permissions(uid)}
+
+
+@app.post("/v1/capture/enroll-token")
+async def create_capture_enroll_token_endpoint(request: Request):
+    uid = _request_user_id(request)
+    return {"status": "ok", **create_capture_enroll_token(uid)}
+
+
+@app.post("/v1/capture/enroll")
+async def redeem_capture_enroll_token_endpoint(payload: CaptureEnrollRedeemRequest):
+    user_id = redeem_capture_enroll_token(payload.code)
+    if not user_id:
+        return {"status": "error", "error": "invalid_or_expired_code"}
+    return {"status": "ok", "user_id": user_id, "session_token": create_local_session(user_id)}
 
 
 @app.post("/pcl/events/feature")

@@ -705,6 +705,61 @@ export async function getPushTokens(): Promise<{ user_id?: string; tokens: PushT
   return getJson("/v1/devices/push-token?user_id=local_user");
 }
 
+// Per-source capture status (derived from the user's connected integrations).
+export type CaptureSourceStatus = {
+  source: string;
+  state?: string; // "connected" | "disconnected"
+  last_sync_at?: string | number | null;
+  items_synced?: number;
+  error?: string;
+};
+
+export async function getCaptureStatus(): Promise<{ sources: CaptureSourceStatus[] }> {
+  return getJson("/v1/capture/status?user_id=local_user");
+}
+
+// ---- Agent Reach channels ---------------------------------------------------
+
+export type AgentReachChannel = {
+  channel: string;
+  name?: string;
+  description?: string;
+  enabled?: boolean;
+};
+
+export async function getAgentReachChannels(): Promise<{ channels: AgentReachChannel[] }> {
+  return getJson("/v1/agent-reach/channels?user_id=local_user");
+}
+
+export async function setAgentReachChannel(
+  channel: string,
+  enabled: boolean,
+): Promise<{ status?: string; channel?: string; enabled?: boolean; error?: string }> {
+  return putJson(`/v1/agent-reach/channels/${encodeURIComponent(channel)}`, {
+    user_id: "local_user",
+    enabled,
+  });
+}
+
+// ---- Native device permissions (reported by the iOS/macOS app) --------------
+
+export type DevicePermission = {
+  device_id?: string;
+  permission?: string;
+  state?: string; // "granted" | "denied" | "undetermined"
+  updated_at?: string | number;
+};
+
+export async function getDevicePermissions(): Promise<{ permissions: DevicePermission[] }> {
+  return getJson("/v1/devices/permissions?user_id=local_user");
+}
+
+// ---- Daemon enrollment code -------------------------------------------------
+
+export async function createEnrollToken(): Promise<{ status?: string; code?: string; expires_at?: number }> {
+  return postJson("/v1/capture/enroll-token", {});
+}
+
 export async function getPrivacyDrops(limit = 100): Promise<{ drops: Array<Record<string, unknown>> }> {
   return getJson(`/v1/context/privacy-drops?user_id=local_user&limit=${limit}`);
 }

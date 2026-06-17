@@ -1,7 +1,8 @@
 // /app/capture — local & on-device capture sources. Set up the browser
-// extension, laptop agent, and iPhone app, then turn individual on-device
-// sources on or off. OAuth/cloud apps live in /app/apps; device pairing and
-// sync live in /app/devices — this page links into both.
+// extension, laptop agent (with a one-time enrollment code), and iPhone app;
+// turn individual on-device sources on/off with live status; manage Agent Reach
+// channels and review native device permissions. OAuth/cloud apps live in
+// /app/apps; pairing/sync lives in /app/devices.
 
 import { useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
@@ -12,10 +13,12 @@ import {
   ChevronUp,
   Cpu,
   ExternalLink,
+  KeyRound,
   Laptop,
   Megaphone,
   Radio,
   RefreshCw,
+  ShieldCheck,
   Smartphone,
   type LucideIcon,
 } from "lucide-react";
@@ -23,23 +26,77 @@ import { EmptyState, ErrorState, LoadingState, OfflineBanner, PageHeader } from 
 import { Button, Chip, CopyButton, Panel, Pill, Switch } from "../components/ui";
 import { useResource } from "../lib/useResource";
 import { useBackend } from "../lib/backend";
-import { titleize } from "../lib/format";
-import { previewCollectorSpecs, previewMemorySources } from "../lib/preview";
+import { relativeTime, titleize } from "../lib/format";
+import {
+  previewAgentReachChannels,
+  previewCollectorSpecs,
+  previewDevicePermissions,
+  previewMemorySources,
+} from "../lib/preview";
 import {
   API_BASE,
+  type AgentReachChannel,
+  type CaptureSourceStatus,
   type CollectorSpec,
+  type DevicePermission,
   type MemorySource,
+  createEnrollToken,
+  getAgentReachChannels,
+  getCaptureStatus,
   getDaemonStatus,
+  getDevicePermissions,
   getMemorySources,
   getPushTokens,
   getSyncDevices,
+  setAgentReachChannel,
   setMemorySource,
 } from "../api";
 
-// Sources that connect via OAuth/cloud belong on /app/apps, not here.
 const OAUTH_SOURCES = new Set(["gmail", "calendar", "google_drive", "youtube", "spotify", "github", "notion"]);
 
 type Tone = "good" | "warn" | "danger" | "info" | "neutral";
+
+function permTone(state?: string): Tone {
+  if (state === "granted") return "good";
+  if (state === "denied") return "danger";
+  return "neutral";
+}
+
+// One-time enrollment code for the laptop agent.
+function EnrollCode({ live }: { live: boolean }) {
+  const [code, setCode] = useState<{ code?: string; expires_at?: number } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const generate = async () => {
+    setBusy(true);
+    setErr("");
+    try {
+      const res = await createEnrollToken();
+      if (res.code) setCode(res);
+      else setErr("Couldn’t generate a code.");
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Couldn’t generate a code.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="mt-1">
+      {code?.code ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <code className="rounded-lg border border-outline-variant bg-white px-3 py-1.5 font-mono text-base font-bold tracking-widest text-primary">{code.code}</code>
+          <CopyButton value={code.code} label="Copy code" />
+          {code.expires_at && <span className="text-xs text-outline">expires {relativeTime(code.expires_at * 1000)}</span>}
+        </div>
+      ) : (
+        <Button variant="default" loading={busy} disabled={!live} onClick={generate}>
+          <KeyRound size={15} /> Generate setup code
+        </Button>
+      )}
+      {err && <p className="mt-1 text-xs font-semibold text-danger">{err}</p>}
+    </div>
+  );
+}
 
 function SetupCard({
   icon: Icon,
@@ -73,9 +130,7 @@ function SetupCard({
         </div>
         <Pill tone={statusTone}>{status}</Pill>
       </div>
-
       {open && <div className="rounded-xl border border-outline-variant bg-surface-container-low p-3 text-sm text-on-surface-variant">{steps}</div>}
-
       <div className="flex flex-wrap items-center justify-between gap-2 border-t border-outline-variant pt-3">
         <button className="inline-flex items-center gap-1 text-sm font-semibold text-on-surface-variant hover:text-on-surface" onClick={() => setOpen((v) => !v)}>
           {open ? <ChevronUp size={15} /> : <ChevronDown size={15} />} Setup steps
@@ -100,11 +155,13 @@ function SourceRow({
   spec,
   enabled,
   live,
+  status,
   onToggle,
 }: {
   spec: CollectorSpec;
   enabled: boolean;
   live: boolean;
+  status?: CaptureSourceStatus;
   onToggle: (next: boolean) => void;
 }) {
   const name = spec.display_name || titleize(spec.source);
@@ -113,17 +170,18 @@ function SourceRow({
       <div className="min-w-0">
         <div className="flex flex-wrap items-center gap-2">
           <span className="font-semibold">{name}</span>
-          <Pill tone={spec.raw_content_stored ? "warn" : "good"}>
-            {spec.raw_content_stored ? "Stores content" : "Metadata only"}
-          </Pill>
+          {status?.state === "connected" ? (
+            <Pill tone="good">Streaming</Pill>
+          ) : status ? (
+            <Pill tone="neutral">Idle</Pill>
+          ) : null}
+          <Pill tone={spec.raw_content_stored ? "warn" : "good"}>{spec.raw_content_stored ? "Stores content" : "Metadata only"}</Pill>
         </div>
         <div className="mt-1 flex flex-wrap items-center gap-1.5">
           {(spec.permissions || []).map((p) => (
             <Chip key={p}>{p}</Chip>
           ))}
-          {(spec.event_types || []).slice(0, 3).map((e) => (
-            <span key={e} className="text-xs text-on-surface-variant">{titleize(e)}</span>
-          ))}
+          {status?.last_sync_at && <span className="text-xs text-outline">synced {relativeTime(status.last_sync_at)}</span>}
         </div>
       </div>
       <Switch checked={enabled} onChange={onToggle} disabled={!live} label={`Capture ${name}`} />
@@ -135,23 +193,31 @@ export default function Capture() {
   const { online } = useBackend();
   const daemonRes = useResource(async () => (await getDaemonStatus()).collector_specs || [], previewCollectorSpecs);
   const sourcesRes = useResource(getMemorySources, previewMemorySources);
+  const statusRes = useResource(async () => (await getCaptureStatus()).sources || [], [] as CaptureSourceStatus[]);
   const devicesRes = useResource(async () => (await getSyncDevices()).devices || [], []);
   const pushRes = useResource(async () => (await getPushTokens()).tokens || [], []);
+  const agentRes = useResource(async () => (await getAgentReachChannels()).channels || [], previewAgentReachChannels);
+  const permsRes = useResource(async () => (await getDevicePermissions()).permissions || [], previewDevicePermissions);
 
   const [overrides, setOverrides] = useState<Record<string, boolean>>({});
+  const [reachOverrides, setReachOverrides] = useState<Record<string, boolean>>({});
   const [note, setNote] = useState<string | null>(null);
 
   const offline = daemonRes.isPreview;
+
   const enabledMap = useMemo(() => {
     const map = new Map<string, boolean>();
     for (const s of sourcesRes.data as MemorySource[]) if (s.source) map.set(s.source, Boolean(s.enabled));
     return map;
   }, [sourcesRes.data]);
 
-  const specs = useMemo(
-    () => daemonRes.data.filter((s) => s.source && !OAUTH_SOURCES.has(s.source)),
-    [daemonRes.data],
-  );
+  const statusMap = useMemo(() => {
+    const map = new Map<string, CaptureSourceStatus>();
+    for (const s of statusRes.data) if (s.source) map.set(s.source, s);
+    return map;
+  }, [statusRes.data]);
+
+  const specs = useMemo(() => daemonRes.data.filter((s) => s.source && !OAUTH_SOURCES.has(s.source)), [daemonRes.data]);
 
   const isEnabled = (spec: CollectorSpec) =>
     overrides[spec.source!] ?? enabledMap.get(spec.source!) ?? Boolean(spec.enabled_by_default);
@@ -168,17 +234,40 @@ export default function Capture() {
     }
   };
 
+  const toggleReach = async (channel: AgentReachChannel, next: boolean) => {
+    setReachOverrides((o) => ({ ...o, [channel.channel]: next }));
+    setNote(null);
+    try {
+      await setAgentReachChannel(channel.channel, next);
+    } catch (err) {
+      setReachOverrides((o) => ({ ...o, [channel.channel]: !next }));
+      setNote(err instanceof Error ? err.message : "Couldn’t update that channel. Try again.");
+    }
+  };
+
   const reload = () => {
     daemonRes.reload();
     sourcesRes.reload();
+    statusRes.reload();
     devicesRes.reload();
     pushRes.reload();
+    agentRes.reload();
+    permsRes.reload();
   };
 
-  const laptopConnected = devicesRes.data.some(
-    (d) => d.trust_status === "trusted" && !(d.device_id || "").startsWith("web-"),
-  );
+  const laptopConnected = devicesRes.data.some((d) => d.trust_status === "trusted" && !(d.device_id || "").startsWith("web-"));
   const phoneConnected = pushRes.data.length > 0;
+
+  // Group device permissions by device for display.
+  const permsByDevice = useMemo(() => {
+    const map = new Map<string, DevicePermission[]>();
+    for (const p of permsRes.data) {
+      const k = p.device_id || "device";
+      if (!map.has(k)) map.set(k, []);
+      map.get(k)!.push(p);
+    }
+    return [...map.entries()];
+  }, [permsRes.data]);
 
   return (
     <>
@@ -193,13 +282,10 @@ export default function Capture() {
       />
 
       {offline && <OfflineBanner onRetry={reload} />}
-
-      {note && (
-        <div className="mb-4 rounded-lg border border-danger/20 bg-danger/5 px-3 py-2 text-sm font-semibold text-danger">{note}</div>
-      )}
+      {note && <div className="mb-4 rounded-lg border border-danger/20 bg-danger/5 px-3 py-2 text-sm font-semibold text-danger">{note}</div>}
 
       <div className="flex flex-col gap-4">
-        {/* Setup */}
+        {/* Set up */}
         <Panel title="Set up capture">
           <ul className="grid gap-3 sm:grid-cols-2">
             <SetupCard
@@ -226,7 +312,7 @@ export default function Capture() {
                 "Download the PersonaLayer desktop app for your OS.",
                 "Open it and sign in with this account.",
                 <span className="inline-flex flex-wrap items-center gap-2">Point it at your backend: <CopyButton value={API_BASE || ""} label="Copy URL" /></span>,
-                <>Pair it from <Link to="/app/devices" className="text-primary hover:underline">Devices</Link>.</>,
+                <>Enter a one-time setup code:<EnrollCode live={online} /></>,
               ])}
             />
             <SetupCard
@@ -243,13 +329,13 @@ export default function Capture() {
               ])}
             />
             <SetupCard
-              icon={Megaphone}
-              title="Agent Reach"
-              body="Optional outreach channels for your agents."
-              status="Coming soon"
-              statusTone="neutral"
-              action={<span className="text-sm text-outline">Not available yet</span>}
-              steps={ol(["Optional channels that let your agents reach out on your behalf. This isn’t available in the product yet — it’s on the roadmap."])}
+              icon={ShieldCheck}
+              title="On-device permissions"
+              body="What your phone/laptop apps are allowed to read."
+              status={permsRes.data.length ? `${permsRes.data.filter((p) => p.state === "granted").length} granted` : "None reported"}
+              statusTone={permsRes.data.length ? "good" : "neutral"}
+              action={undefined}
+              steps={ol(["Your native apps report which OS permissions you've granted. Grant or revoke them in your device's system settings; this view updates after the app next syncs."])}
             />
           </ul>
         </Panel>
@@ -268,13 +354,7 @@ export default function Capture() {
           ) : (
             <ul className="-my-1">
               {specs.map((spec) => (
-                <SourceRow
-                  key={spec.source}
-                  spec={spec}
-                  enabled={isEnabled(spec)}
-                  live={online}
-                  onToggle={(next) => toggle(spec, next)}
-                />
+                <SourceRow key={spec.source} spec={spec} enabled={isEnabled(spec)} live={online} status={statusMap.get(spec.source!)} onToggle={(next) => toggle(spec, next)} />
               ))}
             </ul>
           )}
@@ -282,6 +362,59 @@ export default function Capture() {
             Turning a source off stops it from feeding your persona. Cloud apps like Gmail or GitHub are managed in{" "}
             <Link to="/app/apps" className="text-primary hover:underline">Connected apps</Link>.
           </p>
+        </Panel>
+
+        {/* Agent Reach */}
+        <Panel
+          title={<span className="inline-flex items-center gap-2"><Megaphone size={16} /> Agent Reach</span>}
+          action={<span className="text-xs text-on-surface-variant">Optional channels</span>}
+        >
+          <p className="mb-3 text-sm text-on-surface-variant">Channels your agents may use to reach you. All off by default — turn on only what you want.</p>
+          {agentRes.loading && agentRes.data.length === 0 ? (
+            <LoadingState />
+          ) : (
+            <ul className="-my-1">
+              {agentRes.data.map((ch) => {
+                const on = reachOverrides[ch.channel] ?? Boolean(ch.enabled);
+                return (
+                  <li key={ch.channel} className="flex items-center justify-between gap-3 border-b border-outline-variant py-3 last:border-none">
+                    <div className="min-w-0">
+                      <div className="font-semibold">{ch.name || titleize(ch.channel)}</div>
+                      {ch.description && <div className="text-xs text-on-surface-variant">{ch.description}</div>}
+                    </div>
+                    <Switch checked={on} onChange={(next) => toggleReach(ch, next)} disabled={!online} label={`Enable ${ch.name || ch.channel}`} />
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </Panel>
+
+        {/* Native device permissions */}
+        <Panel
+          title={<span className="inline-flex items-center gap-2"><ShieldCheck size={16} /> Device permissions</span>}
+          action={<span className="text-xs text-on-surface-variant">{permsRes.data.length} reported</span>}
+        >
+          {permsRes.loading && permsRes.data.length === 0 ? (
+            <LoadingState />
+          ) : permsByDevice.length === 0 ? (
+            <EmptyState icon={<Smartphone size={22} />} title="No permissions reported" hint="Install the iPhone or macOS app and grant access — what you allow shows up here." />
+          ) : (
+            <div className="flex flex-col gap-4">
+              {permsByDevice.map(([device, perms]) => (
+                <div key={device}>
+                  <div className="mb-1.5 text-xs font-bold uppercase tracking-wide text-outline">{titleize(device)}</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {perms.map((p) => (
+                      <Pill key={p.permission} tone={permTone(p.state)}>
+                        {titleize(p.permission)}: {titleize(p.state) || "Unknown"}
+                      </Pill>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </Panel>
       </div>
     </>

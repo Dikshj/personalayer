@@ -4125,6 +4125,106 @@ def list_push_tokens(user_id: str, active_only: bool = True) -> list[dict]:
     return [_push_token_row(row) for row in rows]
 
 
+# ---- Capture controls: Agent Reach, device permissions, enrollment ----------
+
+AGENT_REACH_CHANNEL_CATALOG = [
+    {"channel": "email", "name": "Email", "description": "Let agents email you summaries or nudges."},
+    {"channel": "push", "name": "Push notifications", "description": "On-device push from your paired apps."},
+    {"channel": "in_app", "name": "In-app messages", "description": "Surface agent messages inside PersonaLayer."},
+    {"channel": "digest", "name": "Weekly digest", "description": "A periodic roll-up of what your agents found."},
+]
+
+
+def list_agent_reach_channels(user_id: str) -> list[dict]:
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT channel, enabled FROM agent_reach_channels WHERE user_id = ?",
+            (user_id,),
+        ).fetchall()
+    enabled = {row["channel"]: bool(row["enabled"]) for row in rows}
+    return [{**spec, "enabled": enabled.get(spec["channel"], False)} for spec in AGENT_REACH_CHANNEL_CATALOG]
+
+
+def set_agent_reach_channel(user_id: str, channel: str, enabled: bool) -> dict:
+    if channel not in {spec["channel"] for spec in AGENT_REACH_CHANNEL_CATALOG}:
+        return {"error": "unknown_channel"}
+    row_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"agent-reach:{user_id}:{channel}"))
+    with get_connection() as conn:
+        conn.execute(
+            """INSERT INTO agent_reach_channels (id, user_id, channel, enabled, updated_at)
+               VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+               ON CONFLICT(user_id, channel) DO UPDATE SET
+                 enabled = excluded.enabled, updated_at = CURRENT_TIMESTAMP""",
+            (row_id, user_id, channel, 1 if enabled else 0),
+        )
+        conn.commit()
+    return {"channel": channel, "enabled": bool(enabled)}
+
+
+def report_device_permissions(user_id: str, device_id: str, permissions: dict) -> list[dict]:
+    clean_device = str(device_id).strip()[:160]
+    with get_connection() as conn:
+        for permission, state in (permissions or {}).items():
+            perm = str(permission).strip()[:60]
+            if not perm:
+                continue
+            row_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"device-perm:{user_id}:{clean_device}:{perm}"))
+            conn.execute(
+                """INSERT INTO device_permissions (id, user_id, device_id, permission, state, updated_at)
+                   VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                   ON CONFLICT(user_id, device_id, permission) DO UPDATE SET
+                     state = excluded.state, updated_at = CURRENT_TIMESTAMP""",
+                (row_id, user_id, clean_device, perm, str(state)[:40]),
+            )
+        conn.commit()
+    return list_device_permissions(user_id, device_id=clean_device)
+
+
+def list_device_permissions(user_id: str, device_id: str = "") -> list[dict]:
+    query = "SELECT device_id, permission, state, updated_at FROM device_permissions WHERE user_id = ?"
+    params: list[object] = [user_id]
+    if device_id:
+        query += " AND device_id = ?"
+        params.append(device_id)
+    query += " ORDER BY device_id, permission"
+    with get_connection() as conn:
+        rows = conn.execute(query, tuple(params)).fetchall()
+    return [
+        {"device_id": r["device_id"], "permission": r["permission"], "state": r["state"], "updated_at": r["updated_at"]}
+        for r in rows
+    ]
+
+
+def create_capture_enroll_token(user_id: str, ttl_seconds: int = 600) -> dict:
+    code = uuid.uuid4().hex[:8].upper()
+    expires_at = int((datetime.now() + timedelta(seconds=ttl_seconds)).timestamp())
+    with get_connection() as conn:
+        conn.execute(
+            "INSERT INTO capture_enroll_tokens (code, user_id, expires_at) VALUES (?, ?, ?)",
+            (code, user_id, expires_at),
+        )
+        conn.commit()
+    return {"code": code, "user_id": user_id, "expires_at": expires_at}
+
+
+def redeem_capture_enroll_token(code: str) -> Optional[str]:
+    clean = str(code).strip().upper()
+    now = int(datetime.now().timestamp())
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT user_id, expires_at, consumed_at FROM capture_enroll_tokens WHERE code = ?",
+            (clean,),
+        ).fetchone()
+        if not row or row["consumed_at"] or int(row["expires_at"]) < now:
+            return None
+        conn.execute(
+            "UPDATE capture_enroll_tokens SET consumed_at = CURRENT_TIMESTAMP WHERE code = ?",
+            (clean,),
+        )
+        conn.commit()
+        return row["user_id"]
+
+
 def revoke_push_token(user_id: str, device_id: str) -> bool:
     with get_connection() as conn:
         revoked = conn.execute(

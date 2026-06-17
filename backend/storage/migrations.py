@@ -227,6 +227,41 @@ def _migration_012_integration_user_scope(conn: sqlite3.Connection) -> None:
     conn.execute("ALTER TABLE pcl_integrations_new RENAME TO pcl_integrations")
 
 
+def _migration_013_capture_controls(conn: sqlite3.Connection) -> None:
+    """Per-user tables for capture controls: Agent Reach channels, native device
+    permission reports, and one-time daemon enrollment codes."""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS agent_reach_channels (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            channel TEXT NOT NULL,
+            enabled INTEGER DEFAULT 0,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(user_id, channel)
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS device_permissions (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            device_id TEXT NOT NULL,
+            permission TEXT NOT NULL,
+            state TEXT DEFAULT 'undetermined',
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(user_id, device_id, permission)
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS capture_enroll_tokens (
+            code TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            expires_at INTEGER NOT NULL,
+            consumed_at DATETIME
+        )
+    """)
+
+
 MIGRATIONS: tuple[tuple[str, Migration], ...] = (
     ("001_context_contract_status", _migration_001_context_contract_status),
     ("002_persona_feedback_calibration", _migration_002_persona_feedback_calibration),
@@ -240,6 +275,7 @@ MIGRATIONS: tuple[tuple[str, Migration], ...] = (
     ("010_integration_oauth_tokens", _migration_010_integration_oauth_tokens),
     ("011_raw_event_vault_payload", _migration_011_raw_event_vault_payload),
     ("012_integration_user_scope", _migration_012_integration_user_scope),
+    ("013_capture_controls", _migration_013_capture_controls),
 )
 
 

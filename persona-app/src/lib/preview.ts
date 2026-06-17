@@ -2,9 +2,11 @@
 // product surface is visible with a "Backend offline" notice. Not real data.
 
 import type {
+  AgentReachChannel,
   AuditEntry,
   CollectorSpec,
   ControlCenterPermission,
+  DevicePermission,
   MemorySource,
   PclIntegration,
   PersonaSignal,
@@ -119,6 +121,19 @@ export const previewCollectorSpecs: CollectorSpec[] = [
 export const previewMemorySources: MemorySource[] = [
   { source: "browser_extension", enabled: true },
   { source: "terminal", enabled: false },
+];
+
+export const previewAgentReachChannels: AgentReachChannel[] = [
+  { channel: "email", name: "Email", description: "Let agents email you summaries or nudges.", enabled: false },
+  { channel: "push", name: "Push notifications", description: "On-device push from your paired apps.", enabled: true },
+  { channel: "in_app", name: "In-app messages", description: "Surface agent messages inside PersonaLayer.", enabled: true },
+  { channel: "digest", name: "Weekly digest", description: "A periodic roll-up of what your agents found.", enabled: false },
+];
+
+export const previewDevicePermissions: DevicePermission[] = [
+  { device_id: "iphone-15-pro", permission: "healthkit", state: "granted" },
+  { device_id: "iphone-15-pro", permission: "contacts", state: "denied" },
+  { device_id: "iphone-15-pro", permission: "eventkit", state: "granted" },
 ];
 
 export const previewConflicts: SyncConflict[] = [];
