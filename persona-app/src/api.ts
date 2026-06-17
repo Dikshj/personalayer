@@ -633,6 +633,78 @@ export async function clearQueryLog(appId?: string): Promise<{ status?: string; 
   return deleteJson(`/pcl/query-log?${params.toString()}`);
 }
 
+// ---- Capture sources (local daemon / on-device collectors) ------------------
+
+export type CollectorSpec = {
+  source?: string;
+  display_name?: string;
+  event_types?: string[];
+  mode?: string; // "push" | "local_metadata" | "api" | ...
+  permissions?: string[];
+  raw_content_stored?: boolean;
+  enabled_by_default?: boolean;
+};
+
+export type DaemonStatus = {
+  status?: string;
+  mode?: string;
+  bind?: string;
+  collectors?: string[];
+  collector_specs?: CollectorSpec[];
+};
+
+export type MemorySource = {
+  source: string;
+  enabled?: boolean;
+};
+
+export type PushToken = {
+  id?: string;
+  device_id?: string;
+  platform?: string;
+  environment?: string;
+  is_active?: boolean;
+  registered_at?: string | number;
+};
+
+// Catalog of capture collectors the backend knows about, with the device
+// permissions each needs. Drives the /app/capture source list.
+export async function getDaemonStatus(): Promise<DaemonStatus> {
+  return getJson("/daemon/status");
+}
+
+// Which signal sources are enabled for this user. Normalizes the various
+// shapes the endpoint may return into a flat list.
+export async function getMemorySources(): Promise<MemorySource[]> {
+  const raw = await getJson<unknown>("/v1/memory/sources?user_id=local_user");
+  if (Array.isArray(raw)) return raw as MemorySource[];
+  if (raw && typeof raw === "object") {
+    const obj = raw as Record<string, unknown>;
+    if (Array.isArray(obj.sources)) return obj.sources as MemorySource[];
+    return Object.entries(obj).map(([source, value]) => ({
+      source,
+      enabled: typeof value === "boolean" ? value : Boolean((value as { enabled?: boolean })?.enabled),
+    }));
+  }
+  return [];
+}
+
+export async function setMemorySource(
+  source: string,
+  enabled: boolean,
+  reason = "Changed from capture settings",
+): Promise<{ status?: string; source?: string; enabled?: boolean }> {
+  return putJson(`/v1/memory/sources/${encodeURIComponent(source)}`, {
+    user_id: "local_user",
+    enabled,
+    reason,
+  });
+}
+
+export async function getPushTokens(): Promise<{ user_id?: string; tokens: PushToken[] }> {
+  return getJson("/v1/devices/push-token?user_id=local_user");
+}
+
 export async function getPrivacyDrops(limit = 100): Promise<{ drops: Array<Record<string, unknown>> }> {
   return getJson(`/v1/context/privacy-drops?user_id=local_user&limit=${limit}`);
 }
@@ -853,6 +925,10 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
 
 async function patchJson<T>(path: string, body: unknown): Promise<T> {
   return requestJson(path, { method: "PATCH", body: JSON.stringify(body) });
+}
+
+async function putJson<T>(path: string, body: unknown): Promise<T> {
+  return requestJson(path, { method: "PUT", body: JSON.stringify(body) });
 }
 
 async function deleteJson<T>(path: string): Promise<T> {

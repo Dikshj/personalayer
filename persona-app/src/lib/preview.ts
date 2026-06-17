@@ -3,7 +3,9 @@
 
 import type {
   AuditEntry,
+  CollectorSpec,
   ControlCenterPermission,
+  MemorySource,
   PclIntegration,
   PersonaSignal,
   PrivacyBoundary,
@@ -103,6 +105,20 @@ export const previewQueryLog: QueryLogEntry[] = [
   { id: "q3", app_id: "unknown_app", purpose: "full_profile", requested_layers: ["identity_role", "active_context"], returned_layers: [], feature_ids: [], status: "denied", reason: "app_consent_revoked", created_at: hoursAgo(9) },
   { id: "q4", app_id: "code_assistant", purpose: "constraints", requested_layers: ["explicit_preferences"], returned_layers: ["explicit_preferences"], feature_ids: [], status: "returned", reason: "", created_at: hoursAgo(28) },
   { id: "q5", app_id: "inbox_zero", purpose: "suggest_features", requested_layers: ["capability_signals"], returned_layers: ["capability_signals"], feature_ids: ["smart_replies"], status: "returned", reason: "", created_at: hoursAgo(52) },
+];
+
+export const previewCollectorSpecs: CollectorSpec[] = [
+  { source: "browser_extension", display_name: "Browser activity", mode: "push", event_types: ["page_visit", "search"], permissions: ["Browser extension"], raw_content_stored: false, enabled_by_default: true },
+  { source: "terminal", display_name: "Terminal", mode: "push", event_types: ["command_metadata"], permissions: ["Laptop agent"], raw_content_stored: false, enabled_by_default: false },
+  { source: "vscode", display_name: "VS Code", mode: "push", event_types: ["dev_session_metadata"], permissions: ["Laptop agent"], raw_content_stored: false, enabled_by_default: false },
+  { source: "x", display_name: "X (Twitter)", mode: "push", event_types: ["feed_activity", "topic_activity"], permissions: ["Browser extension"], raw_content_stored: false, enabled_by_default: false },
+  { source: "instagram", display_name: "Instagram", mode: "push", event_types: ["feed_activity"], permissions: ["Browser extension"], raw_content_stored: false, enabled_by_default: false },
+  { source: "apple_health", display_name: "Apple Health", mode: "local_metadata", event_types: ["activity_metadata", "sleep_timing"], permissions: ["HealthKit", "iPhone app"], raw_content_stored: false, enabled_by_default: false },
+];
+
+export const previewMemorySources: MemorySource[] = [
+  { source: "browser_extension", enabled: true },
+  { source: "terminal", enabled: false },
 ];
 
 export const previewConflicts: SyncConflict[] = [];

@@ -10,6 +10,7 @@ import {
   LayoutGrid,
   LogOut,
   type LucideIcon,
+  Radio,
   Settings,
   ShieldCheck,
   Smartphone,
@@ -57,6 +58,7 @@ const NAV: NavItem[] = [
   { to: "/app/privacy", label: "Privacy", icon: ShieldCheck },
   { to: "/app/activity", label: "Activity", icon: Activity },
   { to: "/app/devices", label: "Devices", icon: Smartphone },
+  { to: "/app/capture", label: "Capture", icon: Radio },
   { to: "/app/settings", label: "Settings", icon: Settings },
 ];
 

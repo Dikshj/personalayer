@@ -9,6 +9,7 @@ import Consent from "./pages/Consent";
 import ContextPreview from "./pages/ContextPreview";
 import Persona from "./pages/Persona";
 import Apps from "./pages/Apps";
+import Capture from "./pages/Capture";
 import Privacy from "./pages/Privacy";
 import Devices from "./pages/Devices";
 import Activity from "./pages/Activity";
@@ -65,6 +66,7 @@ export default function App() {
         <Route index element={<Navigate to="/app/persona" replace />} />
         <Route path="persona" element={<Persona />} />
         <Route path="apps" element={<Apps />} />
+        <Route path="capture" element={<Capture />} />
         <Route path="privacy" element={<Privacy />} />
         <Route path="devices" element={<Devices />} />
         <Route path="activity" element={<Activity />} />
