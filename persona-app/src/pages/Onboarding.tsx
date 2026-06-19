@@ -18,6 +18,7 @@ import {
 import { Button, Pill, Stepper } from "../components/ui";
 import { titleize } from "../lib/format";
 import { seedOnboarding, submitOnboardingFlow } from "../api";
+import { markOnboardingComplete } from "../auth/session";
 
 const STEPS = ["Welcome", "Work", "Goals", "Tools", "Privacy", "Confirm"];
 
@@ -130,6 +131,7 @@ export default function Onboarding() {
           never_share: [],
         }),
       ]);
+      markOnboardingComplete();
       navigate("/app/persona", { replace: true });
     } catch (err) {
       setError(
@@ -152,6 +154,7 @@ export default function Onboarding() {
       /* best effort — still leave onboarding */
     } finally {
       setSaving(false);
+      markOnboardingComplete();
       navigate("/app/persona", { replace: true });
     }
   };

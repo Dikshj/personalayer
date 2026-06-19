@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 import { BackendProvider, useBackend } from "../lib/backend";
 import { getPrivacyProfile } from "../api";
-import { clearSession } from "../auth/session";
+import { clearSession, hasCompletedOnboarding, markOnboardingComplete } from "../auth/session";
 import { supabase } from "../lib/supabase";
 
 const ONBOARDING_CHECK_KEY = "pl_onboarding_checked";
@@ -28,11 +28,16 @@ const ONBOARDING_CHECK_KEY = "pl_onboarding_checked";
 function useFirstRunRedirect() {
   const navigate = useNavigate();
   useEffect(() => {
+    if (hasCompletedOnboarding()) return;
     if (sessionStorage.getItem(ONBOARDING_CHECK_KEY)) return;
     let cancelled = false;
     getPrivacyProfile()
       .then((profile) => {
         sessionStorage.setItem(ONBOARDING_CHECK_KEY, "1");
+        if (profile?.onboarding_completed === true) {
+          markOnboardingComplete();
+          return;
+        }
         if (!cancelled && profile && profile.onboarding_completed === false) {
           navigate("/app/onboarding", { replace: true });
         }

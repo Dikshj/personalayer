@@ -90,6 +90,10 @@ class TestAuthentication:
         }, headers=headers)
         profile = client.get("/v1/user/privacy-profile?user_id=local_user", headers=headers)
         loaded_seed = client.get("/pcl/onboarding/seed?user_id=local_user", headers=headers)
+        signals = client.post("/v1/control-center/signals/search", json={
+            "user_id": "local_user",
+            "source": "onboarding",
+        }, headers=headers)
 
         assert seed.status_code == 200
         assert seed.json()["user_id"] == user_id
@@ -98,6 +102,8 @@ class TestAuthentication:
         assert profile.json()["user_id"] == user_id
         assert profile.json()["onboarding_completed"] is True
         assert loaded_seed.json()["user_id"] == user_id
+        assert signals.status_code == 200
+        assert signals.json()["count"] > 0
 
 
 class TestInputValidation:

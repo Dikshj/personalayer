@@ -6,6 +6,7 @@
 import { API_CONFIG, clearSessionToken, getStoredSessionToken, isSessionExpired, storeSessionToken, storeSessionMeta } from "../api";
 
 const USER_KEY = "personalayer_user";
+const ONBOARDING_DONE_PREFIX = "personalayer_onboarding_done:";
 
 export type StoredUser = { id: string; email?: string };
 
@@ -22,6 +23,19 @@ export function getUser(): StoredUser | null {
   } catch {
     return null;
   }
+}
+
+export function currentUserKey(): string {
+  const user = getUser();
+  return user?.id ? `supabase:${user.id}` : "local_user";
+}
+
+export function markOnboardingComplete() {
+  localStorage.setItem(`${ONBOARDING_DONE_PREFIX}${currentUserKey()}`, "1");
+}
+
+export function hasCompletedOnboarding(): boolean {
+  return localStorage.getItem(`${ONBOARDING_DONE_PREFIX}${currentUserKey()}`) === "1";
 }
 
 export function clearSession() {

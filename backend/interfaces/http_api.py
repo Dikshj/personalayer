@@ -1,6 +1,7 @@
 # backend/interfaces/http_api.py
 import json
 import os
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
@@ -53,6 +54,7 @@ from database import (
     list_memory_source_settings,
     list_observability_events as list_observability_event_rows,
     insert_persona_feedback,
+    insert_persona_signal,
     insert_pcl_query_log,
     insert_pcl_feature_event,
     list_context_contracts,
@@ -898,11 +900,49 @@ async def seed_pcl_onboarding(payload: PclOnboardingSeedRequest, request: Reques
     user_id = _request_user_id(request, payload.user_id)
     profile_seed = build_onboarding_seed(payload.answers)
     saved = save_pcl_onboarding_seed(user_id, payload.answers, profile_seed)
+    _record_onboarding_seed_signals(profile_seed)
     return {
         "status": "ok",
         "user_id": user_id,
         "profile_seed": saved["profile_seed"],
     }
+
+
+def _record_onboarding_seed_signals(profile_seed: dict) -> None:
+    timestamp = int(time.time() * 1000)
+    identity = profile_seed.get("identity") or {}
+    behavior = profile_seed.get("behavior") or {}
+    active_context = profile_seed.get("active_context") or {}
+
+    entries: list[tuple[str, str, float, float, str]] = []
+    if identity.get("role"):
+        entries.append(("work_domain", identity["role"], 1.0, 0.8, "Role provided during onboarding."))
+    if identity.get("domain"):
+        entries.append(("work_domain", identity["domain"], 0.9, 0.75, "Domain provided during onboarding."))
+    for expertise in identity.get("expertise") or []:
+        entries.append(("skill", str(expertise), 0.8, 0.7, "Expertise provided during onboarding."))
+    if behavior.get("workflow_style"):
+        entries.append(("behavior", behavior["workflow_style"], 0.8, 0.75, "Workflow style provided during onboarding."))
+    if behavior.get("preferred_depth"):
+        entries.append(("preference", f"Prefers {behavior['preferred_depth']} responses", 0.7, 0.7, "Preference provided during onboarding."))
+    if active_context.get("current_goal"):
+        entries.append(("task_pattern", active_context["current_goal"], 0.8, 0.7, "Goal provided during onboarding."))
+    for capability in profile_seed.get("capabilities") or []:
+        name = capability.get("name") or capability.get("feature_name") or capability.get("feature_id")
+        if name:
+            entries.append(("tool", str(name), 0.7, 0.7, "Tool or capability provided during onboarding."))
+    for preference in profile_seed.get("explicit_preferences") or []:
+        key = preference.get("key") or preference.get("name")
+        if key:
+            entries.append(("preference", str(key), 0.7, 0.7, "Preference provided during onboarding."))
+
+    seen: set[tuple[str, str]] = set()
+    for signal_type, name, weight, confidence, evidence in entries:
+        dedupe_key = (signal_type, name.strip().lower())
+        if dedupe_key in seen:
+            continue
+        seen.add(dedupe_key)
+        insert_persona_signal("onboarding", signal_type, name, weight, confidence, evidence, timestamp)
 
 
 @app.post("/pcl/apps")
@@ -1047,20 +1087,22 @@ async def apply_memory_diff_endpoint(diff_id: str, payload: MemoryDiffDecisionRe
 
 
 @app.get("/v1/memory/sources")
-async def list_memory_sources(user_id: str = "local_user"):
-    return {"user_id": user_id, "sources": list_memory_source_settings(user_id)}
+async def list_memory_sources(request: Request, user_id: str = "local_user"):
+    uid = _request_user_id(request, user_id)
+    return {"user_id": uid, "sources": list_memory_source_settings(uid)}
 
 
 @app.put("/v1/memory/sources/{source}")
-async def toggle_memory_source(source: str, payload: MemorySourceToggleRequest):
+async def toggle_memory_source(source: str, payload: MemorySourceToggleRequest, request: Request):
+    uid = _request_user_id(request, payload.user_id)
     setting = set_memory_source_enabled(
-        user_id=payload.user_id,
+        user_id=uid,
         source=source,
         enabled=payload.enabled,
         reason=payload.reason,
     )
     insert_control_center_audit(
-        user_id=payload.user_id,
+        user_id=uid,
         action="memory_source_toggled",
         target_type="memory_source",
         target_id=source,
@@ -1315,8 +1357,8 @@ async def delete_personal_context_query_log(
 
 
 @app.get("/pcl/profile")
-async def get_personal_context_profile(user_id: str = "local_user"):
-    return build_local_user_context_profile(user_id).model_dump()
+async def get_personal_context_profile(request: Request, user_id: str = "local_user"):
+    return build_local_user_context_profile(_request_user_id(request, user_id)).model_dump()
 
 
 @app.delete("/pcl/users/{user_id}/data")
@@ -1326,15 +1368,17 @@ async def delete_personal_context_user_data(user_id: str):
 
 @app.get("/pcl/feature-usage")
 async def get_personal_context_feature_usage(
+    request: Request,
     user_id: str = "local_user",
     app_id: Optional[str] = None,
     days: int = 90,
 ):
+    uid = _request_user_id(request, user_id)
     days = max(1, min(days, 365))
     return {
-        "user_id": user_id,
+        "user_id": uid,
         "app_id": app_id,
-        "features": get_pcl_feature_usage(user_id=user_id, app_id=app_id, days=days),
+        "features": get_pcl_feature_usage(user_id=uid, app_id=app_id, days=days),
     }
 
 
@@ -1665,12 +1709,14 @@ async def get_contextlayer_activity_endpoint(user_id: str = "local_user", limit:
 
 @app.get("/v1/context/privacy-drops")
 async def get_contextlayer_privacy_drops(
+    request: Request,
     user_id: Optional[str] = None,
     limit: int = 100,
 ):
+    uid = _request_user_id(request, user_id or "")
     return {
-        "user_id": user_id,
-        "drops": list_privacy_filter_drops(user_id=user_id, limit=limit),
+        "user_id": uid,
+        "drops": list_privacy_filter_drops(user_id=uid, limit=limit),
     }
 
 
@@ -2189,14 +2235,15 @@ class RevokePermissionRequest(BaseModel):
 # ==================== Control Center Endpoints ====================
 
 @app.get("/v1/control-center/summary")
-async def control_center_summary(user_id: str = "local_user"):
-    return get_control_center_summary(user_id)
+async def control_center_summary(request: Request, user_id: str = "local_user"):
+    return get_control_center_summary(_request_user_id(request, user_id))
 
 
 @app.post("/v1/control-center/signals/search")
-async def control_center_signal_search(payload: SignalSearchRequest):
+async def control_center_signal_search(payload: SignalSearchRequest, request: Request):
+    uid = _request_user_id(request, payload.user_id)
     return search_signals(
-        user_id=payload.user_id,
+        user_id=uid,
         query=payload.query,
         source=payload.source,
         signal_type=payload.signal_type,
