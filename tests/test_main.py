@@ -6,6 +6,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'backend'))
 
 import time
 from unittest.mock import MagicMock
+from urllib.parse import parse_qs, urlparse
 
 
 @pytest.fixture(autouse=True)
@@ -809,6 +810,31 @@ async def test_pcl_integration_oauth_flow_endpoints(client, monkeypatch):
     assert revoked_token.json()["status"] == "revoked"
     assert invalid.json()["error"] == "invalid_or_consumed_state"
     assert unsupported.json()["error"] == "oauth_not_supported"
+
+
+def test_google_connector_oauth_scopes_are_per_connector(monkeypatch):
+    from pcl.oauth import start_oauth_flow
+
+    monkeypatch.setenv("GOOGLE_OAUTH_CLIENT_ID", "test-google-client.apps.googleusercontent.com")
+    expected = {
+        "gmail": ["https://www.googleapis.com/auth/gmail.readonly"],
+        "calendar": ["https://www.googleapis.com/auth/calendar.readonly"],
+        "google_drive": ["https://www.googleapis.com/auth/drive.metadata.readonly"],
+    }
+
+    responses = {
+        source: start_oauth_flow(
+            source=source,
+            user_id="user_1",
+            redirect_uri="http://localhost/callback",
+        )
+        for source in expected
+    }
+
+    for source, response in responses.items():
+        assert response["status"] == "ok"
+        query = parse_qs(urlparse(response["auth_url"]).query)
+        assert query["scope"][0].split() == expected[source]
 
 
 @pytest.mark.asyncio

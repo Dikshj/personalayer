@@ -76,6 +76,29 @@ class TestAuthentication:
         })
         assert response.status_code == 401
 
+    def test_onboarding_uses_authenticated_user_for_repeat_visits(self, client):
+        user_id = "supabase:onboarding-repeat-user"
+        headers = {"Authorization": f"Bearer {create_local_session(user_id)}"}
+
+        seed = client.post("/pcl/onboarding/seed", json={
+            "user_id": "local_user",
+            "answers": {"identity": "Founder, developer tools"},
+        }, headers=headers)
+        completed = client.post("/v1/onboarding/flow", json={
+            "user_id": "local_user",
+            "answers": {"privacy_level": "strict", "sharing_default": "deny"},
+        }, headers=headers)
+        profile = client.get("/v1/user/privacy-profile?user_id=local_user", headers=headers)
+        loaded_seed = client.get("/pcl/onboarding/seed?user_id=local_user", headers=headers)
+
+        assert seed.status_code == 200
+        assert seed.json()["user_id"] == user_id
+        assert completed.status_code == 200
+        assert completed.json()["user_id"] == user_id
+        assert profile.json()["user_id"] == user_id
+        assert profile.json()["onboarding_completed"] is True
+        assert loaded_seed.json()["user_id"] == user_id
+
 
 class TestInputValidation:
     def test_invalid_json_rejected(self, client):

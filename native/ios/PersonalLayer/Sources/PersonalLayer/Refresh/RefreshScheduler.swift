@@ -62,32 +62,36 @@ final class RefreshScheduler: ObservableObject {
     }
 
     private func syncConnectors() throws {
-        // Google connectors share the same token
-        if let stored = OAuthTokenStore.load(provider: "google"),
-           let token = try? refreshIfNeeded(provider: "google", token: stored) {
-
+        if let stored = OAuthTokenStore.load(provider: "google_gmail"),
+           let token = try? refreshIfNeeded(provider: "google_gmail", token: stored) {
             let gmail = GmailClient()
             do {
                 let events = try runAsyncAndBlock { try await gmail.syncMetadata(accessToken: token, cursorStore: self.cursorStore) }
                 try persistConnectorEvents(events, connector: "gmail")
             } catch { print("Gmail sync failed: \(error)") }
+        }
 
-            // Calendar: 7-day window
+        if let stored = OAuthTokenStore.load(provider: "google_calendar"),
+           let token = try? refreshIfNeeded(provider: "google_calendar", token: stored) {
             let calendar = CalendarClient()
             do {
                 let events = try runAsyncAndBlock { try await calendar.sync7DayWindow(accessToken: token, cursorStore: self.cursorStore) }
                 try persistConnectorEvents(events, connector: "calendar")
             } catch { print("Calendar sync failed: \(error)") }
+        }
 
-            // YouTube
+        if let stored = OAuthTokenStore.load(provider: "google_youtube"),
+           let token = try? refreshIfNeeded(provider: "google_youtube", token: stored) {
             let youtube = YouTubeClient()
             do {
                 let videos = try runAsyncAndBlock { try await youtube.syncActivity(accessToken: token, cursorStore: self.cursorStore) }
                 let events = videos.map { RawEvent(id: nil, eventType: "youtube_video", payload: String(data: try! JSONEncoder().encode($0), encoding: .utf8)!, createdAt: Date(), privacyFiltered: false, connectorType: "youtube") }
                 try persistConnectorEvents(events, connector: "youtube")
             } catch { print("YouTube sync failed: \(error)") }
+        }
 
-            // Google Fit
+        if let stored = OAuthTokenStore.load(provider: "google_fit"),
+           let token = try? refreshIfNeeded(provider: "google_fit", token: stored) {
             let fit = GoogleFitClient()
             do {
                 let points = try runAsyncAndBlock { try await fit.syncAggregate(accessToken: token, cursorStore: self.cursorStore) }
@@ -134,14 +138,19 @@ final class RefreshScheduler: ObservableObject {
               expiresIn > 0 else { return token.token }
         if Date().timeIntervalSince(date) > Double(expiresIn) - 300 {
             if let oauthProvider = oauthProviderForName(provider) {
-                return try runAsyncAndBlock { try await OAuthTokenExchange.shared.refreshToken(provider: oauthProvider) }
+                return try runAsyncAndBlock { try await OAuthTokenExchange.shared.refreshToken(provider: oauthProvider, tokenStoreKey: provider) }
             }
         }
         return token.token
     }
 
     private func oauthProviderForName(_ name: String) -> OAuthProvider? {
-        switch name { case "google": return .google; case "spotify": return .spotify; case "notion": return .notion; default: return nil }
+        switch name {
+        case "google_gmail", "google_calendar", "google_fit", "google_youtube": return .google
+        case "spotify": return .spotify
+        case "notion": return .notion
+        default: return nil
+        }
     }
 
     private func runPrivacyFilter() throws {

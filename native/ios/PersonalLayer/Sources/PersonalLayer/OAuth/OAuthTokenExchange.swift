@@ -24,7 +24,7 @@ enum OAuthProvider: String {
 
     var scopes: String {
         switch self {
-        case .google: return "https://www.googleapis.com/auth/gmail.metadata https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/youtube.readonly"
+        case .google: return ""
         case .spotify: return "user-read-recently-played"
         case .notion: return "read_user read_database"
         }
@@ -34,7 +34,7 @@ enum OAuthProvider: String {
 final class OAuthTokenExchange {
     static let shared = OAuthTokenExchange()
 
-    func startAuth(provider: OAuthProvider, presentingViewController: UIViewController, completion: @escaping (Result<String, Error>) -> Void) {
+    func startAuth(provider: OAuthProvider, scopes: String? = nil, tokenStoreKey: String? = nil, presentingViewController: UIViewController, completion: @escaping (Result<String, Error>) -> Void) {
         let clientID = OAuthConfig.clientID(for: provider)
         guard !clientID.isEmpty else {
             completion(.failure(OAuthError.missingClientID))
@@ -46,7 +46,7 @@ final class OAuthTokenExchange {
             URLQueryItem(name: "client_id", value: clientID),
             URLQueryItem(name: "redirect_uri", value: OAuthConfig.redirectURI(for: provider)),
             URLQueryItem(name: "response_type", value: "code"),
-            URLQueryItem(name: "scope", value: provider.scopes),
+            URLQueryItem(name: "scope", value: scopes ?? provider.scopes),
             URLQueryItem(name: "access_type", value: "offline")
         ]
 
@@ -67,7 +67,7 @@ final class OAuthTokenExchange {
             }
             Task {
                 do {
-                    let token = try await self.exchangeCode(code: code, provider: provider)
+                    let token = try await self.exchangeCode(code: code, provider: provider, tokenStoreKey: tokenStoreKey)
                     completion(.success(token))
                 } catch {
                     completion(.failure(error))
@@ -78,7 +78,7 @@ final class OAuthTokenExchange {
         session.start()
     }
 
-    func exchangeCode(code: String, provider: OAuthProvider) async throws -> String {
+    func exchangeCode(code: String, provider: OAuthProvider, tokenStoreKey: String? = nil) async throws -> String {
         let clientID = OAuthConfig.clientID(for: provider)
         let clientSecret = OAuthConfig.clientSecret(for: provider)
 
@@ -119,13 +119,14 @@ final class OAuthTokenExchange {
         ]
 
         let tokenInfo = OAuthTokenStore.TokenInfo(token: accessToken, metadata: metadata)
-        OAuthTokenStore.save(tokenInfo: tokenInfo, provider: provider.rawValue)
+        OAuthTokenStore.save(tokenInfo: tokenInfo, provider: tokenStoreKey ?? provider.rawValue)
 
         return accessToken
     }
 
-    func refreshToken(provider: OAuthProvider) async throws -> String {
-        guard let stored = OAuthTokenStore.load(provider: provider.rawValue),
+    func refreshToken(provider: OAuthProvider, tokenStoreKey: String? = nil) async throws -> String {
+        let storeKey = tokenStoreKey ?? provider.rawValue
+        guard let stored = OAuthTokenStore.load(provider: storeKey),
               let refreshToken = stored.metadata["refresh_token"] as? String,
               !refreshToken.isEmpty else {
             throw OAuthError.noRefreshToken
@@ -169,7 +170,7 @@ final class OAuthTokenExchange {
         ]
 
         let tokenInfo = OAuthTokenStore.TokenInfo(token: accessToken, metadata: metadata)
-        OAuthTokenStore.save(tokenInfo: tokenInfo, provider: provider.rawValue)
+        OAuthTokenStore.save(tokenInfo: tokenInfo, provider: storeKey)
 
         return accessToken
     }

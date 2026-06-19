@@ -894,12 +894,13 @@ async def get_pcl_onboarding_questions():
 
 
 @app.post("/pcl/onboarding/seed")
-async def seed_pcl_onboarding(payload: PclOnboardingSeedRequest):
+async def seed_pcl_onboarding(payload: PclOnboardingSeedRequest, request: Request):
+    user_id = _request_user_id(request, payload.user_id)
     profile_seed = build_onboarding_seed(payload.answers)
-    saved = save_pcl_onboarding_seed(payload.user_id, payload.answers, profile_seed)
+    saved = save_pcl_onboarding_seed(user_id, payload.answers, profile_seed)
     return {
         "status": "ok",
-        "user_id": payload.user_id,
+        "user_id": user_id,
         "profile_seed": saved["profile_seed"],
     }
 
@@ -1338,8 +1339,8 @@ async def get_personal_context_feature_usage(
 
 
 @app.get("/pcl/onboarding/seed")
-async def get_pcl_onboarding_seed_endpoint(user_id: str = "local_user"):
-    seed = get_pcl_onboarding_seed(user_id)
+async def get_pcl_onboarding_seed_endpoint(request: Request, user_id: str = "local_user"):
+    seed = get_pcl_onboarding_seed(_request_user_id(request, user_id))
     if not seed:
         return {"error": "not_found"}
     return seed
@@ -2298,24 +2299,24 @@ async def get_onboarding_flow_questions():
 
 
 @app.post("/v1/onboarding/flow")
-async def submit_onboarding_flow(payload: OnboardingFlowRequest):
-    return save_onboarding_flow_answers(user_id=payload.user_id, answers=payload.answers)
+async def submit_onboarding_flow(payload: OnboardingFlowRequest, request: Request):
+    return save_onboarding_flow_answers(user_id=_request_user_id(request, payload.user_id), answers=payload.answers)
 
 
 @app.get("/v1/user/privacy-profile")
-async def get_user_privacy_profile_endpoint(user_id: str = "local_user"):
-    return get_user_privacy_profile(user_id)
+async def get_user_privacy_profile_endpoint(request: Request, user_id: str = "local_user"):
+    return get_user_privacy_profile(_request_user_id(request, user_id))
 
 
 @app.get("/v1/user/preferences")
-async def get_user_preferences_endpoint(user_id: str = "local_user"):
-    return get_user_preferences(user_id)
+async def get_user_preferences_endpoint(request: Request, user_id: str = "local_user"):
+    return get_user_preferences(_request_user_id(request, user_id))
 
 
 @app.put("/v1/user/preferences")
-async def update_user_preferences_endpoint(payload: UserPreferencesRequest):
+async def update_user_preferences_endpoint(payload: UserPreferencesRequest, request: Request):
     return upsert_user_preferences(
-        user_id=payload.user_id,
+        user_id=_request_user_id(request, payload.user_id),
         personalization_goals=payload.personalization_goals,
         privacy_level=payload.privacy_level,
         sharing_default=payload.sharing_default,

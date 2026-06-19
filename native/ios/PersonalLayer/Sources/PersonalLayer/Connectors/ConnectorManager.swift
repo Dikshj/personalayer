@@ -12,9 +12,22 @@ enum ConnectorType: String, CaseIterable {
     var displayName: String { rawValue }
     var provider: String {
         switch self {
-        case .gmail, .calendar, .googleFit, .youtube: return "google"
+        case .gmail: return "google_gmail"
+        case .calendar: return "google_calendar"
+        case .googleFit: return "google_fit"
+        case .youtube: return "google_youtube"
         case .spotify: return "spotify"
         case .notion: return "notion"
+        }
+    }
+
+    var oauthScope: String {
+        switch self {
+        case .gmail: return "https://www.googleapis.com/auth/gmail.readonly"
+        case .calendar: return "https://www.googleapis.com/auth/calendar.readonly"
+        case .googleFit: return "https://www.googleapis.com/auth/fitness.activity.read"
+        case .youtube: return "https://www.googleapis.com/auth/youtube.readonly"
+        case .spotify, .notion: return oauthProviderForType(self).scopes
         }
     }
 }
@@ -44,7 +57,7 @@ class ConnectorManager: ObservableObject {
     func connect(_ type: ConnectorType) {
         let provider = oauthProviderForType(type)
         guard let window = UIApplication.shared.windows.first else { return }
-        OAuthTokenExchange.shared.startAuth(provider: provider, presentingViewController: window.rootViewController!) { result in
+        OAuthTokenExchange.shared.startAuth(provider: provider, scopes: type.oauthScope, tokenStoreKey: type.provider, presentingViewController: window.rootViewController!) { result in
             Task { @MainActor in
                 switch result {
                 case .success:

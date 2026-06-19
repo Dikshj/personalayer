@@ -18,7 +18,7 @@ FIRST_PARTY_INTEGRATIONS = {
             "client_id_env": "GOOGLE_OAUTH_CLIENT_ID",
             "client_secret_env": "GOOGLE_OAUTH_CLIENT_SECRET",
             "scopes": [
-                "https://www.googleapis.com/auth/gmail.metadata",
+                "https://www.googleapis.com/auth/gmail.readonly",
             ],
         },
     },
