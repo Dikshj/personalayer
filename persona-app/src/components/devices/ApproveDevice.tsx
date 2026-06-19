@@ -3,13 +3,16 @@
 // confirm, then approve. The one-time recovery token is shown exactly once and
 // cleared when leaving this screen.
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   AlertTriangle,
+  Camera,
   CheckCircle2,
   Inbox,
   KeyRound,
+  QrCode,
   ShieldCheck,
+  X,
 } from "lucide-react";
 import { Button, CopyButton, Panel, Pill } from "../ui";
 import { titleize } from "../../lib/format";
@@ -33,10 +36,15 @@ function parseQr(raw: string): Parsed | null {
 export default function ApproveDevice({ online, onChange }: { online: boolean; onChange: () => void }) {
   const [code, setCode] = useState("");
   const [qr, setQr] = useState("");
+  const [scanning, setScanning] = useState(false);
+  const [scanError, setScanError] = useState("");
   const [confirming, setConfirming] = useState(false);
   const [approving, setApproving] = useState(false);
   const [result, setResult] = useState<PairingApprovalResponse | null>(null);
   const [error, setError] = useState("");
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const rafRef = useRef<number | null>(null);
 
   const parsed = qr.trim() ? parseQr(qr.trim()) : null;
   const qrInvalid = qr.trim().length > 0 && !parsed;
@@ -44,6 +52,72 @@ export default function ApproveDevice({ online, onChange }: { online: boolean; o
   const effectiveSession = parsed?.sessionId?.trim() || "";
   const previewScopes = parsed?.scopes || result?.session?.requested_scopes || [];
   const canSubmit = (Boolean(effectiveCode) || Boolean(effectiveSession)) && online;
+
+  const stopScan = () => {
+    if (rafRef.current) window.cancelAnimationFrame(rafRef.current);
+    rafRef.current = null;
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    streamRef.current = null;
+    if (videoRef.current) videoRef.current.srcObject = null;
+    setScanning(false);
+  };
+
+  useEffect(() => stopScan, []);
+
+  const startScan = async () => {
+    setScanError("");
+    setError("");
+    const Detector = (window as unknown as { BarcodeDetector?: new (opts: { formats: string[] }) => {
+      detect: (source: HTMLVideoElement) => Promise<Array<{ rawValue?: string }>>;
+    } }).BarcodeDetector;
+    if (!Detector) {
+      setScanError("QR scanning is not supported in this browser. Enter the pairing code or paste the QR payload instead.");
+      return;
+    }
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setScanError("Camera access is unavailable. Enter the pairing code or paste the QR payload instead.");
+      return;
+    }
+
+    try {
+      setScanning(true);
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: "environment" } },
+        audio: false,
+      });
+      streamRef.current = stream;
+      const video = videoRef.current;
+      if (!video) return;
+      video.srcObject = stream;
+      await video.play();
+
+      const detector = new Detector({ formats: ["qr_code"] });
+      const scanFrame = async () => {
+        if (!videoRef.current || !streamRef.current) return;
+        try {
+          const codes = await detector.detect(videoRef.current);
+          const value = codes[0]?.rawValue?.trim();
+          if (value) {
+            if (parseQr(value)) {
+              setQr(value);
+              setCode("");
+              setConfirming(false);
+              stopScan();
+              return;
+            }
+            setScanError("That QR code is not a PersonaLayer pairing payload.");
+          }
+        } catch {
+          // Keep scanning; some browsers throw while the video frame is warming up.
+        }
+        rafRef.current = window.requestAnimationFrame(scanFrame);
+      };
+      rafRef.current = window.requestAnimationFrame(scanFrame);
+    } catch (err) {
+      stopScan();
+      setScanError(err instanceof Error ? err.message : "Could not start the camera.");
+    }
+  };
 
   const approve = async () => {
     setApproving(true);
@@ -70,6 +144,8 @@ export default function ApproveDevice({ online, onChange }: { online: boolean; o
     setCode("");
     setQr("");
     setError("");
+    setScanError("");
+    stopScan();
   };
 
   // Success: show the recovery token once.
@@ -107,8 +183,8 @@ export default function ApproveDevice({ online, onChange }: { online: boolean; o
   return (
     <Panel title={<span className="inline-flex items-center gap-2"><Inbox size={16} /> Approve an incoming device</span>}>
       <p className="mb-4 text-sm text-on-surface-variant">
-        On this trusted device, approve a new device that is requesting to pair. Enter its pairing code, or paste the QR
-        payload JSON.
+        On this trusted device, approve a new device that is requesting to pair. Scan the QR code, enter its pairing code,
+        or paste the QR payload JSON.
       </p>
 
       {error && (
@@ -118,6 +194,35 @@ export default function ApproveDevice({ online, onChange }: { online: boolean; o
       )}
 
       <div className="flex flex-col gap-4">
+        <div className="rounded-lg border border-outline-variant bg-surface-container-low p-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div className="text-sm font-semibold">Scan QR code</div>
+              <p className="mt-0.5 text-xs text-on-surface-variant">Use this phone camera to scan the QR shown on your laptop.</p>
+            </div>
+            {scanning ? (
+              <Button variant="default" onClick={stopScan}>
+                <X size={15} /> Stop scan
+              </Button>
+            ) : (
+              <Button variant="default" onClick={startScan}>
+                <Camera size={15} /> Scan QR
+              </Button>
+            )}
+          </div>
+          {scanning && (
+            <div className="mt-3 overflow-hidden rounded-lg border border-primary/20 bg-black">
+              <video ref={videoRef} className="aspect-[4/3] w-full object-cover" muted playsInline />
+            </div>
+          )}
+          {!scanning && <video ref={videoRef} className="hidden" muted playsInline />}
+          {scanError && (
+            <p className="mt-2 inline-flex items-start gap-1.5 text-xs font-semibold text-warn">
+              <QrCode size={13} className="mt-0.5 shrink-0" /> {scanError}
+            </p>
+          )}
+        </div>
+
         <label className="flex flex-col gap-1.5">
           <span className="text-sm font-semibold">Pairing code</span>
           <input
