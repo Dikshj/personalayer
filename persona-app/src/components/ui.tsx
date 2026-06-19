@@ -16,14 +16,14 @@ export function Panel({
   className?: string;
 }) {
   return (
-    <section className={`rounded-2xl border border-outline-variant bg-white shadow-ambient ${className}`}>
+    <section className={`min-w-0 rounded-2xl border border-outline-variant bg-white shadow-ambient ${className}`}>
       {(title || action) && (
-        <header className="flex items-center justify-between gap-3 border-b border-outline-variant px-5 py-4">
-          {title && <h2 className="text-base font-bold text-on-surface">{title}</h2>}
+        <header className="flex flex-col gap-3 border-b border-outline-variant px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+          {title && <h2 className="min-w-0 text-base font-bold text-on-surface">{title}</h2>}
           {action && <div className="shrink-0">{action}</div>}
         </header>
       )}
-      <div className="p-5">{children}</div>
+      <div className="p-4 sm:p-5">{children}</div>
     </section>
   );
 }
@@ -74,7 +74,7 @@ export function Button({
     danger: "border border-danger/30 bg-danger/5 text-danger hover:bg-danger/10",
   };
   return (
-    <button className={`${base} ${variants[variant]} ${className}`} disabled={loading || rest.disabled} {...rest}>
+    <button className={`${base} min-h-10 ${variants[variant]} ${className}`} disabled={loading || rest.disabled} {...rest}>
       {loading && <Loader2 size={15} className="animate-spin" />}
       {children}
     </button>
@@ -160,8 +160,8 @@ export function ConfirmButton({
 
 export function Stat({ value, label, hint }: { value: ReactNode; label: string; hint?: string }) {
   return (
-    <div className="rounded-2xl border border-outline-variant bg-white p-4 shadow-ambient">
-      <div className="text-2xl font-bold text-on-surface">{value}</div>
+    <div className="min-w-0 rounded-2xl border border-outline-variant bg-white p-4 shadow-ambient">
+      <div className="break-words text-2xl font-bold text-on-surface">{value}</div>
       <div className="mt-0.5 text-sm text-on-surface-variant">{label}</div>
       {hint && <div className="mt-0.5 text-xs text-outline">{hint}</div>}
     </div>

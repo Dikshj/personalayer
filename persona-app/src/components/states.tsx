@@ -14,12 +14,12 @@ export function PageHeader({
   action?: ReactNode;
 }) {
   return (
-    <header className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight text-on-surface">{title}</h1>
+    <header className="mb-6 flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+      <div className="min-w-0">
+        <h1 className="text-pretty text-2xl font-bold tracking-tight text-on-surface">{title}</h1>
         {subtitle && <p className="mt-1 max-w-2xl text-sm leading-6 text-on-surface-variant">{subtitle}</p>}
       </div>
-      {action && <div className="shrink-0">{action}</div>}
+      {action && <div className="flex shrink-0 sm:justify-end">{action}</div>}
     </header>
   );
 }

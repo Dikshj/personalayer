@@ -94,20 +94,21 @@ function SignalRow({ signal, live, onChanged }: { signal: PersonaSignal; live: b
   };
 
   return (
-    <li className="border-b border-outline-variant py-3 last:border-none">
-      <div className="flex items-center gap-3">
+    <li className="border-b border-outline-variant py-4 last:border-none">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <div className="flex min-w-0 flex-1 items-start gap-3">
         <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-full ${wrong ? "bg-danger/10 text-danger" : "bg-ok/10 text-ok"}`}>
           {signalIcon(signal.signal_type)}
         </span>
 
         <div className="min-w-0 flex-1">
           {editing ? (
-            <div className="flex items-center gap-2">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
               <input
                 value={draft}
                 autoFocus
                 onChange={(e) => setDraft(e.target.value)}
-                className="h-9 min-w-0 flex-1 rounded-lg border border-outline-variant px-3 text-sm outline-none focus:border-primary"
+                className="h-10 min-w-0 flex-1 rounded-lg border border-outline-variant px-3 text-sm outline-none focus:border-primary"
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && signal.id) act(() => editSignal(signal.id!, { name: draft.trim() || signal.name, reason: "Renamed signal" }));
                   if (e.key === "Escape") setEditing(false);
@@ -115,8 +116,12 @@ function SignalRow({ signal, live, onChanged }: { signal: PersonaSignal; live: b
               />
               <Button variant="primary" loading={busy} onClick={() => signal.id && act(() => editSignal(signal.id!, { name: draft.trim() || signal.name, reason: "Renamed signal" }))}>
                 <Check size={14} />
+                <span className="sm:hidden">Save</span>
               </Button>
-              <Button variant="ghost" onClick={() => setEditing(false)}><X size={14} /></Button>
+              <Button variant="ghost" onClick={() => setEditing(false)}>
+                <X size={14} />
+                <span className="sm:hidden">Cancel</span>
+              </Button>
             </div>
           ) : (
             <>
@@ -131,9 +136,10 @@ function SignalRow({ signal, live, onChanged }: { signal: PersonaSignal; live: b
             </>
           )}
         </div>
+        </div>
 
         {!editing && (
-          <div className="flex shrink-0 items-center gap-1">
+          <div className="ml-12 flex shrink-0 items-center gap-1 sm:ml-0">
             <button className="grid h-8 w-8 place-items-center rounded-lg text-on-surface-variant hover:bg-surface-container-low" title="Details & evidence" onClick={() => setExpanded((v) => !v)}>
               {expanded ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
             </button>

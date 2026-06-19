@@ -140,7 +140,7 @@ function ShellInner() {
 
       <div className="lg:pl-60">
         {/* Top bar */}
-        <header className="sticky top-0 z-20 flex h-14 items-center justify-between gap-3 border-b border-outline-variant bg-surface/90 px-4 backdrop-blur md:px-6">
+        <header className="sticky top-0 z-20 flex h-14 items-center justify-between gap-3 border-b border-outline-variant bg-surface/90 px-3 backdrop-blur sm:px-4 md:px-6">
           <NavLink to="/app/persona" className="lg:hidden">
             <Brand />
           </NavLink>
@@ -178,7 +178,7 @@ function ShellInner() {
         </header>
 
         {/* Content */}
-        <main className="mx-auto w-full max-w-5xl px-4 py-6 pb-28 md:px-6 lg:pb-10">
+        <main className="mx-auto w-full max-w-5xl min-w-0 px-3 py-5 pb-[calc(6rem+env(safe-area-inset-bottom))] sm:px-4 md:px-6 lg:pb-10">
           <Outlet />
         </main>
       </div>
