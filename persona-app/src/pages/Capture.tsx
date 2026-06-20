@@ -12,12 +12,14 @@ import {
   ChevronDown,
   ChevronUp,
   Cpu,
+  Download,
   ExternalLink,
   KeyRound,
   Laptop,
   Megaphone,
   Radio,
   RefreshCw,
+  Server,
   ShieldCheck,
   Smartphone,
   type LucideIcon,
@@ -38,6 +40,7 @@ import {
   type AgentReachChannel,
   type CaptureSourceStatus,
   type CollectorSpec,
+  type DaemonStatus,
   type DevicePermission,
   type MemorySource,
   createEnrollToken,
@@ -53,6 +56,10 @@ import {
 } from "../api";
 
 const OAUTH_SOURCES = new Set(["gmail", "calendar", "google_drive", "youtube", "spotify", "github", "notion"]);
+const LOCAL_DAEMON_URL = "http://127.0.0.1:7823";
+const DAEMON_INSTALLER_URL = "/downloads/install-personalayer-daemon-windows.ps1";
+const DAEMON_SETUP_URL = "/downloads/PERSONALAYER_DAEMON_SETUP.md";
+const EXTENSION_SETUP_URL = "/downloads/PERSONALAYER_EXTENSION_SETUP.md";
 
 type Tone = "good" | "warn" | "danger" | "info" | "neutral";
 
@@ -151,6 +158,95 @@ function ol(items: ReactNode[]) {
   );
 }
 
+function LocalDaemonProduct({
+  status,
+  live,
+  loading,
+  onRefresh,
+}: {
+  status?: DaemonStatus;
+  live: boolean;
+  loading: boolean;
+  onRefresh: () => void;
+}) {
+  const isLocal = Boolean(status?.bind || status?.mode === "local_context_daemon");
+  const healthy = live && status?.status === "ok";
+  const collectors = status?.collector_specs?.length || status?.collectors?.length || 0;
+  const policy = status?.policy || {};
+
+  return (
+    <Panel
+      title={<span className="inline-flex items-center gap-2"><Server size={16} /> Local daemon</span>}
+      action={<Pill tone={healthy ? "good" : "warn"}>{healthy ? "Running" : loading ? "Checking" : "Not detected"}</Pill>}
+    >
+      <div className="grid gap-4 lg:grid-cols-[1.15fr_0.85fr]">
+        <div className="rounded-xl border border-outline-variant bg-surface-container-low p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h3 className="text-base font-bold">PersonaLayer local runtime</h3>
+              <p className="mt-1 max-w-2xl text-sm text-on-surface-variant">
+                Runs on the user's computer, receives browser and device events, stores local SQLite data, and exposes scoped context on localhost.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <a className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-outline-variant bg-white px-3.5 py-2 text-sm font-semibold text-on-surface transition hover:bg-surface-container-low" href={DAEMON_INSTALLER_URL} download>
+                <Download size={15} /> Windows installer
+              </a>
+              <a className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-outline-variant bg-white px-3.5 py-2 text-sm font-semibold text-on-surface transition hover:bg-surface-container-low" href={DAEMON_SETUP_URL} target="_blank" rel="noreferrer">
+                Setup guide <ExternalLink size={14} />
+              </a>
+            </div>
+          </div>
+
+          <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="rounded-lg border border-outline-variant bg-white p-3">
+              <div className="text-xs font-semibold uppercase text-outline">Endpoint</div>
+              <code className="mt-1 block truncate text-sm font-semibold">{status?.bind || "127.0.0.1:7823"}</code>
+            </div>
+            <div className="rounded-lg border border-outline-variant bg-white p-3">
+              <div className="text-xs font-semibold uppercase text-outline">Storage</div>
+              <div className="mt-1 text-sm font-semibold">{titleize(status?.storage || "local_sqlite")}</div>
+            </div>
+            <div className="rounded-lg border border-outline-variant bg-white p-3">
+              <div className="text-xs font-semibold uppercase text-outline">Collectors</div>
+              <div className="mt-1 text-sm font-semibold">{collectors}</div>
+            </div>
+            <div className="rounded-lg border border-outline-variant bg-white p-3">
+              <div className="text-xs font-semibold uppercase text-outline">Raw data</div>
+              <div className="mt-1 text-sm font-semibold">{status?.raw_data_leaves_device === false ? "Stays local" : "Policy gated"}</div>
+            </div>
+          </div>
+
+          <div className="mt-4 flex flex-wrap items-center gap-2 text-sm">
+            <Pill tone={isLocal ? "good" : "neutral"}>Localhost runtime</Pill>
+            <Pill tone={policy.scoped_context_contracts ? "good" : "neutral"}>Scoped context</Pill>
+            <Pill tone={policy.audit_log ? "good" : "neutral"}>Audit log</Pill>
+            <Pill tone={policy.revocation ? "good" : "neutral"}>Revocation</Pill>
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-outline-variant bg-white p-4">
+          <h3 className="text-base font-bold">Install flow</h3>
+          {ol([
+            <span>Download and run the Windows installer script.</span>,
+            <span>Open <a className="text-primary hover:underline" href={`${LOCAL_DAEMON_URL}/daemon/status`} target="_blank" rel="noreferrer">daemon status</a> and confirm it returns <code className="rounded bg-surface-container px-1">status: ok</code>.</span>,
+            <span>Load the browser extension, then refresh this page.</span>,
+            <span>Enable only the on-device sources you want below.</span>,
+          ])}
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Button variant="default" onClick={onRefresh} loading={loading}>
+              <RefreshCw size={15} /> Check daemon
+            </Button>
+            <a className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-outline-variant bg-white px-3.5 py-2 text-sm font-semibold text-on-surface transition hover:bg-surface-container-low" href={`${LOCAL_DAEMON_URL}/dashboard/`} target="_blank" rel="noreferrer">
+              Open local dashboard <ExternalLink size={14} />
+            </a>
+          </div>
+        </div>
+      </div>
+    </Panel>
+  );
+}
+
 function SourceRow({
   spec,
   enabled,
@@ -191,6 +287,7 @@ function SourceRow({
 
 export default function Capture() {
   const { online } = useBackend();
+  const daemonStatusRes = useResource(getDaemonStatus, undefined as DaemonStatus | undefined);
   const daemonRes = useResource(async () => (await getDaemonStatus()).collector_specs || [], previewCollectorSpecs);
   const sourcesRes = useResource(getMemorySources, previewMemorySources);
   const statusRes = useResource(async () => (await getCaptureStatus()).sources || [], [] as CaptureSourceStatus[]);
@@ -246,6 +343,7 @@ export default function Capture() {
   };
 
   const reload = () => {
+    daemonStatusRes.reload();
     daemonRes.reload();
     sourcesRes.reload();
     statusRes.reload();
@@ -286,6 +384,13 @@ export default function Capture() {
 
       <div className="flex flex-col gap-4">
         {/* Set up */}
+        <LocalDaemonProduct
+          status={daemonStatusRes.data}
+          live={online && !daemonStatusRes.isPreview}
+          loading={daemonStatusRes.loading}
+          onRefresh={reload}
+        />
+
         <Panel title="Set up capture">
           <ul className="grid gap-3 sm:grid-cols-2">
             <SetupCard
@@ -294,25 +399,25 @@ export default function Capture() {
               body="Page and search metadata from your browser."
               status="Action needed"
               statusTone="neutral"
-              action={<a className="inline-flex items-center gap-1.5 text-sm font-semibold text-primary hover:underline" href="#" onClick={(e) => e.preventDefault()}>Add extension <ExternalLink size={13} /></a>}
+              action={<a className="inline-flex items-center gap-1.5 text-sm font-semibold text-primary hover:underline" href={EXTENSION_SETUP_URL} target="_blank" rel="noreferrer">Install extension <ExternalLink size={13} /></a>}
               steps={ol([
-                "Install the PersonaLayer extension for your browser.",
-                "Sign in with this account.",
-                <>It streams page metadata (no content) to <code className="rounded bg-surface-container px-1">{new URL(API_BASE || "https://personalayer.onrender.com").host}</code>.</>,
+                "Install and start the local daemon first.",
+                "Open Chrome or Edge extensions, enable Developer mode, and load the PersonaLayer extension folder.",
+                <>It streams page metadata to the local daemon at <code className="rounded bg-surface-container px-1">{LOCAL_DAEMON_URL}</code>, then syncs allowed derived signals to <code className="rounded bg-surface-container px-1">{new URL(API_BASE || "https://personalayer.onrender.com").host}</code>.</>,
               ])}
             />
             <SetupCard
               icon={Laptop}
-              title="Laptop agent"
+              title="Desktop daemon"
               body="Terminal, editor, and app activity from your computer."
               status={laptopConnected ? "Connected" : "Not set up"}
               statusTone={laptopConnected ? "good" : "neutral"}
-              action={<Link to="/app/devices" className="inline-flex items-center gap-1.5 text-sm font-semibold text-primary hover:underline">Pair laptop <ArrowRight size={13} /></Link>}
+              action={<a className="inline-flex items-center gap-1.5 text-sm font-semibold text-primary hover:underline" href={DAEMON_INSTALLER_URL} download>Download <Download size={13} /></a>}
               steps={ol([
-                "Download the PersonaLayer desktop app for your OS.",
-                "Open it and sign in with this account.",
+                "Install the daemon and let it register as a Windows login task.",
+                <>Open <a className="text-primary hover:underline" href={`${LOCAL_DAEMON_URL}/dashboard/`} target="_blank" rel="noreferrer">the local dashboard</a> to verify it is running.</>,
                 <span className="inline-flex flex-wrap items-center gap-2">Point it at your backend: <CopyButton value={API_BASE || ""} label="Copy URL" /></span>,
-                <>Enter a one-time setup code:<EnrollCode live={online} /></>,
+                <>For a second computer, generate a one-time setup code:<EnrollCode live={online} /></>,
               ])}
             />
             <SetupCard

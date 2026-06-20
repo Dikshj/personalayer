@@ -649,8 +649,16 @@ export type DaemonStatus = {
   status?: string;
   mode?: string;
   bind?: string;
+  storage?: string;
+  raw_data_leaves_device?: boolean;
+  interfaces?: string[];
   collectors?: string[];
   collector_specs?: CollectorSpec[];
+  policy?: {
+    scoped_context_contracts?: boolean;
+    audit_log?: boolean;
+    revocation?: boolean;
+  };
 };
 
 export type MemorySource = {
