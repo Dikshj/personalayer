@@ -2,8 +2,11 @@
 // Captures SIGNALS from ChatGPT — not raw prompt text.
 // What stored: task type, domain, tech stack keywords only.
 
-const ENDPOINT = "http://localhost:7823/feed-event";
 const sentKeys = new Set();
+
+function postFeedEvent(payload) {
+  chrome.runtime.sendMessage({ type: "PL_FEED_EVENT", payload }, () => {});
+}
 
 function send(signals, source) {
   if (!signals) return;
@@ -11,18 +14,14 @@ function send(signals, source) {
   if (sentKeys.has(key)) return;
   sentKeys.add(key);
 
-  fetch(ENDPOINT, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      source,
-      content_type: "session_signals",
-      content: `[${source}] ${signals}`,
-      author: "user",
-      url: window.location.href,
-      timestamp: Date.now(),
-    }),
-  }).catch(() => {});
+  postFeedEvent({
+    source,
+    content_type: "session_signals",
+    content: `[${source}] ${signals}`,
+    author: "user",
+    url: window.location.href,
+    timestamp: Date.now(),
+  });
 }
 
 function scanMessages() {

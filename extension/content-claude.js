@@ -1,8 +1,11 @@
 // extension/content-claude.js
 // Captures SIGNALS from Claude.ai — not raw prompt text.
 
-const ENDPOINT = "http://localhost:7823/feed-event";
 const sentKeys = new Set();
+
+function postFeedEvent(payload) {
+  chrome.runtime.sendMessage({ type: "PL_FEED_EVENT", payload }, () => {});
+}
 
 function send(signals) {
   if (!signals) return;
@@ -10,18 +13,14 @@ function send(signals) {
   if (sentKeys.has(key)) return;
   sentKeys.add(key);
 
-  fetch(ENDPOINT, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      source: "claude",
-      content_type: "session_signals",
-      content: `[claude] ${signals}`,
-      author: "user",
-      url: window.location.href,
-      timestamp: Date.now(),
-    }),
-  }).catch(() => {});
+  postFeedEvent({
+    source: "claude",
+    content_type: "session_signals",
+    content: `[claude] ${signals}`,
+    author: "user",
+    url: window.location.href,
+    timestamp: Date.now(),
+  });
 }
 
 function scan() {

@@ -37,6 +37,7 @@ import {
 } from "../lib/preview";
 import {
   API_BASE,
+  LOCAL_DAEMON_BASE,
   type AgentReachChannel,
   type CaptureSourceStatus,
   type CollectorSpec,
@@ -46,8 +47,8 @@ import {
   createEnrollToken,
   getAgentReachChannels,
   getCaptureStatus,
-  getDaemonStatus,
   getDevicePermissions,
+  getLocalDaemonStatus,
   getMemorySources,
   getPushTokens,
   getSyncDevices,
@@ -56,7 +57,7 @@ import {
 } from "../api";
 
 const OAUTH_SOURCES = new Set(["gmail", "calendar", "google_drive", "youtube", "spotify", "github", "notion"]);
-const LOCAL_DAEMON_URL = "http://127.0.0.1:7823";
+const LOCAL_DAEMON_URL = LOCAL_DAEMON_BASE;
 const DAEMON_INSTALLER_URL = "/downloads/install-personalayer-daemon-windows.ps1";
 const DAEMON_SETUP_URL = "/downloads/PERSONALAYER_DAEMON_SETUP.md";
 const EXTENSION_SETUP_URL = "/downloads/PERSONALAYER_EXTENSION_SETUP.md";
@@ -287,8 +288,8 @@ function SourceRow({
 
 export default function Capture() {
   const { online } = useBackend();
-  const daemonStatusRes = useResource(getDaemonStatus, undefined as DaemonStatus | undefined);
-  const daemonRes = useResource(async () => (await getDaemonStatus()).collector_specs || [], previewCollectorSpecs);
+  const daemonStatusRes = useResource(getLocalDaemonStatus, undefined as DaemonStatus | undefined);
+  const daemonRes = useResource(async () => (await getLocalDaemonStatus()).collector_specs || [], previewCollectorSpecs);
   const sourcesRes = useResource(getMemorySources, previewMemorySources);
   const statusRes = useResource(async () => (await getCaptureStatus()).sources || [], [] as CaptureSourceStatus[]);
   const devicesRes = useResource(async () => (await getSyncDevices()).devices || [], []);
@@ -386,7 +387,7 @@ export default function Capture() {
         {/* Set up */}
         <LocalDaemonProduct
           status={daemonStatusRes.data}
-          live={online && !daemonStatusRes.isPreview}
+          live={!daemonStatusRes.isPreview}
           loading={daemonStatusRes.loading}
           onRefresh={reload}
         />

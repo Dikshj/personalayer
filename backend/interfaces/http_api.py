@@ -236,6 +236,7 @@ _DEFAULT_ALLOWED_ORIGINS = {
 }
 _PUBLIC_PATHS = {
     "/health",
+    "/daemon/status",
     "/waitlist",
     "/waitlist/count",
     "/pcl/onboarding/questions",
@@ -244,7 +245,7 @@ _PUBLIC_PATHS = {
     "/v1/capture/enroll",
 }
 _PUBLIC_PREFIXES = ("/landing", "/dashboard")
-_EXTENSION_INGEST_PATHS = {"/v1/ingest/extension", "/event"}
+_EXTENSION_INGEST_PATHS = {"/v1/ingest/extension", "/event", "/feed-event"}
 _SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
@@ -286,7 +287,8 @@ async def request_size_limit(request: Request, call_next):
 @app.middleware("http")
 async def scoped_local_cors(request: Request, call_next):
     origin = request.headers.get("origin", "")
-    cors_allowed = _is_cors_origin_allowed(origin)
+    public_probe = request.url.path in {"/health", "/daemon/status"}
+    cors_allowed = _is_cors_origin_allowed(origin) or (public_probe and bool(origin))
     if request.method == "OPTIONS" and origin:
         if not cors_allowed:
             return Response(status_code=403)

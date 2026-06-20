@@ -2,8 +2,11 @@
 // Captures prompts on OpenCode web interface (opencode.ai or app.opencode.ai).
 // Also handles Cursor's web dashboard if accessed via browser.
 
-const ENDPOINT = "http://localhost:7823/feed-event";
 const seen = new Set();
+
+function postFeedEvent(payload) {
+  chrome.runtime.sendMessage({ type: "PL_FEED_EVENT", payload }, () => {});
+}
 
 function send(content, source) {
   if (!content || content.length < 10) return;
@@ -11,18 +14,14 @@ function send(content, source) {
   if (seen.has(key)) return;
   seen.add(key);
 
-  fetch(ENDPOINT, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      source: source || "opencode",
-      content_type: "prompt",
-      content: content.slice(0, 1500),
-      author: "user",
-      url: window.location.href,
-      timestamp: Date.now(),
-    }),
-  }).catch(() => {});
+  postFeedEvent({
+    source: source || "opencode",
+    content_type: "prompt",
+    content: content.slice(0, 1500),
+    author: "user",
+    url: window.location.href,
+    timestamp: Date.now(),
+  });
 }
 
 function scan() {

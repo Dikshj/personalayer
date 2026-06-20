@@ -1,8 +1,11 @@
 // extension/content-perplexity.js
 // Captures SIGNALS from Perplexity — not raw query text.
 
-const ENDPOINT = "http://localhost:7823/feed-event";
 const sentKeys = new Set();
+
+function postFeedEvent(payload) {
+  chrome.runtime.sendMessage({ type: "PL_FEED_EVENT", payload }, () => {});
+}
 
 function send(signals) {
   if (!signals) return;
@@ -10,18 +13,14 @@ function send(signals) {
   if (sentKeys.has(key)) return;
   sentKeys.add(key);
 
-  fetch(ENDPOINT, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      source: "perplexity",
-      content_type: "session_signals",
-      content: `[perplexity] ${signals}`,
-      author: "user",
-      url: window.location.href,
-      timestamp: Date.now(),
-    }),
-  }).catch(() => {});
+  postFeedEvent({
+    source: "perplexity",
+    content_type: "session_signals",
+    content: `[perplexity] ${signals}`,
+    author: "user",
+    url: window.location.href,
+    timestamp: Date.now(),
+  });
 }
 
 function scan() {

@@ -1,6 +1,7 @@
 const SESSION_STORAGE_KEY = "personalayer_session_token";
 const rawApiBase = import.meta.env.VITE_PERSONALAYER_API_BASE || (import.meta.env.DEV ? "http://127.0.0.1:7823" : "");
 export const API_BASE = rawApiBase.replace(/\/$/, "");
+export const LOCAL_DAEMON_BASE = "http://127.0.0.1:7823";
 function readBool(value: unknown, fallback: boolean): boolean {
   if (value === undefined || value === null || value === "") return fallback;
   return !["0", "false", "no", "off"].includes(String(value).toLowerCase());
@@ -679,6 +680,18 @@ export type PushToken = {
 // permissions each needs. Drives the /app/capture source list.
 export async function getDaemonStatus(): Promise<DaemonStatus> {
   return getJson("/daemon/status");
+}
+
+export async function getLocalDaemonStatus(): Promise<DaemonStatus> {
+  const response = await fetch(`${LOCAL_DAEMON_BASE}/daemon/status`, {
+    method: "GET",
+    mode: "cors",
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    throw new Error(`Local daemon unavailable: ${response.status}`);
+  }
+  return response.json() as Promise<DaemonStatus>;
 }
 
 // Which signal sources are enabled for this user. Normalizes the various

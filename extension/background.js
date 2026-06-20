@@ -22,6 +22,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     case 'CL_REQUEST_APPROVAL':
       handleApprovalRequest(request.domain).then(sendResponse).catch(err => sendResponse({ error: err.message }));
       return true;
+    case 'PL_FEED_EVENT':
+      handleFeedEvent(request.payload).then(sendResponse).catch(err => sendResponse({ error: err.message }));
+      return true;
     // New: SDK bridge messages via window.postMessage
     case 'GET_BUNDLE':
       handleGetBundle(request.origin || sender.origin).then(r => sendResponse({ success: true, data: r }))
@@ -58,7 +61,14 @@ async function handleGetBundle(origin) {
   if (!health.available) throw new Error('Personal Layer local runtime not available');
 
   const res = await fetch(`${DAEMON_URL}/v1/context/bundle`, {
-    headers: { 'Origin': origin }
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Origin': origin },
+    body: JSON.stringify({
+      user_id: 'local_user',
+      app_id: 'browser_extension',
+      intent: 'extension_context_bridge',
+      requested_scopes: ['profile_summary', 'preferences', 'feature_signals']
+    })
   });
   if (res.status === 403) throw new Error('Domain not approved. Grant permission in Personal Layer.');
   if (!res.ok) throw new Error(`Bundle fetch failed: ${res.status}`);
@@ -79,6 +89,19 @@ async function handleTrack(data, origin) {
   });
   if (res.status === 403) throw new Error('Domain not approved');
   if (!res.ok) throw new Error(`Track failed: ${res.status}`);
+  return await res.json();
+}
+
+async function handleFeedEvent(payload) {
+  const health = await checkDaemon(true);
+  if (!health.available) throw new Error('Personal Layer local runtime not available');
+
+  const res = await fetch(`${DAEMON_URL}/feed-event`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  if (!res.ok) throw new Error(`Feed event failed: ${res.status}`);
   return await res.json();
 }
 

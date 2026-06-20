@@ -2,15 +2,10 @@
 // Captures YouTube: what the user watches + what's recommended to them.
 // Signals: interests, entertainment habits, learning topics.
 
-const ENDPOINT = "http://localhost:7823/feed-event";
 const seen = new Set();
 
 function send(payload) {
-  fetch(ENDPOINT, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ ...payload, timestamp: Date.now() }),
-  }).catch(() => {});
+  chrome.runtime.sendMessage({ type: "PL_FEED_EVENT", payload: { ...payload, timestamp: Date.now() } }, () => {});
 }
 
 // ── Watch page: capture the video being watched ──

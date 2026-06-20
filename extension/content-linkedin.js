@@ -2,7 +2,6 @@
 // Captures LinkedIn feed posts as they load.
 // Extracts: post text, author, post URL.
 
-const ENDPOINT = "http://localhost:7823/feed-event";
 const seen = new Set();
 
 function extractPosts(root) {
@@ -47,11 +46,7 @@ function extractPosts(root) {
 }
 
 function send(payload) {
-  fetch(ENDPOINT, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ ...payload, timestamp: Date.now() }),
-  }).catch(() => {});
+  chrome.runtime.sendMessage({ type: "PL_FEED_EVENT", payload: { ...payload, timestamp: Date.now() } }, () => {});
 }
 
 // Initial scan
