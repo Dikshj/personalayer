@@ -46,6 +46,17 @@ def sync_integration(source: str, user_id: str = "local_user") -> dict:
         "youtube": _sync_youtube,
         "apple_health": _sync_apple_health,
         "google_drive": _sync_google_drive,
+        "slack": _sync_slack,
+        "linear": _sync_linear,
+        "jira": _sync_jira,
+        "todoist": _sync_todoist,
+        "strava": _sync_strava,
+        "reddit": _sync_reddit,
+        "figma": _sync_figma,
+        "dropbox": _sync_dropbox,
+        "onedrive": _sync_onedrive,
+        "trello": _sync_trello,
+        "asana": _sync_asana,
         "linkedin": _sync_social_activity,
         "x": _sync_social_activity,
         "instagram": _sync_social_activity,
@@ -192,6 +203,7 @@ def _finish_sync(
     status: str = "ok",
     error: str = "",
     sync_cursor: dict | None = None,
+    next_sync_after: int | None = None,
     user_id: str = "local_user",
 ) -> dict:
     if status == "ok":
@@ -202,6 +214,7 @@ def _finish_sync(
         items_synced=count,
         error=error,
         sync_cursor=sync_cursor,
+        next_sync_after=next_sync_after,
         user_id=user_id,
     )
     return {"status": status, "items_synced": count, "integration": updated}
@@ -237,6 +250,10 @@ def _schedule_sync_retry(source: str, error: str, base_delay_seconds: int = 300,
 def _sync_gmail(integration: dict, user_id: str = "local_user") -> dict:
     metadata = integration.get("metadata", {})
     messages = _metadata_items(metadata, "messages", "emails", "threads", "import_items")
+    if not messages:
+        live = _sync_gmail_live(integration, user_id=user_id)
+        if live is not None:
+            return live
     if not messages:
         return _missing_payload("gmail", "metadata.messages[]", user_id=user_id)
 
@@ -317,9 +334,98 @@ def _sync_gmail(integration: dict, user_id: str = "local_user") -> dict:
     return _finish_sync("gmail", saved, sync_cursor=cursor, user_id=user_id)
 
 
+def _sync_gmail_live(integration: dict, user_id: str = "local_user") -> dict | None:
+    token = _get_access_token("gmail", user_id)
+    if not token:
+        return None
+
+    from pcl.api_clients.google import fetch_gmail_messages
+
+    cursor = integration.get("sync_cursor") or {}
+    page_token = cursor.get("gmail_page_token")
+    try:
+        result = fetch_gmail_messages(token, max_results=50, page_token=page_token)
+    except Exception as exc:
+        return _sync_error("gmail", exc, user_id=user_id)
+
+    saved = 0
+    for message in result.get("messages", []):
+        ts = _timestamp_ms(message.get("timestamp"))
+        labels = [
+            str(label).strip().lower()
+            for label in message.get("labels", [])
+            if str(label).strip()
+        ]
+        sender_domain = str(message.get("sender_domain", ""))[:120].lower()
+        content = {
+            "kind": "email_metadata",
+            "labels": labels[:8],
+            "sender_domain": sender_domain,
+            "thread_size": int(message.get("thread_size", 1) or 1),
+            "has_attachments": bool(message.get("has_attachments", False)),
+            "hour_bucket": _hour_bucket(ts),
+        }
+        insert_feed_item(
+            source="gmail",
+            content_type="email_metadata",
+            content=str(scrub_pii(content)),
+            author=sender_domain,
+            url="",
+            timestamp=ts,
+        )
+        for label in labels[:5]:
+            label_clean = label.replace("category_", "").replace("_", " ")
+            if label_clean in {"inbox", "unread", "sent", "spam", "trash"}:
+                continue
+            insert_persona_signal(
+                source="gmail",
+                signal_type="communication_label",
+                name=f"email_label:{label_clean}",
+                weight=1.0,
+                confidence=0.65,
+                evidence="Live Gmail label metadata",
+                timestamp=ts,
+            )
+            _emit_connector_event(
+                user_id=user_id,
+                app_id="gmail",
+                feature_id=f"label-{_feature_token(label_clean)}",
+                timestamp=ts,
+                subject_category="email",
+            )
+        if content["has_attachments"]:
+            _emit_connector_event(
+                user_id=user_id,
+                app_id="gmail",
+                feature_id="attachment-heavy-email",
+                timestamp=ts,
+                subject_category="email",
+            )
+        _remember_gmail_message(user_id, message, labels, sender_domain)
+        saved += 1
+
+    next_cursor = {
+        **cursor,
+        "gmail_page_token": result.get("next_page_token"),
+        "last_item_count": saved,
+        "live_api": True,
+    }
+    return _finish_sync(
+        "gmail",
+        saved,
+        sync_cursor=next_cursor,
+        next_sync_after=_timestamp_ms() + (6 * 60 * 60 * 1000),
+        user_id=user_id,
+    )
+
+
 def _sync_calendar(integration: dict, user_id: str = "local_user") -> dict:
     metadata = integration.get("metadata", {})
     events = _metadata_items(metadata, "events", "meetings", "import_items")
+    if not events:
+        live = _sync_calendar_live(integration, user_id=user_id)
+        if live is not None:
+            return live
     if not events:
         return _missing_payload("calendar", "metadata.events[]", user_id=user_id)
 
@@ -383,9 +489,85 @@ def _sync_calendar(integration: dict, user_id: str = "local_user") -> dict:
     return _finish_sync("calendar", saved, sync_cursor=cursor, user_id=user_id)
 
 
+def _sync_calendar_live(integration: dict, user_id: str = "local_user") -> dict | None:
+    token = _get_access_token("calendar", user_id)
+    if not token:
+        return None
+
+    from datetime import datetime, timezone
+
+    from pcl.api_clients.google import fetch_calendar_events
+
+    cursor = integration.get("sync_cursor") or {}
+    sync_token = cursor.get("calendar_sync_token")
+    time_min = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+    try:
+        result = fetch_calendar_events(token, sync_token=sync_token, time_min=None if sync_token else time_min)
+    except Exception as exc:
+        return _sync_error("calendar", exc, user_id=user_id)
+
+    saved = 0
+    for event in result.get("events", []):
+        ts = _timestamp_ms(event.get("start"))
+        attendees = max(0, int(event.get("attendee_count", 0) or 0))
+        content = {
+            "kind": "calendar_event_metadata",
+            "attendee_count": attendees,
+            "is_organizer": bool(event.get("is_organizer", False)),
+            "status": str(event.get("status", "confirmed"))[:80],
+            "hour_bucket": _hour_bucket(ts),
+        }
+        insert_feed_item(
+            source="calendar",
+            content_type="event_metadata",
+            content=str(scrub_pii(content)),
+            author="calendar",
+            url="",
+            timestamp=ts,
+        )
+        meeting_type = "solo" if attendees <= 1 else ("small_group" if attendees <= 4 else "large_group")
+        insert_persona_signal(
+            source="calendar",
+            signal_type="meeting_pattern",
+            name=f"meeting_type:{meeting_type}",
+            weight=1.0,
+            confidence=0.7,
+            evidence="Live Calendar event metadata",
+            timestamp=ts,
+        )
+        _emit_connector_event(
+            user_id=user_id,
+            app_id="calendar",
+            feature_id=f"meeting-{meeting_type}",
+            timestamp=ts,
+            subject_category="meeting",
+        )
+        _remember_calendar_event(user_id, event, 0, attendees)
+        saved += 1
+
+    next_cursor = {
+        **cursor,
+        "calendar_sync_token": result.get("next_sync_token") or sync_token,
+        "calendar_page_token": result.get("next_page_token"),
+        "last_item_count": saved,
+        "live_api": True,
+    }
+    return _finish_sync(
+        "calendar",
+        saved,
+        sync_cursor=next_cursor,
+        next_sync_after=_timestamp_ms() + (4 * 60 * 60 * 1000),
+        user_id=user_id,
+    )
+
+
 def _sync_notion(integration: dict, user_id: str = "local_user") -> dict:
     metadata = integration.get("metadata", {})
     pages = _metadata_items(metadata, "pages", "page_activity", "import_items")
+    if not pages:
+        live = _sync_notion_live(integration, user_id=user_id)
+        if live is not None:
+            return live
     if not pages:
         return _missing_payload("notion", "metadata.pages[]", user_id=user_id)
 
@@ -456,6 +638,74 @@ def _sync_notion(integration: dict, user_id: str = "local_user") -> dict:
     return _finish_sync("notion", saved, sync_cursor=cursor, user_id=user_id)
 
 
+def _sync_notion_live(integration: dict, user_id: str = "local_user") -> dict | None:
+    token = _get_access_token("notion", user_id)
+    if not token:
+        return None
+
+    from pcl.api_clients.notion import fetch_notion_pages
+
+    cursor = integration.get("sync_cursor") or {}
+    try:
+        result = fetch_notion_pages(token, start_cursor=cursor.get("notion_cursor"))
+    except Exception as exc:
+        return _sync_error("notion", exc, user_id=user_id)
+
+    saved = 0
+    for page in result.get("pages", []):
+        ts = _timestamp_ms(page.get("last_edited_time") or page.get("created_time"))
+        object_type = _feature_token(page.get("object_type", "page"))
+        parent_type = _feature_token(page.get("parent_type", "workspace"))
+        content = {
+            "kind": "notion_page_activity",
+            "object_type": object_type,
+            "parent_type": parent_type,
+            "has_content": bool(page.get("has_content")),
+            "hour_bucket": _hour_bucket(ts),
+        }
+        insert_feed_item(
+            source="notion",
+            content_type="page_activity",
+            content=str(scrub_pii(content)),
+            author=parent_type,
+            url="",
+            timestamp=ts,
+        )
+        insert_persona_signal(
+            source="notion",
+            signal_type="knowledge_work_tool",
+            name=f"notion_{object_type}",
+            weight=1.0,
+            confidence=0.65,
+            evidence="Live Notion page metadata",
+            timestamp=ts,
+        )
+        _emit_connector_event(
+            user_id=user_id,
+            app_id="notion",
+            feature_id=f"{object_type}-activity",
+            timestamp=ts,
+            subject_category="knowledge-work",
+        )
+        _remember_note_or_file(user_id, "notion", object_type, parent_type, [parent_type], object_type)
+        saved += 1
+
+    next_cursor = {
+        **cursor,
+        "notion_cursor": result.get("next_cursor"),
+        "notion_has_more": result.get("has_more", False),
+        "last_item_count": saved,
+        "live_api": True,
+    }
+    return _finish_sync(
+        "notion",
+        saved,
+        sync_cursor=next_cursor,
+        next_sync_after=_timestamp_ms() + (6 * 60 * 60 * 1000),
+        user_id=user_id,
+    )
+
+
 def _sync_github(integration: dict, user_id: str = "local_user") -> dict:
     metadata = integration.get("metadata", {})
     username = (
@@ -474,9 +724,35 @@ def _sync_github(integration: dict, user_id: str = "local_user") -> dict:
         )
         return {"status": "error", "error": "username_required", "integration": updated}
 
+    if isinstance(metadata.get("repos"), list):
+        try:
+            from collectors.github import collect_github
+            count = collect_github(username)
+        except Exception as exc:
+            updated = update_pcl_integration_sync(
+                source="github",
+                status="error",
+                items_synced=0,
+                error=str(exc),
+                user_id=user_id,
+            )
+            return {"status": "error", "error": str(exc), "integration": updated}
+        _remember_github_metadata(user_id, metadata)
+        updated = update_pcl_integration_sync(
+            source="github",
+            status="ok",
+            items_synced=count,
+            error="",
+            user_id=user_id,
+        )
+        return {"status": "ok", "items_synced": count, "integration": updated}
+
     try:
-        from collectors.github import collect_github
-        count = collect_github(username)
+        from pcl.api_clients.github import fetch_starred_repos, fetch_user_events
+
+        token = _get_access_token("github", user_id)
+        events = fetch_user_events(username, access_token=token).get("events", [])
+        stars = fetch_starred_repos(username, access_token=token).get("repos", [])
     except Exception as exc:
         updated = update_pcl_integration_sync(
             source="github",
@@ -487,6 +763,39 @@ def _sync_github(integration: dict, user_id: str = "local_user") -> dict:
         )
         return {"status": "error", "error": str(exc), "integration": updated}
 
+    count = 0
+    for event in events:
+        ts = _timestamp_ms(event.get("created_at"))
+        event_type = _feature_token(event.get("type", "event"))
+        repo = str(event.get("repo", ""))[:160]
+        content = {
+            "kind": "github_event",
+            "event_type": event_type,
+            "repo": repo,
+            "public": bool(event.get("public", True)),
+            "hour_bucket": _hour_bucket(ts),
+        }
+        insert_feed_item("github", "public_event", str(scrub_pii(content)), repo, "", ts)
+        insert_persona_signal(
+            source="github",
+            signal_type="developer_activity",
+            name=f"github_event:{event_type}",
+            weight=1.0,
+            confidence=0.6,
+            evidence="Live GitHub public event metadata",
+            timestamp=ts,
+        )
+        _emit_connector_event(user_id, "github", f"event-{event_type}", ts, "development")
+        count += 1
+    for repo in stars:
+        ts = _timestamp_ms(repo.get("starred_at"))
+        language = _feature_token(repo.get("language", "unknown"))
+        if language and language != "unknown":
+            _emit_connector_event(user_id, "github", f"starred-language-{language}", ts, "development")
+        for topic in repo.get("topics", [])[:5]:
+            _emit_connector_event(user_id, "github", f"topic-{_feature_token(topic)}", ts, "development")
+        count += 1
+
     _remember_github_metadata(user_id, metadata)
 
     updated = update_pcl_integration_sync(
@@ -494,6 +803,8 @@ def _sync_github(integration: dict, user_id: str = "local_user") -> dict:
         status="ok",
         items_synced=count,
         error="",
+        sync_cursor={"live_api": True, "last_item_count": count},
+        next_sync_after=_timestamp_ms() + (6 * 60 * 60 * 1000),
         user_id=user_id,
     )
     return {"status": "ok", "items_synced": count, "integration": updated}
@@ -502,6 +813,10 @@ def _sync_github(integration: dict, user_id: str = "local_user") -> dict:
 def _sync_spotify(integration: dict, user_id: str = "local_user") -> dict:
     metadata = integration.get("metadata", {})
     plays = _metadata_items(metadata, "recently_played", "plays", "sessions", "import_items")
+    if not plays:
+        live = _sync_spotify_live(integration, user_id=user_id)
+        if live is not None:
+            return live
     if not plays:
         return _missing_payload("spotify", "metadata.recently_played[]", user_id=user_id)
 
@@ -554,9 +869,72 @@ def _sync_spotify(integration: dict, user_id: str = "local_user") -> dict:
     return _finish_sync("spotify", saved, sync_cursor=cursor, user_id=user_id)
 
 
+def _sync_spotify_live(integration: dict, user_id: str = "local_user") -> dict | None:
+    token = _get_access_token("spotify", user_id)
+    if not token:
+        return None
+
+    from pcl.api_clients.spotify import fetch_recently_played, fetch_top_genres
+
+    cursor = integration.get("sync_cursor") or {}
+    try:
+        recent = fetch_recently_played(token, after_ms=cursor.get("spotify_after"))
+        genres = fetch_top_genres(token).get("genre_counts", {})
+    except Exception as exc:
+        return _sync_error("spotify", exc, user_id=user_id)
+
+    saved = 0
+    for play in recent.get("tracks", []):
+        ts = _timestamp_ms(play.get("played_at"))
+        duration = int(play.get("duration_ms", 0) or 0) // 60000
+        content = {
+            "kind": "spotify_session_metadata",
+            "duration_minutes": duration,
+            "artist_count": int(play.get("artist_count", 0) or 0),
+            "popularity_bucket": _popularity_bucket(play.get("popularity", 0)),
+            "explicit": bool(play.get("explicit", False)),
+            "hour_bucket": _hour_bucket(ts),
+        }
+        insert_feed_item("spotify", "session_metadata", str(scrub_pii(content)), "spotify", "", ts)
+        if duration >= 20:
+            insert_persona_signal(
+                source="spotify",
+                signal_type="focus_pattern",
+                name="long_focus_audio_session",
+                weight=min(duration / 45, 3.0),
+                confidence=0.55,
+                evidence="Live Spotify listening metadata",
+                timestamp=ts,
+            )
+            _emit_connector_event(user_id, "spotify", "long-focus-session", ts, "focus")
+        saved += 1
+    for genre, count in sorted(genres.items(), key=lambda item: item[1], reverse=True)[:8]:
+        _emit_connector_event(user_id, "spotify", f"genre-{_feature_token(genre)}", _timestamp_ms(), "focus")
+        if count:
+            saved += 1
+
+    next_cursor = {
+        **cursor,
+        "spotify_after": recent.get("next_after") or cursor.get("spotify_after"),
+        "last_item_count": saved,
+        "live_api": True,
+    }
+    return _finish_sync(
+        "spotify",
+        saved,
+        sync_cursor=next_cursor,
+        next_sync_after=_timestamp_ms() + (6 * 60 * 60 * 1000),
+        user_id=user_id,
+    )
+
+
 def _sync_youtube(integration: dict, user_id: str = "local_user") -> dict:
     metadata = integration.get("metadata", {})
     videos = _metadata_items(metadata, "watch_history", "videos", "sessions", "import_items")
+    if not videos:
+        live = _sync_youtube_live(integration, user_id=user_id)
+        if live is not None:
+            return live
     if not videos:
         return _missing_payload("youtube", "metadata.watch_history[]", user_id=user_id)
 
@@ -606,6 +984,50 @@ def _sync_youtube(integration: dict, user_id: str = "local_user") -> dict:
         saved += 1
 
     return _finish_sync("youtube", saved, sync_cursor=cursor, user_id=user_id)
+
+
+def _sync_youtube_live(integration: dict, user_id: str = "local_user") -> dict | None:
+    token = _get_access_token("youtube", user_id)
+    if not token:
+        return None
+
+    from pcl.api_clients.google import fetch_youtube_activity
+
+    try:
+        result = fetch_youtube_activity(token)
+    except Exception as exc:
+        return _sync_error("youtube", exc, user_id=user_id)
+
+    saved = 0
+    for video in result.get("videos", []):
+        ts = _timestamp_ms(video.get("watched_at"))
+        category = _feature_token(video.get("category", "video"))
+        content = {
+            "kind": "youtube_activity_metadata",
+            "category": category,
+            "duration_minutes": int(video.get("duration_minutes", 0) or 0),
+            "hour_bucket": _hour_bucket(ts),
+        }
+        insert_feed_item("youtube", "watch_metadata", str(scrub_pii(content)), "youtube", "", ts)
+        insert_persona_signal(
+            source="youtube",
+            signal_type="learning_pattern",
+            name=f"youtube_category:{category}",
+            weight=1.0,
+            confidence=0.5,
+            evidence="Live YouTube account activity metadata",
+            timestamp=ts,
+        )
+        _emit_connector_event(user_id, "youtube", f"category-{category}", ts, "learning")
+        saved += 1
+
+    return _finish_sync(
+        "youtube",
+        saved,
+        sync_cursor={**(integration.get("sync_cursor") or {}), "last_item_count": saved, "live_api": True},
+        next_sync_after=_timestamp_ms() + (12 * 60 * 60 * 1000),
+        user_id=user_id,
+    )
 
 
 def _sync_apple_health(integration: dict, user_id: str = "local_user") -> dict:
@@ -677,6 +1099,10 @@ def _sync_google_drive(integration: dict, user_id: str = "local_user") -> dict:
     metadata = integration.get("metadata", {})
     files = _metadata_items(metadata, "files", "documents", "file_activity", "import_items")
     if not files:
+        live = _sync_google_drive_live(integration, user_id=user_id)
+        if live is not None:
+            return live
+    if not files:
         return _missing_payload("google_drive", "metadata.files[]", user_id=user_id)
 
     selected, cursor = _incremental_items(integration, files, ("last_edited_time", "modified_time", "timestamp"))
@@ -736,6 +1162,319 @@ def _sync_google_drive(integration: dict, user_id: str = "local_user") -> dict:
         saved += 1
 
     return _finish_sync("google_drive", saved, sync_cursor=cursor, user_id=user_id)
+
+
+def _sync_google_drive_live(integration: dict, user_id: str = "local_user") -> dict | None:
+    token = _get_access_token("google_drive", user_id)
+    if not token:
+        return None
+
+    from pcl.api_clients.google import fetch_drive_activity
+
+    try:
+        result = fetch_drive_activity(token)
+    except Exception as exc:
+        return _sync_error("google_drive", exc, user_id=user_id)
+
+    saved = 0
+    for file_item in result.get("files", []):
+        ts = _timestamp_ms(file_item.get("modified_at") or file_item.get("viewed_at"))
+        mime_type = str(file_item.get("mime_type", "file"))[:120]
+        doc_type = _drive_doc_type(mime_type)
+        content = {
+            "kind": "google_drive_file_metadata",
+            "doc_type": doc_type,
+            "file_category": file_item.get("file_category", doc_type),
+            "is_shared": bool(file_item.get("is_shared", False)),
+            "hour_bucket": _hour_bucket(ts),
+        }
+        insert_feed_item("google_drive", "file_metadata", str(scrub_pii(content)), "google_drive", "", ts)
+        insert_persona_signal(
+            source="google_drive",
+            signal_type="document_work",
+            name=f"drive_doc_type:{doc_type}",
+            weight=1.0,
+            confidence=0.6,
+            evidence="Live Google Drive metadata",
+            timestamp=ts,
+        )
+        _emit_connector_event(user_id, "google-drive", f"{doc_type}-activity", ts, "document-work")
+        if content["is_shared"]:
+            _emit_connector_event(user_id, "google-drive", "shared-file-activity", ts, "document-work")
+        _remember_note_or_file(user_id, "google_drive", doc_type, "", [doc_type], doc_type)
+        saved += 1
+
+    return _finish_sync(
+        "google_drive",
+        saved,
+        sync_cursor={**(integration.get("sync_cursor") or {}), "last_item_count": saved, "live_api": True},
+        next_sync_after=_timestamp_ms() + (6 * 60 * 60 * 1000),
+        user_id=user_id,
+    )
+
+
+def _sync_slack(integration: dict, user_id: str = "local_user") -> dict:
+    token = _get_access_token("slack", user_id)
+    if not token:
+        return _missing_payload("slack", "oauth token", user_id=user_id)
+
+    from pcl.api_clients.slack import fetch_channel_activity
+
+    try:
+        result = fetch_channel_activity(token)
+    except Exception as exc:
+        return _sync_error("slack", exc, user_id=user_id)
+
+    saved = 0
+    for activity in result.get("channel_activity", []):
+        ts = _timestamp_ms()
+        channel_type = "private" if activity.get("is_private") else "public"
+        user_messages = int(activity.get("user_message_count", 0) or 0)
+        content = {
+            "kind": "slack_channel_activity",
+            "channel_type": channel_type,
+            "recent_message_count": int(activity.get("recent_message_count", 0) or 0),
+            "user_message_count": user_messages,
+            "hour_bucket": _hour_bucket(ts),
+        }
+        insert_feed_item("slack", "channel_activity", str(scrub_pii(content)), "slack", "", ts)
+        insert_persona_signal(
+            source="slack",
+            signal_type="communication_pattern",
+            name=f"slack:{channel_type}_channel_active",
+            weight=min(user_messages / 10.0, 1.0),
+            confidence=0.7,
+            evidence="Live Slack channel activity metadata",
+            timestamp=ts,
+        )
+        _emit_connector_event(user_id, "slack", f"{channel_type}-channel-active", ts, "communication")
+        saved += 1
+
+    return _finish_sync(
+        "slack",
+        saved,
+        sync_cursor={"live_api": True, "last_item_count": saved, "channel_count": result.get("channel_count", 0)},
+        next_sync_after=_timestamp_ms() + (3 * 60 * 60 * 1000),
+        user_id=user_id,
+    )
+
+
+def _sync_linear(integration: dict, user_id: str = "local_user") -> dict:
+    token = _get_access_token("linear", user_id)
+    if not token:
+        return _missing_payload("linear", "oauth token", user_id=user_id)
+
+    from pcl.api_clients.linear import fetch_assigned_issues
+
+    try:
+        result = fetch_assigned_issues(token)
+    except Exception as exc:
+        return _sync_error("linear", exc, user_id=user_id)
+
+    issues = result.get("issues", [])
+    saved = _sync_task_issue_signals("linear", issues, user_id=user_id)
+    return _finish_sync(
+        "linear",
+        saved,
+        sync_cursor={"live_api": True, "last_item_count": saved},
+        next_sync_after=_timestamp_ms() + (2 * 60 * 60 * 1000),
+        user_id=user_id,
+    )
+
+
+def _sync_todoist(integration: dict, user_id: str = "local_user") -> dict:
+    token = _get_access_token("todoist", user_id)
+    if not token:
+        return _missing_payload("todoist", "oauth token", user_id=user_id)
+
+    from pcl.api_clients.tasks import fetch_todoist_tasks
+
+    try:
+        result = fetch_todoist_tasks(token)
+    except Exception as exc:
+        return _sync_error("todoist", exc, user_id=user_id)
+
+    tasks = result.get("tasks", [])
+    saved = 0
+    for task in tasks:
+        ts = _timestamp_ms(task.get("created_at"))
+        priority = _feature_token(task.get("priority", "normal"))
+        content = {
+            "kind": "todoist_task_metadata",
+            "priority": priority,
+            "has_project": bool(task.get("project_id")),
+            "due_recurring": bool(task.get("due_recurring", False)),
+            "hour_bucket": _hour_bucket(ts),
+        }
+        insert_feed_item("todoist", "task_metadata", str(scrub_pii(content)), "todoist", "", ts)
+        _emit_connector_event(user_id, "todoist", f"priority-{priority}", ts, "task-management")
+        if content["due_recurring"]:
+            insert_persona_signal("todoist", "task_pattern", "recurring_tasks", 0.8, 0.65, "Live Todoist task metadata", ts)
+        saved += 1
+
+    return _finish_sync(
+        "todoist",
+        saved,
+        sync_cursor={"live_api": True, "last_item_count": saved},
+        next_sync_after=_timestamp_ms() + (3 * 60 * 60 * 1000),
+        user_id=user_id,
+    )
+
+
+def _sync_strava(integration: dict, user_id: str = "local_user") -> dict:
+    token = _get_access_token("strava", user_id)
+    if not token:
+        return _missing_payload("strava", "oauth token", user_id=user_id)
+
+    from pcl.api_clients.fitness import fetch_strava_activities
+
+    cursor = integration.get("sync_cursor") or {}
+    try:
+        result = fetch_strava_activities(token, after=cursor.get("strava_after"))
+    except Exception as exc:
+        return _sync_error("strava", exc, user_id=user_id)
+
+    saved = 0
+    latest = int(cursor.get("strava_after", 0) or 0)
+    for activity in result.get("activities", []):
+        ts = _timestamp_ms(activity.get("start_date"))
+        latest = max(latest, ts // 1000)
+        activity_type = _feature_token(activity.get("type", "activity"))
+        moving_minutes = int(activity.get("moving_time", 0) or 0) // 60
+        content = {
+            "kind": "strava_activity_metadata",
+            "activity_type": activity_type,
+            "moving_minutes": moving_minutes,
+            "distance_bucket": _distance_bucket(activity.get("distance", 0)),
+            "hour_bucket": _hour_bucket(ts),
+        }
+        insert_feed_item("strava", "activity_metadata", str(scrub_pii(content)), "strava", "", ts)
+        insert_persona_signal(
+            source="strava",
+            signal_type="fitness_pattern",
+            name=f"activity_type:{activity_type}",
+            weight=min(max(moving_minutes, 1) / 45, 3.0),
+            confidence=0.65,
+            evidence="Live Strava activity metadata",
+            timestamp=ts,
+        )
+        _emit_connector_event(user_id, "strava", f"activity-{activity_type}", ts, "fitness")
+        saved += 1
+
+    return _finish_sync(
+        "strava",
+        saved,
+        sync_cursor={"live_api": True, "last_item_count": saved, "strava_after": latest},
+        next_sync_after=_timestamp_ms() + (6 * 60 * 60 * 1000),
+        user_id=user_id,
+    )
+
+
+def _sync_jira(integration: dict, user_id: str = "local_user") -> dict:
+    token = _get_access_token("jira", user_id)
+    cloud_id = str((integration.get("metadata") or {}).get("cloud_id", "")).strip()
+    if not token:
+        return _missing_payload("jira", "oauth token", user_id=user_id)
+    if not cloud_id:
+        return _missing_payload("jira", "metadata.cloud_id", user_id=user_id)
+    from pcl.api_clients.tasks import fetch_jira_issues
+    try:
+        result = fetch_jira_issues(token, cloud_id)
+    except Exception as exc:
+        return _sync_error("jira", exc, user_id=user_id)
+    saved = _sync_task_issue_signals("jira", result.get("issues", []), user_id=user_id)
+    return _finish_sync("jira", saved, sync_cursor={"live_api": True, "last_item_count": saved}, next_sync_after=_timestamp_ms() + (3 * 60 * 60 * 1000), user_id=user_id)
+
+
+def _sync_reddit(integration: dict, user_id: str = "local_user") -> dict:
+    token = _get_access_token("reddit", user_id)
+    if not token:
+        return _missing_payload("reddit", "oauth token", user_id=user_id)
+    from pcl.api_clients.reddit import fetch_reddit_activity
+    try:
+        result = fetch_reddit_activity(token)
+    except Exception as exc:
+        return _sync_error("reddit", exc, user_id=user_id)
+    saved = 0
+    for item in result.get("items", []):
+        ts = _timestamp_ms(item.get("created_utc"))
+        subreddit = _feature_token(item.get("subreddit", "community"))
+        content = {"kind": "reddit_activity", "subreddit": subreddit, "score_bucket": item.get("score_bucket", "low"), "hour_bucket": _hour_bucket(ts)}
+        insert_feed_item("reddit", "activity_metadata", str(scrub_pii(content)), subreddit, "", ts)
+        insert_persona_signal("reddit", "community_interest", f"reddit:{subreddit}", 1.0, 0.5, "Live Reddit activity metadata", ts)
+        _emit_connector_event(user_id, "reddit", f"community-{subreddit}", ts, "social")
+        saved += 1
+    return _finish_sync("reddit", saved, sync_cursor={"live_api": True, "last_item_count": saved}, next_sync_after=_timestamp_ms() + (6 * 60 * 60 * 1000), user_id=user_id)
+
+
+def _sync_figma(integration: dict, user_id: str = "local_user") -> dict:
+    token = _get_access_token("figma", user_id)
+    if not token:
+        return _missing_payload("figma", "oauth token", user_id=user_id)
+    from pcl.api_clients.storage import fetch_figma_files
+    try:
+        result = fetch_figma_files(token)
+    except Exception as exc:
+        return _sync_error("figma", exc, user_id=user_id)
+    ts = _timestamp_ms()
+    profile = result.get("profile", {})
+    insert_feed_item("figma", "design_tool_metadata", str(scrub_pii({"kind": "figma_profile", "team_count": profile.get("team_count", 0)})), "figma", "", ts)
+    insert_persona_signal("figma", "design_tool", "figma_active", 1.0, 0.5, "Live Figma account metadata", ts)
+    _emit_connector_event(user_id, "figma", "design-tool-active", ts, "design")
+    return _finish_sync("figma", 1, sync_cursor={"live_api": True, "last_item_count": 1}, next_sync_after=_timestamp_ms() + (12 * 60 * 60 * 1000), user_id=user_id)
+
+
+def _sync_dropbox(integration: dict, user_id: str = "local_user") -> dict:
+    token = _get_access_token("dropbox", user_id)
+    if not token:
+        return _missing_payload("dropbox", "oauth token", user_id=user_id)
+    from pcl.api_clients.storage import fetch_dropbox_activity
+    try:
+        result = fetch_dropbox_activity(token)
+    except Exception as exc:
+        return _sync_error("dropbox", exc, user_id=user_id)
+    saved = _sync_storage_file_signals("dropbox", result.get("files", []), user_id=user_id)
+    return _finish_sync("dropbox", saved, sync_cursor={"live_api": True, "last_item_count": saved}, next_sync_after=_timestamp_ms() + (6 * 60 * 60 * 1000), user_id=user_id)
+
+
+def _sync_onedrive(integration: dict, user_id: str = "local_user") -> dict:
+    token = _get_access_token("onedrive", user_id)
+    if not token:
+        return _missing_payload("onedrive", "oauth token", user_id=user_id)
+    from pcl.api_clients.storage import fetch_onedrive_activity
+    try:
+        result = fetch_onedrive_activity(token)
+    except Exception as exc:
+        return _sync_error("onedrive", exc, user_id=user_id)
+    saved = _sync_storage_file_signals("onedrive", result.get("files", []), user_id=user_id)
+    return _finish_sync("onedrive", saved, sync_cursor={"live_api": True, "last_item_count": saved}, next_sync_after=_timestamp_ms() + (6 * 60 * 60 * 1000), user_id=user_id)
+
+
+def _sync_trello(integration: dict, user_id: str = "local_user") -> dict:
+    token = _get_access_token("trello", user_id)
+    api_key = str((integration.get("metadata") or {}).get("api_key", "")).strip()
+    if not token:
+        return _missing_payload("trello", "oauth token", user_id=user_id)
+    from pcl.api_clients.tasks import fetch_trello_cards
+    try:
+        result = fetch_trello_cards(token, api_key=api_key or None)
+    except Exception as exc:
+        return _sync_error("trello", exc, user_id=user_id)
+    saved = _sync_task_issue_signals("trello", result.get("cards", []), user_id=user_id)
+    return _finish_sync("trello", saved, sync_cursor={"live_api": True, "last_item_count": saved}, next_sync_after=_timestamp_ms() + (3 * 60 * 60 * 1000), user_id=user_id)
+
+
+def _sync_asana(integration: dict, user_id: str = "local_user") -> dict:
+    token = _get_access_token("asana", user_id)
+    if not token:
+        return _missing_payload("asana", "oauth token", user_id=user_id)
+    from pcl.api_clients.tasks import fetch_asana_tasks
+    try:
+        result = fetch_asana_tasks(token)
+    except Exception as exc:
+        return _sync_error("asana", exc, user_id=user_id)
+    saved = _sync_task_issue_signals("asana", result.get("tasks", []), user_id=user_id)
+    return _finish_sync("asana", saved, sync_cursor={"live_api": True, "last_item_count": saved}, next_sync_after=_timestamp_ms() + (3 * 60 * 60 * 1000), user_id=user_id)
 
 
 def _sync_social_activity(integration: dict, user_id: str = "local_user") -> dict:
@@ -979,6 +1718,104 @@ def _sync_terminal_activity(integration: dict, user_id: str = "local_user") -> d
         saved += 1
 
     return _finish_sync("terminal", saved, sync_cursor=cursor, user_id=user_id)
+
+
+def _get_access_token(source: str, user_id: str) -> str:
+    from database import get_decrypted_pcl_integration_oauth_token
+
+    token = get_decrypted_pcl_integration_oauth_token(source, user_id)
+    if not token:
+        return ""
+    return str(token.get("access_token") or token.get("token") or "").strip()
+
+
+def _sync_error(source: str, exc: Exception, user_id: str = "local_user") -> dict:
+    updated = update_pcl_integration_sync(
+        source=source,
+        status="error",
+        items_synced=0,
+        error=str(exc),
+        sync_cursor={**((get_pcl_integration(source, user_id=user_id) or {}).get("sync_cursor") or {}), "last_error": str(exc)[:200]},
+        next_sync_after=_timestamp_ms() + (15 * 60 * 1000),
+        user_id=user_id,
+    )
+    return {"status": "error", "error": str(exc), "integration": updated}
+
+
+def _sync_task_issue_signals(source: str, items: list[dict], user_id: str = "local_user") -> int:
+    saved = 0
+    completed = 0
+    for item in items:
+        ts = _timestamp_ms(item.get("updated_at") or item.get("created_at") or item.get("completed_at"))
+        status = _feature_token(item.get("state_type", item.get("status", "open")))
+        priority = _feature_token(item.get("priority", "normal"))
+        if status in {"completed", "done"} or item.get("completed") is True or item.get("due_complete") is True:
+            completed += 1
+        content = {
+            "kind": f"{source}_task_metadata",
+            "status": status,
+            "priority": priority,
+            "hour_bucket": _hour_bucket(ts),
+        }
+        insert_feed_item(source, "task_metadata", str(scrub_pii(content)), source, "", ts)
+        _emit_connector_event(user_id, source, f"status-{status}", ts, "task-management")
+        if priority and priority != "normal":
+            _emit_connector_event(user_id, source, f"priority-{priority}", ts, "task-management")
+        saved += 1
+    if items:
+        insert_persona_signal(
+            source=source,
+            signal_type="work_pattern",
+            name=f"{source}:completion_rate",
+            weight=completed / max(len(items), 1),
+            confidence=0.7,
+            evidence=f"Live {source} task metadata",
+            timestamp=_timestamp_ms(),
+        )
+    return saved
+
+
+def _sync_storage_file_signals(source: str, files: list[dict], user_id: str = "local_user") -> int:
+    saved = 0
+    for item in files:
+        ts = _timestamp_ms(item.get("modified_at") or item.get("server_modified") or item.get("client_modified"))
+        mime_type = str(item.get("mime_type") or item.get("tag") or "file")
+        doc_type = _drive_doc_type(mime_type)
+        content = {
+            "kind": f"{source}_file_metadata",
+            "doc_type": doc_type,
+            "is_shared": bool(item.get("is_shared", False)),
+            "hour_bucket": _hour_bucket(ts),
+        }
+        insert_feed_item(source, "file_metadata", str(scrub_pii(content)), source, "", ts)
+        insert_persona_signal(source, "document_work", f"{source}_doc_type:{doc_type}", 1.0, 0.55, f"Live {source} file metadata", ts)
+        _emit_connector_event(user_id, source, f"{doc_type}-activity", ts, "document-work")
+        saved += 1
+    return saved
+
+
+def _popularity_bucket(value: Any) -> str:
+    try:
+        score = int(value or 0)
+    except (TypeError, ValueError):
+        score = 0
+    if score >= 70:
+        return "high"
+    if score >= 35:
+        return "medium"
+    return "low"
+
+
+def _distance_bucket(value: Any) -> str:
+    try:
+        meters = float(value or 0)
+    except (TypeError, ValueError):
+        meters = 0
+    if meters >= 20_000:
+        return "long"
+    if meters >= 5_000:
+        return "medium"
+    return "short"
 
 
 def _remember_gmail_message(user_id: str, message: dict, labels: list[str], sender_domain: str) -> None:
