@@ -7,6 +7,11 @@
   NETLIFY_NEXT_PLUGIN_SKIP = "true"
 
 [[redirects]]
+  from = "/privacy"
+  to = "/privacy.html"
+  status = 200
+
+[[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200

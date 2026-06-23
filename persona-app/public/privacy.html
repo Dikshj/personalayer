@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Personal Layer Privacy Policy</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        color: #1d1b20;
+        background: #fffbff;
+      }
+      body {
+        margin: 0;
+      }
+      main {
+        max-width: 760px;
+        margin: 0 auto;
+        padding: 48px 24px 64px;
+      }
+      a {
+        color: #4f378b;
+        font-weight: 650;
+      }
+      h1 {
+        margin: 12px 0 16px;
+        font-size: clamp(2rem, 5vw, 2.75rem);
+        line-height: 1.1;
+      }
+      h2 {
+        margin: 36px 0 12px;
+        font-size: 1.35rem;
+      }
+      p,
+      li {
+        color: #4f4a54;
+        font-size: 1rem;
+        line-height: 1.7;
+      }
+      .effective {
+        margin-top: 32px;
+        color: #675f6b;
+        font-weight: 600;
+      }
+      ul {
+        padding-left: 1.25rem;
+      }
+      footer {
+        margin-top: 44px;
+        padding-top: 24px;
+        border-top: 1px solid #e8def8;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <a href="/">Personal Layer</a>
+      <p class="effective">Effective date: June 23, 2026</p>
+      <h1>Privacy Policy</h1>
+      <p>
+        Personal Layer is a local-first personal context system. It helps approved apps and AI assistants understand your preferences by building a private profile on your device. This policy explains what data is processed, how Google user data is handled, what stays local, what limited metadata may be stored in the cloud, how long data is retained, and how to contact us.
+      </p>
+
+      <h2>Google User Data Accessed</h2>
+      <p>
+        If you connect Google integrations, Personal Layer requests only the Google scopes needed for the features you choose: Gmail read-only access, Calendar read-only access, YouTube read-only access, and Google Drive metadata read-only access. Current Google OAuth scopes may include:
+      </p>
+      <ul>
+        <li>https://www.googleapis.com/auth/gmail.readonly</li>
+        <li>https://www.googleapis.com/auth/calendar.readonly</li>
+        <li>https://www.googleapis.com/auth/youtube.readonly</li>
+        <li>https://www.googleapis.com/auth/drive.metadata.readonly</li>
+      </ul>
+      <p>
+        For Gmail, Personal Layer uses message metadata such as message IDs, thread IDs, labels, snippets, sender domains, timestamps, and history IDs. For Calendar, it uses event metadata such as event IDs, summaries, start and end times, status, created and updated times, duration, and attendee counts. For Drive, it uses file metadata such as file IDs, names, MIME types, folder or parent information, ownership metadata, and edit timing. For YouTube, it uses read-only viewing and activity metadata available through the connected account.
+      </p>
+
+      <h2>How Google User Data Is Used</h2>
+      <p>
+        Google user data is used to build user-controlled personal context such as work patterns, availability patterns, content category preferences, workflow hints, and integration sync status. The product uses these derived signals to help the user manage their personal context and to provide scoped context bundles to apps only after user authorization.
+      </p>
+      <p>
+        Personal Layer does not use Google user data for advertising, does not sell Google user data, and does not use Google Workspace API data to develop, improve, or train generalized AI or machine learning models.
+      </p>
+
+      <h2>Google User Data Sharing</h2>
+      <p>
+        Personal Layer does not share raw Google user data with third parties. Apps connected through Personal Layer may receive only user-approved, scoped, filtered context bundles, such as abstract preference signals, availability labels, feature usage patterns, provenance metadata, and confidence values.
+      </p>
+      <p>
+        Service providers used to operate hosting, storage, security, diagnostics, and delivery may process limited operational metadata only as needed to provide the service. We do not permit service providers to use Google user data for their own advertising, profiling, or model training.
+      </p>
+
+      <h2>Other Data We Process</h2>
+      <p>
+        Depending on what you enable, Personal Layer may process app and browser interaction events, connector metadata from services such as email, calendar, GitHub, Notion, Spotify, YouTube, or Google services, derived profile signals, permission records, privacy boundaries, audit logs, device-pairing records, sync status, and account metadata needed to operate cloud-backed services.
+      </p>
+      <p>
+        Personal Layer is designed to filter or block secrets, credentials, payment data, precise private content, and sensitive personal identifiers before data is shared with apps.
+      </p>
+
+      <h2>What Stays Local</h2>
+      <p>
+        Raw event payloads, raw email bodies, private notes, browser page text, local files, synthesized behavioral profiles, local memory graphs, embedding vectors, local query logs, domain approvals, privacy boundaries, local vault data, and OAuth tokens stay on your device unless you explicitly export them, sync them to a trusted paired device, or authorize sharing.
+      </p>
+      <p>
+        Local data is encrypted at rest where supported by the runtime. Production builds should use operating-system keychain or secure storage for device keys and tokens.
+      </p>
+
+      <h2>Cloud Storage</h2>
+      <p>
+        The production cloud service is intentionally thin. It may store account identity metadata, developer registry records, API key hashes and prefixes, app permission grants, device and pairing metadata, encrypted summary blobs, push tokens and routes, and redacted operational telemetry.
+      </p>
+      <p>
+        We do not sell personal data, train foundation models on your personal context, or store raw persona events in the cloud.
+      </p>
+
+      <h2>How Apps Receive Context</h2>
+      <p>
+        Apps can receive context only after consent. A context bundle may include abstract preference signals, active context labels, coarse feature usage patterns, capability or workflow hints, confidence, and provenance metadata.
+      </p>
+      <p>
+        Apps must not receive raw connector payloads, specific email bodies, passwords, access tokens, payment card numbers, social security numbers, exact private locations, or raw browsing histories through standard Personal Layer APIs.
+      </p>
+
+      <h2>Your Controls</h2>
+      <p>
+        You can approve or deny app access by scope, revoke access, disconnect integrations, create privacy boundaries, delete supported signals, delete local context data, and request account deletion and deletion of cloud metadata.
+      </p>
+      <p>
+        Revocation stops future access. Apps and developers that received context before revocation are responsible for honoring applicable developer terms and deletion requirements.
+      </p>
+
+      <h2>Retention And Security</h2>
+      <p>
+        Raw local events are retained for 90 days by default unless you choose a shorter retention period. Local query logs are retained for 30 days by default. Cloud permission and account metadata is retained while the account is active, and operational telemetry is retained for up to 30 days unless needed for security investigation or legal compliance. OAuth tokens and sync metadata are retained only while the integration remains connected.
+      </p>
+      <p>
+        Security controls include local encryption, OS keychain storage for tokens where supported, encrypted token storage, scoped app permissions, row-level security on cloud tables, CORS and origin checks, filtered outbound bundles, audit logs, and silent push payloads without behavioral text.
+      </p>
+
+      <h2>Data Deletion</h2>
+      <p>
+        You can disconnect Google integrations in the app to stop future access and remove stored OAuth tokens. You can delete supported local signals and request account deletion and deletion of cloud metadata.
+      </p>
+      <p>
+        To request deletion of Google user data, cloud metadata, or your account, contact privacy@personallayer.dev. We will delete or de-identify data unless retention is required for security, legal, or abuse-prevention reasons.
+      </p>
+
+      <footer>
+        <h2>Contact</h2>
+        <p>
+          Privacy requests: privacy@personallayer.dev<br />
+          Security reports: security@personallayer.dev<br />
+          Legal notices: legal@personallayer.dev
+        </p>
+      </footer>
+    </main>
+  </body>
+</html>
