@@ -302,7 +302,7 @@ export async function startPairingSession(
 ): Promise<{ status: string; session?: PairingSession; qr_payload?: Record<string, unknown>; error?: string }> {
   const keypair = await ensureWebKeypair();
   return postJson("/v1/sync/pairing/start", {
-    user_id: currentUserId(),
+    user_id: "local_user",
     requester_device_id: getWebDeviceId(),
     requester_device_name: getWebDeviceName(),
     requester_public_key: keypair.public_key,
