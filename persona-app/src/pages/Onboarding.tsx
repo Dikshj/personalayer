@@ -3,7 +3,7 @@
 // privacy posture (fully private by default) and routes to /app/persona.
 
 import { useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
   ArrowRight,
@@ -149,7 +149,7 @@ export default function Onboarding() {
   const skip = async () => {
     setSaving(true);
     try {
-      await submitOnboardingFlow({ privacy_level: "strict", sharing_default: "deny", personalization_goals: [] });
+      await submitOnboardingFlow({});
     } catch {
       /* best effort — still leave onboarding */
     } finally {
@@ -369,9 +369,14 @@ export default function Onboarding() {
                 <ArrowLeft size={15} /> Back
               </Button>
             ) : (
-              <Link to="/app/persona" className="text-sm font-semibold text-on-surface-variant hover:text-on-surface">
+              <button
+                type="button"
+                onClick={skip}
+                disabled={saving}
+                className="text-sm font-semibold text-on-surface-variant hover:text-on-surface disabled:opacity-60"
+              >
                 Maybe later
-              </Link>
+              </button>
             )}
             {step < STEPS.length - 1 ? (
               <Button variant="primary" onClick={next}>

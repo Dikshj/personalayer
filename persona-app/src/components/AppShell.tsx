@@ -17,10 +17,16 @@ import {
 } from "lucide-react";
 import { BackendProvider, useBackend } from "../lib/backend";
 import { getPrivacyProfile } from "../api";
-import { clearSession, hasCompletedOnboarding, markOnboardingComplete } from "../auth/session";
+import {
+  clearSession,
+  currentUserKey,
+  hasCompletedOnboarding,
+  markOnboardingComplete,
+  setSession,
+} from "../auth/session";
 import { supabase } from "../lib/supabase";
 
-const ONBOARDING_CHECK_KEY = "pl_onboarding_checked";
+const ONBOARDING_CHECK_PREFIX = "pl_onboarding_checked:";
 
 // Sends brand-new users (onboarding not completed) straight to the welcome
 // wizard, once per session. Stays out of the way when the backend is
@@ -28,12 +34,13 @@ const ONBOARDING_CHECK_KEY = "pl_onboarding_checked";
 function useFirstRunRedirect() {
   const navigate = useNavigate();
   useEffect(() => {
+    const checkKey = `${ONBOARDING_CHECK_PREFIX}${currentUserKey()}`;
     if (hasCompletedOnboarding()) return;
-    if (sessionStorage.getItem(ONBOARDING_CHECK_KEY)) return;
+    if (sessionStorage.getItem(checkKey)) return;
     let cancelled = false;
     getPrivacyProfile()
       .then((profile) => {
-        sessionStorage.setItem(ONBOARDING_CHECK_KEY, "1");
+        sessionStorage.setItem(checkKey, "1");
         if (profile?.onboarding_completed === true) {
           markOnboardingComplete();
           return;
@@ -103,6 +110,19 @@ function ShellInner() {
   const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
   useFirstRunRedirect();
+
+  useEffect(() => {
+    if (!supabase) return;
+    const { data } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) {
+        setSession(session.access_token, {
+          id: session.user.id,
+          email: session.user.email,
+        });
+      }
+    });
+    return () => data.subscription.unsubscribe();
+  }, []);
 
   useEffect(() => {
     if (!menuOpen) return;

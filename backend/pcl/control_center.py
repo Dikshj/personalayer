@@ -59,6 +59,7 @@ def search_signals(
     offset: int = 0,
 ) -> dict:
     signals = search_persona_signals(
+        user_id=user_id,
         query=query,
         source=source,
         signal_type=signal_type,
@@ -143,7 +144,7 @@ def remove_signal(user_id: str, signal_id: int) -> dict:
 
 
 def get_signal_detail(user_id: str, signal_id: int) -> dict:
-    signal = get_persona_signal_by_id(signal_id)
+    signal = get_persona_signal_by_id(signal_id, user_id=user_id)
     if not signal:
         return {"error": "signal_not_found"}
     signal["human_readable_source"] = SOURCE_LABELS.get(signal["source"], signal["source"])

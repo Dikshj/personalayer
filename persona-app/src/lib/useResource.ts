@@ -25,13 +25,22 @@ export interface Resource<T> {
   reload: () => void;
 }
 
-export function useResource<T>(loader: () => Promise<T>, preview: T, deps: unknown[] = []): Resource<T> {
+export function useResource<T>(
+  loader: () => Promise<T>,
+  preview: T,
+  deps: unknown[] = [],
+  options: { resetOnLoad?: boolean } = {},
+): Resource<T> {
   const [data, setData] = useState<T>(preview);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isPreview, setIsPreview] = useState(false);
 
   const run = useCallback(async () => {
+    if (options.resetOnLoad) {
+      setData(preview);
+      setIsPreview(false);
+    }
     setLoading(true);
     setError(null);
     try {

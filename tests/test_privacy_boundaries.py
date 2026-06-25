@@ -39,6 +39,28 @@ class TestOnboardingFlow:
         assert profile["onboarding_completed"] is True
         assert profile["boundary_count"] == 1
 
+    def test_skip_onboarding_preserves_existing_preferences(self):
+        from database import upsert_user_preferences
+
+        upsert_user_preferences(
+            user_id="returning_user",
+            personalization_goals=["workflow_optimization"],
+            privacy_level="permissive",
+            sharing_default="allow",
+            personalization_aggression="high",
+            enabled_integrations=["gmail"],
+        )
+
+        profile = save_onboarding_flow_answers("returning_user", {})
+        preferences = profile["preferences"]
+
+        assert profile["onboarding_completed"] is True
+        assert preferences["personalization_goals"] == ["workflow_optimization"]
+        assert preferences["privacy_level"] == "permissive"
+        assert preferences["sharing_default"] == "allow"
+        assert preferences["personalization_aggression"] == "high"
+        assert preferences["enabled_integrations"] == ["gmail"]
+
     def test_privacy_profile(self):
         profile = get_user_privacy_profile("test_user")
         assert profile["user_id"] == "test_user"

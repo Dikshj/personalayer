@@ -902,7 +902,7 @@ async def seed_pcl_onboarding(payload: PclOnboardingSeedRequest, request: Reques
     user_id = _request_user_id(request, payload.user_id)
     profile_seed = build_onboarding_seed(payload.answers)
     saved = save_pcl_onboarding_seed(user_id, payload.answers, profile_seed)
-    _record_onboarding_seed_signals(profile_seed)
+    _record_onboarding_seed_signals(profile_seed, user_id=user_id)
     return {
         "status": "ok",
         "user_id": user_id,
@@ -910,7 +910,7 @@ async def seed_pcl_onboarding(payload: PclOnboardingSeedRequest, request: Reques
     }
 
 
-def _record_onboarding_seed_signals(profile_seed: dict) -> None:
+def _record_onboarding_seed_signals(profile_seed: dict, user_id: str = "local_user") -> None:
     timestamp = int(time.time() * 1000)
     identity = profile_seed.get("identity") or {}
     behavior = profile_seed.get("behavior") or {}
@@ -944,7 +944,16 @@ def _record_onboarding_seed_signals(profile_seed: dict) -> None:
         if dedupe_key in seen:
             continue
         seen.add(dedupe_key)
-        insert_persona_signal("onboarding", signal_type, name, weight, confidence, evidence, timestamp)
+        insert_persona_signal(
+            "onboarding",
+            signal_type,
+            name,
+            weight,
+            confidence,
+            evidence,
+            timestamp,
+            user_id=user_id,
+        )
 
 
 @app.post("/pcl/apps")
@@ -2244,6 +2253,13 @@ async def control_center_summary(request: Request, user_id: str = "local_user"):
 @app.post("/v1/control-center/signals/search")
 async def control_center_signal_search(payload: SignalSearchRequest, request: Request):
     uid = _request_user_id(request, payload.user_id)
+    # Older deployments saved the seed per user but wrote its derived signals
+    # into a global table. Rehydrate only this account if its owned onboarding
+    # signals have not yet been materialized.
+    if not search_persona_signals(user_id=uid, source="onboarding", limit=1):
+        seed = get_pcl_onboarding_seed(uid)
+        if seed:
+            _record_onboarding_seed_signals(seed.get("profile_seed") or {}, user_id=uid)
     return search_signals(
         user_id=uid,
         query=payload.query,
@@ -2256,14 +2272,14 @@ async def control_center_signal_search(payload: SignalSearchRequest, request: Re
 
 
 @app.get("/v1/control-center/signals/{signal_id}")
-async def control_center_signal_detail(signal_id: int, user_id: str = "local_user"):
-    return get_signal_detail(user_id=user_id, signal_id=signal_id)
+async def control_center_signal_detail(request: Request, signal_id: int, user_id: str = "local_user"):
+    return get_signal_detail(user_id=_request_user_id(request, user_id), signal_id=signal_id)
 
 
 @app.patch("/v1/control-center/signals/{signal_id}")
-async def control_center_signal_edit(signal_id: int, payload: SignalEditRequest):
+async def control_center_signal_edit(signal_id: int, payload: SignalEditRequest, request: Request):
     return edit_signal(
-        user_id=payload.user_id,
+        user_id=_request_user_id(request, payload.user_id),
         signal_id=signal_id,
         name=payload.name,
         weight=payload.weight,
@@ -2275,8 +2291,8 @@ async def control_center_signal_edit(signal_id: int, payload: SignalEditRequest)
 
 
 @app.delete("/v1/control-center/signals/{signal_id}")
-async def control_center_signal_delete(signal_id: int, user_id: str = "local_user"):
-    return remove_signal(user_id=user_id, signal_id=signal_id)
+async def control_center_signal_delete(request: Request, signal_id: int, user_id: str = "local_user"):
+    return remove_signal(user_id=_request_user_id(request, user_id), signal_id=signal_id)
 
 
 @app.post("/v1/control-center/export")

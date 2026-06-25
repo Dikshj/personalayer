@@ -60,8 +60,8 @@ class TestSignalSearch:
 
     def test_search_with_signals(self):
         ts = 1700000000000
-        insert_persona_signal("browser", "interest", "python", 1.0, 0.8, "visited docs", ts)
-        insert_persona_signal("sdk", "skill", "javascript", 0.8, 0.6, "project usage", ts)
+        insert_persona_signal("browser", "interest", "python", 1.0, 0.8, "visited docs", ts, user_id="test_user")
+        insert_persona_signal("sdk", "skill", "javascript", 0.8, 0.6, "project usage", ts, user_id="test_user")
         result = search_signals("test_user", query="python")
         assert result["count"] == 1
         assert result["signals"][0]["name"] == "python"
@@ -69,16 +69,16 @@ class TestSignalSearch:
 
     def test_search_by_source(self):
         ts = 1700000000000
-        insert_persona_signal("browser", "interest", "python", 1.0, 0.8, "", ts)
-        insert_persona_signal("sdk", "skill", "js", 0.8, 0.6, "", ts)
+        insert_persona_signal("browser", "interest", "python", 1.0, 0.8, "", ts, user_id="test_user")
+        insert_persona_signal("sdk", "skill", "js", 0.8, 0.6, "", ts, user_id="test_user")
         result = search_signals("test_user", source="browser")
         assert result["count"] == 1
         assert result["signals"][0]["source"] == "browser"
 
     def test_shareable_only_filter(self):
         ts = 1700000000000
-        insert_persona_signal("browser", "interest", "public", 1.0, 0.8, "", ts, shareable=True)
-        insert_persona_signal("browser", "interest", "private", 1.0, 0.8, "", ts, shareable=False)
+        insert_persona_signal("browser", "interest", "public", 1.0, 0.8, "", ts, shareable=True, user_id="test_user")
+        insert_persona_signal("browser", "interest", "private", 1.0, 0.8, "", ts, shareable=False, user_id="test_user")
         result = search_signals("test_user", shareable_only=True)
         assert result["count"] == 1
         assert result["signals"][0]["name"] == "public"
@@ -87,14 +87,14 @@ class TestSignalSearch:
 class TestSignalEditAndDelete:
     def test_edit_signal(self):
         ts = 1700000000000
-        insert_persona_signal("browser", "interest", "python", 1.0, 0.8, "", ts)
+        insert_persona_signal("browser", "interest", "python", 1.0, 0.8, "", ts, user_id="test_user")
         updated = edit_signal("test_user", 1, name="python programming", confidence=0.95, reason="clarified")
         assert updated["name"] == "python programming"
         assert updated["confidence"] == 0.95
 
     def test_delete_signal(self):
         ts = 1700000000000
-        insert_persona_signal("browser", "interest", "python", 1.0, 0.8, "", ts)
+        insert_persona_signal("browser", "interest", "python", 1.0, 0.8, "", ts, user_id="test_user")
         result = remove_signal("test_user", 1)
         assert result["deleted"] is True
         detail = get_signal_detail("test_user", 1)
@@ -102,10 +102,22 @@ class TestSignalEditAndDelete:
 
     def test_signal_detail(self):
         ts = 1700000000000
-        insert_persona_signal("browser", "interest", "python", 1.0, 0.8, "visited docs", ts)
+        insert_persona_signal("browser", "interest", "python", 1.0, 0.8, "visited docs", ts, user_id="test_user")
         detail = get_signal_detail("test_user", 1)
         assert detail["name"] == "python"
         assert "why_it_exists" in detail
+
+    def test_users_cannot_see_or_delete_each_others_signals(self):
+        ts = 1700000000000
+        insert_persona_signal("onboarding", "work_domain", "Account A", 1.0, 0.8, "", ts, user_id="user_a")
+        insert_persona_signal("onboarding", "work_domain", "Account B", 1.0, 0.8, "", ts, user_id="user_b")
+
+        result_a = search_signals("user_a")
+        result_b = search_signals("user_b")
+
+        assert [signal["name"] for signal in result_a["signals"]] == ["Account A"]
+        assert [signal["name"] for signal in result_b["signals"]] == ["Account B"]
+        assert remove_signal("user_b", result_a["signals"][0]["id"])["deleted"] is False
 
 
 class TestExport:

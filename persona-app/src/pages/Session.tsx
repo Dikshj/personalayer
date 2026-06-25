@@ -7,6 +7,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { ArrowRight, Loader2, Lock, LogOut, Mail, ShieldCheck, TriangleAlert } from "lucide-react";
 import { isSupabaseConfigured, supabase } from "../lib/supabase";
 import { clearSession, hasSession, maskedHint, setSession } from "../auth/session";
+import { getPrivacyProfile } from "../api";
 
 type Mode = "signin" | "signup" | "recovery" | "reset";
 
@@ -51,6 +52,38 @@ export default function Session() {
         : mode === "reset"
           ? "Set a new password from the recovery link you opened."
           : "Sign in to your PersonaLayer control center.";
+
+  const routeAuthenticatedUser = async () => {
+    try {
+      const profile = await getPrivacyProfile();
+      navigate(profile.onboarding_completed === true ? "/app/persona" : "/app/onboarding", { replace: true });
+    } catch {
+      // The authenticated shell retries the account-specific check when the
+      // API is temporarily unavailable.
+      navigate("/app/persona", { replace: true });
+    }
+  };
+
+  useEffect(() => {
+    const authParams = `${window.location.search}${window.location.hash}`;
+    if (!supabase || mode === "reset" || /type=recovery/i.test(authParams)) return;
+    let active = true;
+    supabase.auth.getSession().then(async ({ data }) => {
+      if (!active || !data.session?.user) return;
+      setSession(data.session.access_token, {
+        id: data.session.user.id,
+        email: data.session.user.email,
+      });
+      setConnected(true);
+      await routeAuthenticatedUser();
+    });
+    return () => {
+      active = false;
+    };
+    // Run once when the session screen is entered. Password recovery changes
+    // mode through the auth event listener before normal navigation continues.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -125,7 +158,7 @@ export default function Session() {
         if (error) throw error;
         if (data.session && data.user) {
           setSession(data.session.access_token, { id: data.user.id, email: data.user.email ?? email.trim() });
-          navigate("/app/persona", { replace: true });
+          await routeAuthenticatedUser();
         } else {
           setError("Couldn’t start a session. Try again.");
         }

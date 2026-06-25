@@ -67,6 +67,7 @@ def create_tables() -> None:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS persona_signals (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT NOT NULL DEFAULT 'local_user',
                 source TEXT NOT NULL,
                 signal_type TEXT NOT NULL,
                 name TEXT NOT NULL,
@@ -866,15 +867,17 @@ def insert_persona_signal(
     evidence: str,
     timestamp: int,
     shareable: bool = True,
+    user_id: str = "local_user",
 ) -> None:
     if not name.strip():
         return
     with get_connection() as conn:
         conn.execute(
             """INSERT INTO persona_signals
-               (source, signal_type, name, weight, confidence, evidence, shareable, timestamp)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+               (user_id, source, signal_type, name, weight, confidence, evidence, shareable, timestamp)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
+                user_id,
                 source,
                 signal_type,
                 name.strip()[:160],
@@ -4875,6 +4878,7 @@ def list_control_center_audit(user_id: str, limit: int = 100) -> list[dict]:
 
 
 def search_persona_signals(
+    user_id: str = "local_user",
     query: str = "",
     source: Optional[str] = None,
     signal_type: Optional[str] = None,
@@ -4882,8 +4886,8 @@ def search_persona_signals(
     limit: int = 100,
     offset: int = 0,
 ) -> list[dict]:
-    clauses = []
-    params = []
+    clauses = ["user_id = ?"]
+    params = [user_id]
     if query:
         clauses.append("(name LIKE ? OR evidence LIKE ?)")
         like = f"%{query}%"
@@ -4904,6 +4908,7 @@ def search_persona_signals(
     return [
         {
             "id": row["id"],
+            "user_id": row["user_id"],
             "source": row["source"],
             "signal_type": row["signal_type"],
             "name": row["name"],
@@ -4930,8 +4935,8 @@ def update_persona_signal(
 ) -> dict:
     with get_connection() as conn:
         row = conn.execute(
-            "SELECT * FROM persona_signals WHERE id = ?",
-            (signal_id,),
+            "SELECT * FROM persona_signals WHERE id = ? AND user_id = ?",
+            (signal_id, user_id),
         ).fetchone()
         if not row:
             raise ValueError("signal_not_found")
@@ -4956,8 +4961,8 @@ def update_persona_signal(
         if updates:
             sets = ", ".join(f"{k} = ?" for k in updates)
             conn.execute(
-                f"UPDATE persona_signals SET {sets} WHERE id = ?",
-                tuple(updates.values()) + (signal_id,),
+                f"UPDATE persona_signals SET {sets} WHERE id = ? AND user_id = ?",
+                tuple(updates.values()) + (signal_id, user_id),
             )
             conn.execute(
                 """INSERT INTO persona_signal_edits
@@ -4966,19 +4971,20 @@ def update_persona_signal(
                 (signal_id, user_id, json.dumps(old_value), json.dumps(updates), edit_reason[:500]),
             )
             conn.commit()
-    return get_persona_signal_by_id(signal_id) or {}
+    return get_persona_signal_by_id(signal_id, user_id=user_id) or {}
 
 
-def get_persona_signal_by_id(signal_id: int) -> Optional[dict]:
+def get_persona_signal_by_id(signal_id: int, user_id: str = "local_user") -> Optional[dict]:
     with get_connection() as conn:
         row = conn.execute(
-            "SELECT * FROM persona_signals WHERE id = ?",
-            (signal_id,),
+            "SELECT * FROM persona_signals WHERE id = ? AND user_id = ?",
+            (signal_id, user_id),
         ).fetchone()
     if not row:
         return None
     return {
         "id": row["id"],
+        "user_id": row["user_id"],
         "source": row["source"],
         "signal_type": row["signal_type"],
         "name": row["name"],
@@ -5000,8 +5006,8 @@ def delete_persona_signal(signal_id: int, user_id: str) -> bool:
             (signal_id, user_id, "{}", "{}", "deleted_by_user"),
         )
         cursor = conn.execute(
-            "DELETE FROM persona_signals WHERE id = ?",
-            (signal_id,),
+            "DELETE FROM persona_signals WHERE id = ? AND user_id = ?",
+            (signal_id, user_id),
         )
         conn.commit()
     return cursor.rowcount > 0
@@ -5010,7 +5016,8 @@ def delete_persona_signal(signal_id: int, user_id: str) -> bool:
 def export_user_context_data(user_id: str) -> dict:
     with get_connection() as conn:
         signals = conn.execute(
-            "SELECT * FROM persona_signals ORDER BY timestamp DESC"
+            "SELECT * FROM persona_signals WHERE user_id = ? ORDER BY timestamp DESC",
+            (user_id,),
         ).fetchall()
         contracts = conn.execute(
             "SELECT * FROM context_contracts ORDER BY created_at DESC"

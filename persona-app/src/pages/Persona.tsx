@@ -29,12 +29,12 @@ import { Button, ConfidenceBar, Panel, Pill, Stat } from "../components/ui";
 import { useResource } from "../lib/useResource";
 import { useBackend } from "../lib/backend";
 import { relativeTime, titleize } from "../lib/format";
-import { previewSignals, previewSummary } from "../lib/preview";
 import {
   type PersonaSignal,
   deleteSignal,
   editSignal,
   getControlCenterSummary,
+  getUserId,
   searchSignals,
   updateSignalShareable,
 } from "../api";
@@ -203,8 +203,19 @@ function SignalRow({ signal, live, onChanged }: { signal: PersonaSignal; live: b
 
 export default function Persona() {
   const { online } = useBackend();
-  const signalsRes = useResource(async () => (await searchSignals()).signals || [], previewSignals);
-  const summaryRes = useResource(async () => await getControlCenterSummary(), previewSummary);
+  const userId = getUserId();
+  const signalsRes = useResource(
+    async () => (await searchSignals()).signals || [],
+    [] as PersonaSignal[],
+    [userId],
+    { resetOnLoad: true },
+  );
+  const summaryRes = useResource(
+    async () => await getControlCenterSummary(),
+    {} as Record<string, unknown>,
+    [userId],
+    { resetOnLoad: true },
+  );
   const [merging, setMerging] = useState<string | null>(null);
 
   const signals = signalsRes.data;
@@ -274,7 +285,7 @@ export default function Persona() {
 
       {offline && <OfflineBanner onRetry={reload} />}
 
-      {signalsRes.loading && signals.length === 0 ? (
+      {signalsRes.loading && !signalsRes.isPreview ? (
         <LoadingState label="Loading your persona…" />
       ) : signalsRes.error ? (
         <ErrorState message={signalsRes.error} onRetry={reload} />

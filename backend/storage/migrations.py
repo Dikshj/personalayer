@@ -262,6 +262,20 @@ def _migration_013_capture_controls(conn: sqlite3.Connection) -> None:
     """)
 
 
+def _migration_014_persona_signal_user_scope(conn: sqlite3.Connection) -> None:
+    """Assign every persona signal to one user.
+
+    Historical signals predate account ownership and are retained under
+    ``local_user``. Authenticated accounts rebuild their onboarding signals
+    from their user-scoped onboarding seed when the dashboard is opened.
+    """
+    ensure_column(conn, "persona_signals", "user_id", "TEXT NOT NULL DEFAULT 'local_user'")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_persona_signals_user_time "
+        "ON persona_signals(user_id, timestamp DESC)"
+    )
+
+
 MIGRATIONS: tuple[tuple[str, Migration], ...] = (
     ("001_context_contract_status", _migration_001_context_contract_status),
     ("002_persona_feedback_calibration", _migration_002_persona_feedback_calibration),
@@ -276,6 +290,7 @@ MIGRATIONS: tuple[tuple[str, Migration], ...] = (
     ("011_raw_event_vault_payload", _migration_011_raw_event_vault_payload),
     ("012_integration_user_scope", _migration_012_integration_user_scope),
     ("013_capture_controls", _migration_013_capture_controls),
+    ("014_persona_signal_user_scope", _migration_014_persona_signal_user_scope),
 )
 
 

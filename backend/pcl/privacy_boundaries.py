@@ -132,12 +132,14 @@ def get_onboarding_questions() -> list[dict]:
 
 
 def save_onboarding_flow_answers(user_id: str, answers: dict[str, Any]) -> dict:
-    goals = answers.get("personalization_goals", [])
-    integrations = answers.get("enabled_integrations", [])
+    # Missing fields mean "leave the current value unchanged". Completing
+    # onboarding via Skip must not erase preferences or integrations.
+    goals = answers.get("personalization_goals")
+    integrations = answers.get("enabled_integrations")
     never_share = answers.get("never_share", [])
-    privacy_level = answers.get("privacy_level", "balanced")
-    personalization_aggression = answers.get("personalization_aggression", "medium")
-    sharing_default = answers.get("sharing_default", "ask")
+    privacy_level = answers.get("privacy_level")
+    personalization_aggression = answers.get("personalization_aggression")
+    sharing_default = answers.get("sharing_default")
 
     upsert_user_preferences(
         user_id=user_id,
@@ -162,10 +164,10 @@ def save_onboarding_flow_answers(user_id: str, answers: dict[str, Any]) -> dict:
         action="complete_onboarding",
         target_type="user_preferences",
         details={
-            "goals": goals,
-            "integrations": integrations,
+            "goals": goals if goals is not None else [],
+            "integrations": integrations if integrations is not None else [],
             "never_share": never_share,
-            "privacy_level": privacy_level,
+            "privacy_level": privacy_level or "unchanged",
         },
     )
     return get_user_privacy_profile(user_id)
