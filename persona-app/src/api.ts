@@ -623,7 +623,7 @@ export type QueryLogEntry = {
 };
 
 export async function getQueryLog(opts: { app_id?: string; limit?: number } = {}): Promise<{ logs: QueryLogEntry[] }> {
-  const params = new URLSearchParams();
+  const params = new URLSearchParams({ user_id: "local_user" });
   if (opts.app_id) params.set("app_id", opts.app_id);
   params.set("limit", String(opts.limit ?? 200));
   return getJson(`/pcl/query-log?${params.toString()}`);

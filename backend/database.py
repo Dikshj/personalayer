@@ -1997,21 +1997,25 @@ def insert_pcl_query_log(
     }
 
 
-def list_pcl_query_logs(app_id: Optional[str] = None, limit: int = 100) -> list[dict]:
+def list_pcl_query_logs(
+    app_id: Optional[str] = None,
+    limit: int = 100,
+    user_id: Optional[str] = None,
+) -> list[dict]:
+    clauses = []
+    params: list = []
+    if user_id:
+        clauses.append("user_id = ?")
+        params.append(user_id)
+    if app_id:
+        clauses.append("app_id = ?")
+        params.append(app_id)
+    where_sql = "WHERE " + " AND ".join(clauses) if clauses else ""
     with get_connection() as conn:
-        if app_id:
-            rows = conn.execute(
-                """SELECT * FROM pcl_query_logs
-                   WHERE app_id = ?
-                   ORDER BY created_at DESC
-                   LIMIT ?""",
-                (app_id, limit),
-            ).fetchall()
-        else:
-            rows = conn.execute(
-                "SELECT * FROM pcl_query_logs ORDER BY created_at DESC LIMIT ?",
-                (limit,),
-            ).fetchall()
+        rows = conn.execute(
+            f"SELECT * FROM pcl_query_logs {where_sql} ORDER BY created_at DESC LIMIT ?",
+            tuple(params + [limit]),
+        ).fetchall()
     return [
         {
             "id": row["id"],

@@ -1352,18 +1352,26 @@ async def create_observability_event(payload: ObservabilityEventRequest):
 
 
 @app.get("/pcl/query-log")
-async def get_personal_context_query_log(app_id: Optional[str] = None, limit: int = 100):
-    return {"logs": list_pcl_query_logs(app_id=app_id, limit=limit)}
+async def get_personal_context_query_log(
+    request: Request,
+    app_id: Optional[str] = None,
+    limit: int = 100,
+    user_id: str = "local_user",
+):
+    uid = _request_user_id(request, user_id)
+    return {"logs": list_pcl_query_logs(app_id=app_id, limit=limit, user_id=uid)}
 
 
 @app.delete("/pcl/query-log")
 async def delete_personal_context_query_log(
+    request: Request,
     app_id: Optional[str] = None,
-    user_id: Optional[str] = None,
+    user_id: str = "local_user",
 ):
+    uid = _request_user_id(request, user_id)
     return {
         "status": "deleted",
-        "deleted": {"query_logs": clear_pcl_query_logs(app_id=app_id, user_id=user_id)},
+        "deleted": {"query_logs": clear_pcl_query_logs(app_id=app_id, user_id=uid)},
     }
 
 

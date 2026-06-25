@@ -17,8 +17,7 @@ import { EmptyState, ErrorState, LoadingState, OfflineBanner, PageHeader } from 
 import { Button, Chip, Panel, Pill, Stat } from "../components/ui";
 import { useResource } from "../lib/useResource";
 import { relativeTime, titleize, toMs } from "../lib/format";
-import { previewQueryLog } from "../lib/preview";
-import { type QueryLogEntry, getQueryLog } from "../api";
+import { type QueryLogEntry, getQueryLog, getUserId } from "../api";
 
 const DATE_RANGES = [
   { value: "1", label: "24h", ms: 86_400_000 },
@@ -123,7 +122,13 @@ function Detail({ e }: { e: QueryLogEntry }) {
 }
 
 export default function Activity() {
-  const logRes = useResource(async () => (await getQueryLog({ limit: 200 })).logs || [], previewQueryLog);
+  const userId = getUserId();
+  const logRes = useResource(
+    async () => (await getQueryLog({ limit: 200 })).logs || [],
+    [] as QueryLogEntry[],
+    [userId],
+    { resetOnLoad: true },
+  );
   const logs = logRes.data;
 
   const [app, setApp] = useState("all");

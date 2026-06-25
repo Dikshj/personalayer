@@ -120,6 +120,32 @@ class TestSignalEditAndDelete:
         assert remove_signal("user_b", result_a["signals"][0]["id"])["deleted"] is False
 
 
+def test_query_logs_are_scoped_to_user():
+    from database import insert_pcl_query_log, list_pcl_query_logs
+
+    insert_pcl_query_log(
+        app_id="app",
+        user_id="user_a",
+        purpose="test",
+        requested_layers=[],
+        returned_layers=[],
+        feature_ids=[],
+        status="returned",
+    )
+    insert_pcl_query_log(
+        app_id="app",
+        user_id="user_b",
+        purpose="test",
+        requested_layers=[],
+        returned_layers=[],
+        feature_ids=[],
+        status="denied",
+    )
+
+    assert [row["user_id"] for row in list_pcl_query_logs(user_id="user_a")] == ["user_a"]
+    assert [row["user_id"] for row in list_pcl_query_logs(user_id="user_b")] == ["user_b"]
+
+
 class TestExport:
     def test_export_data(self):
         upsert_user_preferences("test_user", privacy_level="strict")
